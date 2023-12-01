@@ -1,0 +1,11 @@
+[PROJECT_OPTIONS]
+PROJECT_NAME=smpclient
+PYTHON_VENV=.venv
+
+[VARIABLES]
+
+[ADD_TO_PATH]
+
+[ALIASES]
+lint=black --check . && isort --check-only . && flake8 . && mypy .
+test=coverage erase && pytest --cov --maxfail=3 -n auto && coverage report
