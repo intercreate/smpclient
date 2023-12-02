@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from smp import header as smpheader
 from smp import image_management as smpimg
 
@@ -15,12 +17,12 @@ class _ImageGroupBase:
 
 
 class ImageStatesRead(smpimg.ImageStatesReadRequest, _ImageGroupBase):
-    Response = smpimg.ImageStatesReadResponse
+    Response: ClassVar = smpimg.ImageStatesReadResponse
 
 
 class ImageStatesWrite(smpimg.ImageStatesWriteRequest, _ImageGroupBase):
-    Response = smpimg.ImageStatesWriteResponse
+    Response: ClassVar = smpimg.ImageStatesWriteResponse
 
 
 class ImageUploadWrite(smpimg.ImageUploadWriteRequest, _ImageGroupBase):
-    Response = smpimg.ImageUploadProgressWriteResponse
+    Response: ClassVar = smpimg.ImageUploadProgressWriteResponse
