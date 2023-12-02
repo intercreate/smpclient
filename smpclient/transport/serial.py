@@ -8,8 +8,33 @@ from serial import Serial  # type: ignore
 class SMPSerialTransport:
     _POLLING_INTERVAL_S = 0.005
 
-    def __init__(self) -> None:
-        self._conn = Serial()
+    def __init__(
+        self,
+        baudrate: int = 115200,
+        bytesize: int = 8,
+        parity: str = "N",
+        stopbits: float = 1,
+        timeout: float | None = None,
+        xonxoff: bool = False,
+        rtscts: bool = False,
+        write_timeout: float | None = None,
+        dsrdtr: bool = False,
+        inter_byte_timeout: float | None = None,
+        exclusive: float | None = None,
+    ) -> None:
+        self._conn = Serial(
+            baudrate=baudrate,
+            bytesize=bytesize,
+            parity=parity,
+            stopbits=stopbits,
+            timeout=timeout,
+            xonxoff=xonxoff,
+            rtscts=rtscts,
+            write_timeout=write_timeout,
+            dsrdtr=dsrdtr,
+            inter_byte_timeout=inter_byte_timeout,
+            exclusive=exclusive,
+        )
         self._buffer = bytearray([])
 
     async def connect(self, address: str) -> None:
