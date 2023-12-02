@@ -65,7 +65,7 @@ class SMPSerialTransport:
                     out = self._buffer + os_buffer[: i + len(delimiter)]
 
                     # there may be some leftover to save for the next read
-                    self._buffer = os_buffer[i + len(delimiter) :]
+                    self._buffer = bytearray(os_buffer[i + len(delimiter) :])
 
                     return out
 
