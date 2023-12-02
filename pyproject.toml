@@ -17,8 +17,8 @@ source = "git-tag"
 
 [tool.poetry.dependencies]
 python = ">=3.10, <3.13"
-smp = "^0.1.6"
 pyserial = "^3.5"
+smp = "^0.1.7"
 
 
 [tool.poetry.group.dev.dependencies]

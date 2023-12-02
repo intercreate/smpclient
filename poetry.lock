@@ -599,13 +599,13 @@ testing = ["fields", "hunter", "process-tests", "pytest-xdist", "six", "virtuale
 
 [[package]]
 name = "smp"
-version = "0.1.6"
+version = "0.1.7"
 description = "Simple Management Protocol (SMP) for remotely managing MCU firmware"
 optional = false
 python-versions = ">=3.10,<3.13"
 files = [
-    {file = "smp-0.1.6-py3-none-any.whl", hash = "sha256:a60fdef2dd688c682da8e9e32bdadad2c199b7e593067286a97538daec49af2e"},
-    {file = "smp-0.1.6.tar.gz", hash = "sha256:a360a86bcd82b915108349927424b49cb582209fcf24e7ba322f2529e81ed13f"},
+    {file = "smp-0.1.7-py3-none-any.whl", hash = "sha256:1d57c0bbd0fced4c3add341ee053b827121304b3f73d38a8363e0cf7aa77c46f"},
+    {file = "smp-0.1.7.tar.gz", hash = "sha256:4b72c01ad75da621b1ca2b1fc6a4dfdaacdcb1139cec450afa69604902a6ed84"},
 ]
 
 [package.dependencies]
@@ -638,4 +638,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10, <3.13"
-content-hash = "66aaf6982e5d5d9d270047e7cff50349e9d42feab9ea4115f280c84a44146748"
+content-hash = "a7d2fc86914cede83ddc202890decae4832f44474510a325cf7532433bad26a5"
