@@ -33,9 +33,9 @@ def flatten_error(
 ) -> SMPError[TErrEnum]:
     """Flatten a `Generic` `ErrorV0` or `ErrorV1` into a `Generic` `SMPError`."""
     if _is_ErrorV0(error):
-        return SMPError(rc=error.rc, rsn=error.rsn)
+        return SMPError(header=error.header, rc=error.rc, rsn=error.rsn)
     elif _is_ErrorV1(error):
-        return SMPError(rc=error.err.rc, group=error.err.group)
+        return SMPError(header=error.header, rc=error.err.rc, group=error.err.group)
     else:
         raise Exception(f"{error} is not an Error?")
 
