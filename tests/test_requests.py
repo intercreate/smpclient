@@ -25,41 +25,41 @@ from smpclient.requests.os_management import EchoWrite, OSManagementError, Reset
             smpimg.ImageStatesReadRequest(),
             ImageStatesRead(),
             smpimg.ImageStatesReadResponse,
-            smpimg.ImageManagementError1,
-            smpimg.ImageManagementError2,
+            smpimg.ImageManagementErrorV0,
+            smpimg.ImageManagementErrorV1,
             ImageManagementError,
         ),
         (
             smpimg.ImageStatesWriteRequest(hash=b"da hash"),
             ImageStatesWrite(hash=b"da hash"),
             smpimg.ImageStatesWriteResponse,
-            smpimg.ImageManagementError1,
-            smpimg.ImageManagementError2,
+            smpimg.ImageManagementErrorV0,
+            smpimg.ImageManagementErrorV1,
             ImageManagementError,
         ),
         (
             smpimg.ImageUploadWriteRequest(off=0, data=b"a"),
             ImageUploadWrite(off=0, data=b"a"),
             smpimg.ImageUploadProgressWriteResponse,
-            smpimg.ImageManagementError1,
-            smpimg.ImageManagementError2,
+            smpimg.ImageManagementErrorV0,
+            smpimg.ImageManagementErrorV1,
             ImageManagementError,
         ),
         (
             smpos.EchoWriteRequest(d="a"),
             EchoWrite(d="a"),
             smpos.EchoWriteResponse,
-            OSManagementError,  # TODO: need defs in dependency
-            OSManagementError,  # TODO: need defs in dependency
-            OSManagementError,  # TODO: need defs in dependency
+            smpos.OSManagementErrorV0,
+            smpos.OSManagementErrorV1,
+            OSManagementError,
         ),
         (
             smpos.ResetWriteRequest(),
             ResetWrite(),
             smpos.ResetWriteResponse,
-            OSManagementError,  # TODO: need defs in dependency
-            OSManagementError,  # TODO: need defs in dependency
-            OSManagementError,  # TODO: need defs in dependency
+            smpos.OSManagementErrorV0,
+            smpos.OSManagementErrorV1,
+            OSManagementError,
         ),
     ],
 )

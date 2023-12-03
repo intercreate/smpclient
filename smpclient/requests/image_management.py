@@ -11,8 +11,8 @@ class ImageManagementError(SMPError[smpimg.IMG_MGMT_ERR]):
 
 
 class _ImageGroupBase:
-    ErrorV0 = smpimg.ImageManagementError1
-    ErrorV1 = smpimg.ImageManagementError2
+    ErrorV0 = smpimg.ImageManagementErrorV0
+    ErrorV1 = smpimg.ImageManagementErrorV1
     Error = ImageManagementError
 
 

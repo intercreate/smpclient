@@ -6,14 +6,14 @@ from smp import os_management as smpos
 from smpclient.generics import SMPError
 
 
-class OSManagementError(SMPError):  # TODO: need defs in dependency
-    _GROUP_ID = smpheader.GroupId.IMAGE_MANAGEMENT
+class OSManagementError(SMPError[smpos.OS_MGMT_RET_RC]):
+    _GROUP_ID = smpheader.GroupId.OS_MANAGEMENT
 
 
 class _OSGroupBase:
-    ErrorV0 = OSManagementError  # TODO: need defs in dependency
-    ErrorV1 = OSManagementError  # TODO: need defs in dependency
-    Error = OSManagementError  # TODO: need defs in dependency
+    ErrorV0 = smpos.OSManagementErrorV0
+    ErrorV1 = smpos.OSManagementErrorV1
+    Error = OSManagementError
 
 
 class EchoWrite(smpos.EchoWriteRequest, _OSGroupBase):
