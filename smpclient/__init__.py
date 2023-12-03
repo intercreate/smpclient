@@ -1,11 +1,14 @@
 """Simple Management Protocol (SMP) Client."""
 
+from hashlib import sha256
+from typing import AsyncIterator
 
 from pydantic import ValidationError
 from smp import header as smpheader
 from smp import packet as smppacket
 
-from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, flatten_error
+from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, flatten_error, success
+from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.transport import SMPTransport
 
 
@@ -45,3 +48,39 @@ class SMPClient:
                 if header.version == smpheader.Version.V0
                 else request.ErrorV1.loads(frame)
             )
+
+    async def upload(
+        self, image: bytes, slot: int = 0, chunksize: int = 2048, upgrade: bool = False
+    ) -> AsyncIterator[int]:
+        """Iteratively upload an `image` to `slot`, yielding the offset."""
+
+        # the first write contains some extra info
+        r = await self.request(
+            ImageUploadWrite(  # type: ignore
+                off=0,
+                data=image[:chunksize],
+                image=slot,
+                len=len(image),
+                sha=sha256(image).digest(),
+                upgrade=upgrade,
+            )
+        )
+
+        if error(r):
+            raise Exception(f"{r}")
+        elif success(r):
+            yield r.off
+        else:
+            raise Exception("Unreachable")
+
+        # send chunks until the SMP server reports that the offset is at the end of the image
+        while r.off != len(image):
+            r = await self.request(
+                ImageUploadWrite(off=r.off, data=image[r.off : r.off + chunksize])
+            )
+            if error(r):
+                raise Exception(f"{r}")
+            elif success(r):
+                yield r.off
+            else:
+                raise Exception("Unreachable")
