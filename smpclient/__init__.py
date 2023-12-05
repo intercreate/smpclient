@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from smp import header as smpheader
 from smp import packet as smppacket
 
+from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, flatten_error, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.transport import SMPTransport
@@ -38,7 +39,7 @@ class SMPClient:
         header = smpheader.Header.loads(frame[: smpheader.Header.SIZE])
 
         if header.sequence != request.header.sequence:  # type: ignore
-            raise Exception("Bad sequence")
+            raise SMPBadSequence("Bad sequence")
 
         try:
             return request.Response.loads(frame)  # type: ignore
@@ -67,10 +68,10 @@ class SMPClient:
         )
 
         if error(r):
-            raise Exception(f"{r}")
+            raise SMPUploadError(r)
         elif success(r):
             yield r.off
-        else:
+        else:  # pragma: no cover
             raise Exception("Unreachable")
 
         # send chunks until the SMP server reports that the offset is at the end of the image
@@ -79,8 +80,8 @@ class SMPClient:
                 ImageUploadWrite(off=r.off, data=image[r.off : r.off + chunksize])
             )
             if error(r):
-                raise Exception(f"{r}")
+                raise SMPUploadError(r)
             elif success(r):
                 yield r.off
-            else:
+            else:  # pragma: no cover
                 raise Exception("Unreachable")

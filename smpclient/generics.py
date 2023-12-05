@@ -66,7 +66,7 @@ class SMPRequest(Protocol[TRep, TEr0, TEr1, TErr]):
     Error: Type[TErr]
 
     @property
-    def BYTES(self) -> bytes:
+    def BYTES(self) -> bytes:  # pragma: no cover
         ...
 
 

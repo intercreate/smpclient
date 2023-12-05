@@ -4,14 +4,14 @@ from typing import Protocol
 
 
 class SMPTransport(Protocol):
-    async def connect(self, address: str) -> None:
+    async def connect(self, address: str) -> None:  # pragma: no cover
         ...
 
-    async def send(self, data: bytes) -> None:
+    async def send(self, data: bytes) -> None:  # pragma: no cover
         ...
 
-    def write(self, data: bytes) -> None:
+    def write(self, data: bytes) -> None:  # pragma: no cover
         ...
 
-    async def readuntil(self, delimiter: bytes = b"\n") -> bytes:
+    async def readuntil(self, delimiter: bytes = b"\n") -> bytes:  # pragma: no cover
         ...
