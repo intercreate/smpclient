@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+# pragma: no cover
+# noqa
+# type: ignore
+
+# NOTE: copied from https://gist.github.com/mbolivar/285309cca792f746d6c698f56941041a
 
 # Copyright (c) 2018 Foundries.io
 #
