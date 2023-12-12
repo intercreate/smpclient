@@ -12,6 +12,9 @@ packages = [
     { include = "smpclient" },
 ]
 
+[tool.poetry.scripts]
+mcuimg = "smpclient.mcuboot:mcuimg"
+
 [tool.poetry-version-plugin]
 source = "git-tag"
 
@@ -19,6 +22,7 @@ source = "git-tag"
 python = ">=3.10, <3.13"
 pyserial = "^3.5"
 smp = "^0.1.9"
+intelhex = "^2.3.0"
 
 
 [tool.poetry.group.dev.dependencies]

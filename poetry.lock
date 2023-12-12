@@ -248,6 +248,17 @@ files = [
 ]
 
 [[package]]
+name = "intelhex"
+version = "2.3.0"
+description = "Python library for Intel HEX files manipulations"
+optional = false
+python-versions = "*"
+files = [
+    {file = "intelhex-2.3.0-py2.py3-none-any.whl", hash = "sha256:87cc5225657524ec6361354be928adfd56bcf2a3dcc646c40f8f094c39c07db4"},
+    {file = "intelhex-2.3.0.tar.gz", hash = "sha256:892b7361a719f4945237da8ccf754e9513db32f5628852785aea108dcd250093"},
+]
+
+[[package]]
 name = "isort"
 version = "5.12.0"
 description = "A Python utility / library to sort Python imports."
@@ -656,4 +667,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10, <3.13"
-content-hash = "041603fe04965fe612838d37e5cb4e5158806c57c555c84e3c6109b9ac611bde"
+content-hash = "c4c28e13e56b5828a325bf7c77973a0f6fd696ddcefada6aaa6d443395d2bfcf"
