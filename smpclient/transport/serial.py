@@ -55,20 +55,18 @@ class SMPSerialTransport:
         # fake async until I get around to replacing pyserial
         while True:
             # read the entire OS buffer
-            os_buffer = self._conn.read_all()
+            self._buffer.extend(self._conn.read_all())
 
             # iterate the whole buffer to check for the delimiter
-            for i in range(0, len(os_buffer) - (len(delimiter) - 1)):
-                if os_buffer[i : i + len(delimiter)] == delimiter:
-                    # out is whatever was previously in the buffer plus the
-                    # just read OS buffer including the delimiter
-                    out = self._buffer + os_buffer[: i + len(delimiter)]
+            for i in range(0, len(self._buffer) - (len(delimiter) - 1)):
+                if self._buffer[i : i + len(delimiter)] == delimiter:
+                    # out is everything up to the delimiter
+                    out = self._buffer[: i + len(delimiter)]
 
                     # there may be some leftover to save for the next read
-                    self._buffer = bytearray(os_buffer[i + len(delimiter) :])
+                    self._buffer = self._buffer[i + len(delimiter) :]
 
                     return out
 
             # delimiter was not reached, save the buffer and wait
-            self._buffer.extend(os_buffer)
             await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
