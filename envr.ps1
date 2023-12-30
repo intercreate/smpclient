@@ -1,4 +1,4 @@
-# envr v0.5.2
+# envr v0.5.3
 # https://www.github.com/JPHutchins/envr
 # https://www.crumpledpaper.tech
 
@@ -664,31 +664,20 @@ $global:_ENVR_NEW_ALIASES.GetEnumerator().ForEach({
         Write-Host "ERROR: only $global:_ALIAS_FN_INDEX aliases allowed!"
         return 1
     }
-    $_TEMP_ARRAY = $val.split(" ")
-    $global:_ALIAS_COMMAND_ARR += ,$_TEMP_ARRAY[0]
-    if ($_TEMP_ARRAY.Length -ge 2) {
-        $_args = @()
-        for (($i = 1); $i -lt $_TEMP_ARRAY.Length; $i++) {
-            # Expand the args to use any environment variables 
-            $_args += ,$ExecutionContext.InvokeCommand.ExpandString($_TEMP_ARRAY[$i])
-        }
-        $global:_ALIAS_ARGS_ARR += ,$_args
-    }
-    else {
-        $global:_ALIAS_ARGS_ARR += ,""
-    }
+
+    $global:_ALIAS_COMMAND_ARR += ,$ExecutionContext.InvokeCommand.ExpandString($val)
 
     # Hack to support aliases with parameters
-    function _ENVR_ALIAS_FN_0 { . $global:_ALIAS_COMMAND_ARR[0] $global:_ALIAS_ARGS_ARR[0] }
-    function _ENVR_ALIAS_FN_1 { . $global:_ALIAS_COMMAND_ARR[1] $global:_ALIAS_ARGS_ARR[1] }
-    function _ENVR_ALIAS_FN_2 { . $global:_ALIAS_COMMAND_ARR[2] $global:_ALIAS_ARGS_ARR[2] }
-    function _ENVR_ALIAS_FN_3 { . $global:_ALIAS_COMMAND_ARR[3] $global:_ALIAS_ARGS_ARR[3] }
-    function _ENVR_ALIAS_FN_4 { . $global:_ALIAS_COMMAND_ARR[4] $global:_ALIAS_ARGS_ARR[4] }
-    function _ENVR_ALIAS_FN_5 { . $global:_ALIAS_COMMAND_ARR[5] $global:_ALIAS_ARGS_ARR[5] }
-    function _ENVR_ALIAS_FN_6 { . $global:_ALIAS_COMMAND_ARR[6] $global:_ALIAS_ARGS_ARR[6] }
-    function _ENVR_ALIAS_FN_7 { . $global:_ALIAS_COMMAND_ARR[7] $global:_ALIAS_ARGS_ARR[7] }
-    function _ENVR_ALIAS_FN_8 { . $global:_ALIAS_COMMAND_ARR[8] $global:_ALIAS_ARGS_ARR[8] }
-    function _ENVR_ALIAS_FN_9 { . $global:_ALIAS_COMMAND_ARR[9] $global:_ALIAS_ARGS_ARR[9] }
+    function _ENVR_ALIAS_FN_0 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[0]) $args" }
+    function _ENVR_ALIAS_FN_1 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[1]) $args" }
+    function _ENVR_ALIAS_FN_2 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[2]) $args" }
+    function _ENVR_ALIAS_FN_3 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[3]) $args" }
+    function _ENVR_ALIAS_FN_4 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[4]) $args" }
+    function _ENVR_ALIAS_FN_5 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[5]) $args" }
+    function _ENVR_ALIAS_FN_6 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[6]) $args" }
+    function _ENVR_ALIAS_FN_7 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[7]) $args" }
+    function _ENVR_ALIAS_FN_8 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[8]) $args" }
+    function _ENVR_ALIAS_FN_9 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[9]) $args" }
     Set-Alias -Name $key -Value "_ENVR_ALIAS_FN_$global:_ALIAS_FN_INDEX"
     $global:_ALIAS_FN_INDEX += 1
 })
