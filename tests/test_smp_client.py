@@ -210,7 +210,6 @@ async def test_upload_hello_world_bin(
     s.request = mock_request  # type: ignore
 
     async for _ in s.upload(image):
-        print(_)
         pass
 
     assert accumulated_image == image
