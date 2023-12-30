@@ -53,47 +53,19 @@ class SMPClient:
         if self._transport.max_unencoded_size < 23:
             raise Exception("Upload requires an MTU >=23.")
 
-        def cbor_integer_size(integer: int) -> int:
-            """CBOR integers are packed as small as possible."""
-            return 0 if integer < 24 else 1 if integer < 0xFF else 2 if integer < 0xFFFF else 4
-
-        # the first write contains some extra info
-
-        # create an empty request to see how much room is left for data
-        _r = ImageUploadWrite(
-            off=0,
-            data=b'',
-            image=slot,
-            len=len(image),
-            sha=sha256(image).digest(),
-            upgrade=upgrade,
+        response = await self.request(
+            self._maximize_packet(
+                ImageUploadWrite(  # type: ignore
+                    off=0,
+                    data=b'',
+                    image=slot,
+                    len=len(image),
+                    sha=sha256(image).digest(),
+                    upgrade=upgrade,
+                ),
+                image,
+            )
         )
-        _h = cast(smpheader.Header, _r.header)
-
-        chunk_size = self._transport.max_unencoded_size - len(bytes(_r))
-        chunk_size -= cbor_integer_size(chunk_size)
-        chunk_size = max(0, chunk_size)
-        cbor_size = _h.length + chunk_size + cbor_integer_size(chunk_size)
-
-        image_upload_write = ImageUploadWrite(
-            header=smpheader.Header(
-                op=_h.op,
-                version=_h.version,
-                flags=_h.flags,
-                length=cbor_size,
-                group_id=_h.group_id,
-                sequence=_h.sequence,
-                command_id=_h.command_id,
-            ),
-            off=0,
-            data=image[:chunk_size],
-            image=slot,
-            len=len(image),
-            sha=sha256(image).digest(),
-            upgrade=upgrade,
-        )
-
-        response = await self.request(image_upload_write)  # type: ignore
 
         if error(response):
             raise SMPUploadError(response)
@@ -104,44 +76,9 @@ class SMPClient:
 
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
-            # create an empty request to see how much room is left for data
-            _r = ImageUploadWrite(off=response.off, data=b'')
-
-            chunk_size = self._transport.max_unencoded_size - len(bytes(_r))
-            chunk_size -= cbor_integer_size(chunk_size)
-            assert chunk_size > 0
-            cbor_size = _r.header.length + chunk_size + cbor_integer_size(chunk_size)
-
-            data = image[response.off : response.off + chunk_size]
-
-            cbor_size = (
-                cbor_size if len(data) == chunk_size else len(data) + cbor_integer_size(len(data))
+            response = await self.request(
+                self._maximize_packet(ImageUploadWrite(off=response.off, data=b''), image)
             )
-
-            image_upload_write = ImageUploadWrite(
-                header=smpheader.Header(
-                    op=_r.header.op,
-                    version=_r.header.version,
-                    flags=_r.header.flags,
-                    length=cbor_size,
-                    group_id=_r.header.group_id,
-                    sequence=_r.header.sequence,
-                    command_id=_r.header.command_id,
-                ),
-                off=response.off,
-                data=data,
-            )
-
-            if (
-                len(bytes(image_upload_write)) + response.off <= len(image)
-                and len(bytes(image_upload_write)) != self._transport.max_unencoded_size
-            ):
-                raise Exception(
-                    f"{len(bytes(image_upload_write))} > {self._transport.max_unencoded_size}; "
-                    f"An upload write must fit in MTU, this is a bug!"
-                )
-
-            response = await self.request(image_upload_write)
             if error(response):
                 raise SMPUploadError(response)
             elif success(response):
@@ -159,3 +96,35 @@ class SMPClient:
 
     async def __aexit__(self) -> None:
         await self.disconnect()
+
+    def _maximize_packet(self, request: ImageUploadWrite, image: bytes) -> ImageUploadWrite:
+        """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
+
+        def cbor_integer_size(integer: int) -> int:
+            """CBOR integers are packed as small as possible."""
+            return 0 if integer < 24 else 1 if integer < 0xFF else 2 if integer < 0xFFFF else 4
+
+        _h = cast(smpheader.Header, request.header)
+
+        chunk_size = self._transport.max_unencoded_size - len(bytes(request))
+        chunk_size -= cbor_integer_size(chunk_size)
+        chunk_size = max(0, chunk_size)
+        cbor_size = _h.length + chunk_size + cbor_integer_size(chunk_size)
+
+        return ImageUploadWrite(
+            header=smpheader.Header(
+                op=_h.op,
+                version=_h.version,
+                flags=_h.flags,
+                length=cbor_size,
+                group_id=_h.group_id,
+                sequence=_h.sequence,
+                command_id=_h.command_id,
+            ),
+            off=request.off,
+            data=image[request.off : request.off + chunk_size],
+            image=request.image,
+            len=request.len,
+            sha=request.sha,
+            upgrade=request.upgrade,
+        )
