@@ -1,12 +1,15 @@
 """A serial SMPTransport."""
 
 import asyncio
+import logging
 import math
 from functools import cached_property
 from typing import Final
 
 from serial import Serial
 from smp import packet as smppacket
+
+logger = logging.getLogger(__name__)
 
 
 def _base64_cost(size: int) -> int:
@@ -60,35 +63,46 @@ class SMPSerialTransport:
             exclusive=exclusive,
         )
         self._buffer = bytearray([])
+        logger.debug(f"Initialized {self.__class__.__name__}")
 
     async def connect(self, address: str) -> None:
         self._conn.port = address
+        logger.debug(f"Connecting to {self._conn.port=}")
         self._conn.open()
+        logger.debug(f"Connected to {self._conn.port=}")
 
     async def disconnect(self) -> None:
+        logger.debug(f"Disconnecting from {self._conn.port=}")
         self._conn.close()
+        logger.debug(f"Disconnected from {self._conn.port=}")
 
     async def send(self, data: bytes) -> None:
+        logger.debug(f"Sending {len(data)} bytes")
         for packet in smppacket.encode(data, line_length=self.max_unencoded_size):
             if len(packet) > self.mtu:  # pragma: no cover
                 raise Exception(
                     f"Encoded packet size {len(packet)} exceeds {self.mtu=}, this is a bug!"
                 )
             self._conn.write(packet)
+            logger.debug(f"Writing encoded packet of size {len(packet)}B; {self.mtu=}")
 
         # fake async until I get around to replacing pyserial
         while self._conn.out_waiting > 0:
             await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
 
+        logger.debug(f"Sent {len(data)} bytes")
+
     async def receive(self) -> bytes:
         decoder = smppacket.decode()
         next(decoder)
 
+        logger.debug("Waiting for response")
         while True:
             try:
                 b = await self._readuntil()
                 decoder.send(b)
             except StopIteration as e:
+                logger.debug(f"Finished receiving {len(e.value)} byte response")
                 return e.value
 
     async def _readuntil(self, delimiter: bytes = b"\n") -> bytes:
@@ -106,6 +120,7 @@ class SMPSerialTransport:
 
                 # out is everything up to and including the delimiter
                 out = self._buffer[:i]
+                logger.debug(f"Received {len(out)} byte chunk")
 
                 # there may be some leftover to save for the next read
                 self._buffer = self._buffer[i:]
