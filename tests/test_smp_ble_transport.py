@@ -32,10 +32,6 @@ def test_MAC_ADDRESS_PATTERN() -> None:
     assert MAC_ADDRESS_PATTERN.match("FF:FF:FF:FF:FF:FF")
     assert MAC_ADDRESS_PATTERN.match("00:FF:00:FF:00:FF")
     assert MAC_ADDRESS_PATTERN.match("FF:00:FF:00:FF:00")
-    assert MAC_ADDRESS_PATTERN.match("00:00:00:00:00:00")
-    assert MAC_ADDRESS_PATTERN.match("FF:FF:FF:FF:FF:FF")
-    assert MAC_ADDRESS_PATTERN.match("00:FF:00:FF:00:FF")
-    assert MAC_ADDRESS_PATTERN.match("FF:00:FF:00:FF:00")
 
     assert not MAC_ADDRESS_PATTERN.match("00:00:00:00:00")
     assert not MAC_ADDRESS_PATTERN.match("00:00:00:00:00:00:00")
