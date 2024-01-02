@@ -23,6 +23,7 @@ python = ">=3.10, <3.13"
 pyserial = "^3.5"
 smp = "^0.1.9"
 intelhex = "^2.3.0"
+bleak = "^0.21.1"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -34,6 +35,7 @@ isort = "^5.12.0"
 mypy = "^1.7.0"
 mypy-extensions = "^1.0.0"
 pytest-asyncio = "^0.23.2"
+types-pyserial = "^3.5.0.11"
 
 [tool.black]
 line-length = 100
