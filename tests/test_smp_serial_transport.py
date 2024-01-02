@@ -132,8 +132,3 @@ async def test_send_and_receive() -> None:
 
     t.send.assert_awaited_once_with(b"some data")
     t.receive.assert_awaited_once_with()
-
-
-@pytest.mark.asyncio
-async def test_upload() -> None:
-    pass
