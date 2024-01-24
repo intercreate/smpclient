@@ -78,7 +78,7 @@ class SMPSerialTransport:
 
     async def send(self, data: bytes) -> None:
         logger.debug(f"Sending {len(data)} bytes")
-        for packet in smppacket.encode(data, line_length=self.max_unencoded_size):
+        for packet in smppacket.encode(data, line_length=self.mtu):
             if len(packet) > self.mtu:  # pragma: no cover
                 raise Exception(
                     f"Encoded packet size {len(packet)} exceeds {self.mtu=}, this is a bug!"
