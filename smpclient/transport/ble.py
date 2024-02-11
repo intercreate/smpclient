@@ -86,7 +86,6 @@ class SMPBLETransport:
         # to override the value instead.
         if self._client._backend.__class__.__name__ == "BleakClientBlueZDBus":
             await self._client._backend._acquire_mtu()
-        logger.info(f"mtu_size {self._client.mtu_size=}")
 
         smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
         if smp_characteristic is None:
