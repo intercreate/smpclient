@@ -22,3 +22,6 @@ class EchoWrite(smpos.EchoWriteRequest, _OSGroupBase):
 
 class ResetWrite(smpos.ResetWriteRequest, _OSGroupBase):
     Response: ClassVar = smpos.ResetWriteResponse
+
+class MCUMgrParametersRead(smpos.MCUMgrParametersReadRequest, _OSGroupBase):
+    Response: ClassVar = smpos.MCUMgrParametersReadResponse

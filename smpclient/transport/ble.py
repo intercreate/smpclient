@@ -41,24 +41,52 @@ class SMPBLETransport:
     def __init__(self) -> None:
         self._buffer = bytearray()
         self._notify_condition = asyncio.Condition()
+        self.connected = False
         logger.debug(f"Initialized {self.__class__.__name__}")
+
+    async def _notify_disconnected(self):
+        async with self._notify_condition:
+            self.connected = False
+            self._notify_condition.notify()
+    
+    def _handle_disconnect(self, _):
+        if not self.connected:
+            return
+        logger.info(f"Disconnected")
+        asyncio.create_task(self._notify_disconnected())
+            
+    def _check_connected(self):
+        if not self.connected:
+            raise SMPBLETransportDeviceNotFound(f"Device is disconnected")
 
     async def connect(self, address: str) -> None:
         logger.debug(f"Scanning for {address=}")
-        device = (
-            await BleakScanner.find_device_by_address(address)  # type: ignore # upstream fix
-            if MAC_ADDRESS_PATTERN.match(address) or UUID_PATTERN.match(address)
-            else await BleakScanner.find_device_by_name(address)  # type: ignore # upstream fix
-        )
-
-        if type(device) is BLEDevice:
-            self._client = BleakClient(device, services=(str(SMP_SERVICE_UUID),))
+        if MAC_ADDRESS_PATTERN.match(address):
+            device = address
         else:
-            raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
+            device = (
+                await BleakScanner.find_device_by_address(address)  # type: ignore # upstream fix
+                if UUID_PATTERN.match(address)
+                else await BleakScanner.find_device_by_name(address)  # type: ignore # upstream fix
+            )
 
-        logger.debug(f"Found device: {device=}, connecting...")
+            if type(device) is not BLEDevice:
+                raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
+            logger.debug(f"Found device: {device=}, connecting...")
+
+        self._client = BleakClient(device, services=(str(SMP_SERVICE_UUID),),
+                                   disconnected_callback=self._handle_disconnect)
+
         await self._client.connect()
         logger.debug(f"Connected to {device=}")
+        self.connected = True
+        
+        # BlueZ doesn't have a proper way to get the MTU, so we have this hack.
+        # If this doesn't work for you, you can set the client._mtu_size attribute
+        # to override the value instead.
+        if self._client._backend.__class__.__name__ == "BleakClientBlueZDBus":
+            await self._client._backend._acquire_mtu()
+        logger.info(f"mtu_size {self._client.mtu_size=}")
 
         smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
         if smp_characteristic is None:
@@ -91,8 +119,10 @@ class SMPBLETransport:
         #       self._notify_condition is used to synchronize access to self._buffer.
 
         async with self._notify_condition:  # wait for the header
+            self._check_connected()
             logger.debug(f"Waiting for notify on {SMP_CHARACTERISTIC_UUID=}")
             await self._notify_condition.wait()
+            self._check_connected()
 
             if len(self._buffer) < smphdr.Header.SIZE:  # pragma: no cover
                 raise SMPBLETransportException(
@@ -107,6 +137,7 @@ class SMPBLETransport:
 
         while True:  # wait for the rest of the message
             async with self._notify_condition:
+                self._check_connected()
                 if len(self._buffer) == message_length:
                     logger.debug(f"Finished receiving {message_length} byte response")
                     out = bytes(self._buffer)
@@ -130,8 +161,9 @@ class SMPBLETransport:
 
     @property
     def mtu(self) -> int:
-        return self._smp_characteristic.max_write_without_response_size
+        return self._client.mtu_size - 3
 
     @property
     def max_unencoded_size(self) -> int:
-        return self.mtu
+        # https://github.com/zephyrproject-rtos/zephyr/blob/9fca406511566d88c286bc960cca27f66bc0d17c/subsys/mgmt/mcumgr/transport/Kconfig#L43
+        return 384 if self.mtu > 384 else self.mtu

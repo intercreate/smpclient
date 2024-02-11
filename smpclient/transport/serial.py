@@ -78,7 +78,10 @@ class SMPSerialTransport:
 
     async def send(self, data: bytes) -> None:
         logger.debug(f"Sending {len(data)} bytes")
-        for packet in smppacket.encode(data, line_length=self.mtu):
+        # line cannot be bigger than 128 bytes by default
+        # https://github.com/zephyrproject-rtos/zephyr/blob/076c0df3d8a878e4457c1d831704cd33b9ead6d3/drivers/console/uart_mcumgr.c#L101
+        # https://github.com/zephyrproject-rtos/zephyr/blob/076c0df3d8a878e4457c1d831704cd33b9ead6d3/drivers/console/Kconfig#L204
+        for packet in smppacket.encode(data, line_length=128):
             if len(packet) > self.mtu:  # pragma: no cover
                 raise Exception(
                     f"Encoded packet size {len(packet)} exceeds {self.mtu=}, this is a bug!"

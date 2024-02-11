@@ -10,9 +10,15 @@ from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, flatten_error, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.transport import SMPTransport
+from smpclient.transport.ble import SMPBLETransport
+from smpclient.requests.os_management import MCUMgrParametersRead
+import asyncio
 
 
 class SMPClient:
+    DEFAULT_TIMEOUT = 40.000
+    SHORT_TIMEOUT = 2.500
+    MEDIUM_TIMEOUT = 5.000
     def __init__(self, transport: SMPTransport, address: str):
         """Create a client to the SMP server `address`, using `transport`."""
         self._transport: Final = transport
@@ -50,10 +56,18 @@ class SMPClient:
     ) -> AsyncIterator[int]:
         """Iteratively upload an `image` to `slot`, yielding the offset."""
 
+        max_packet_size = self._transport.max_unencoded_size
+        if isinstance(self._transport, SMPBLETransport):
+            mcumgr_parameters = await asyncio.wait_for(self.request(MCUMgrParametersRead()), timeout=1.0)
+            if success(mcumgr_parameters):
+                max_packet_size = mcumgr_parameters.buf_size
+
+        # why 23? should be max_packet_size
         if self._transport.max_unencoded_size < 23:
             raise Exception("Upload requires an MTU >=23.")
 
-        response = await self.request(
+        #  Timeout for the initial chunk is long, as the device may need to erase the flash.
+        response = await asyncio.wait_for(self.request(
             self._maximize_packet(
                 ImageUploadWrite(  # type: ignore
                     off=0,
@@ -64,8 +78,9 @@ class SMPClient:
                     upgrade=upgrade,
                 ),
                 image,
+                max_packet_size,
             )
-        )
+        ), SMPClient.DEFAULT_TIMEOUT)
 
         if error(response):
             raise SMPUploadError(response)
@@ -76,9 +91,9 @@ class SMPClient:
 
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
-            response = await self.request(
-                self._maximize_packet(ImageUploadWrite(off=response.off, data=b''), image)
-            )
+            response = await asyncio.wait_for(self.request(
+                self._maximize_packet(ImageUploadWrite(off=response.off, data=b''), image, max_packet_size)
+            ), SMPClient.SHORT_TIMEOUT)
             if error(response):
                 raise SMPUploadError(response)
             elif success(response):
@@ -97,7 +112,7 @@ class SMPClient:
     async def __aexit__(self) -> None:
         await self.disconnect()
 
-    def _maximize_packet(self, request: ImageUploadWrite, image: bytes) -> ImageUploadWrite:
+    def _maximize_packet(self, request: ImageUploadWrite, image: bytes, max_packet_size: int) -> ImageUploadWrite:
         """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
 
         def cbor_integer_size(integer: int) -> int:
@@ -106,9 +121,9 @@ class SMPClient:
 
         _h = cast(smpheader.Header, request.header)
 
-        chunk_size = self._transport.max_unencoded_size - len(bytes(request))
+        chunk_size = max_packet_size - len(bytes(request))
         chunk_size -= cbor_integer_size(chunk_size)
-        chunk_size = max(0, chunk_size)
+        chunk_size = min(len(image) - request.off, chunk_size)
         cbor_size = _h.length + chunk_size + cbor_integer_size(chunk_size)
 
         return ImageUploadWrite(
