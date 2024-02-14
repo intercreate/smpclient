@@ -1,7 +1,7 @@
 # Simple Management Protocol (SMP) Client 
 
 `smpclient` implements the transport layer of the Simple Management Protocol.  This library can be
-used as a dependency in applications that use SMP over **serial (USB)**, **Bluetooth (BLE)**,
+used as a dependency in applications that use SMP over **serial (UART or USB)**, **Bluetooth (BLE)**,
 or **UDP** connections.  Some abstractions are provided for common routines like upgrading device
 firmware.
 
