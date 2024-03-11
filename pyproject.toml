@@ -21,7 +21,7 @@ source = "git-tag"
 [tool.poetry.dependencies]
 python = ">=3.10, <3.13"
 pyserial = "^3.5"
-smp = "^0.3.0"
+smp = "^0.3.1"
 intelhex = "^2.3.0"
 bleak = "^0.21.1"
 
