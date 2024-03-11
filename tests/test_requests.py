@@ -7,6 +7,7 @@ from smp import error as smperr
 from smp import image_management as smpimg
 from smp import message as smpmsg
 from smp import os_management as smpos
+from smp.user import intercreate as smpic
 
 from smpclient.generics import SMPError, SMPRequest, TEr0, TEr1, TErr, TRep
 from smpclient.requests.image_management import (
@@ -16,6 +17,7 @@ from smpclient.requests.image_management import (
     ImageUploadWrite,
 )
 from smpclient.requests.os_management import EchoWrite, OSManagementError, ResetWrite
+from smpclient.requests.user import intercreate as ic
 
 
 @pytest.mark.parametrize(
@@ -60,6 +62,14 @@ from smpclient.requests.os_management import EchoWrite, OSManagementError, Reset
             smpos.OSManagementErrorV0,
             smpos.OSManagementErrorV1,
             OSManagementError,
+        ),
+        (
+            smpic.ImageUploadWriteRequest(off=0, data=b"a"),
+            ic.ImageUploadWrite(off=0, data=b"a"),
+            smpic.ImageUploadWriteResponse,
+            smpic.ErrorV0,
+            smpic.ErrorV1,
+            ic.Error,
         ),
     ],
 )
