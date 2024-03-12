@@ -1,10 +1,11 @@
 """Simple Management Protocol (SMP) Client."""
 
 from hashlib import sha256
-from typing import AsyncIterator, Final, cast
+from typing import AsyncIterator, Final, Tuple, cast
 
 from pydantic import ValidationError
 from smp import header as smpheader
+from smp import message as smpmsg
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, flatten_error, success
@@ -97,32 +98,53 @@ class SMPClient:
     async def __aexit__(self) -> None:
         await self.disconnect()
 
+    @staticmethod
+    def _cbor_integer_size(integer: int) -> int:
+        """CBOR integers are packed as small as possible."""
+
+        return 0 if integer < 24 else 1 if integer < 0xFF else 2 if integer < 0xFFFF else 4
+
+    def _get_max_cbor_and_data_size(self, request: smpmsg.WriteRequest) -> Tuple[int, int]:
+        """Given an `ImageUploadWrite`, return the maximum CBOR size and data size."""
+
+        h: Final = cast(smpheader.Header, request.header)
+
+        # given empty data in the request, how many bytes are available for the data?
+        unencoded_bytes_available: Final = self._transport.max_unencoded_size - len(bytes(request))
+
+        # how many bytes are required to encode the data size?
+        bytes_required_to_encode_data_size: Final = self._cbor_integer_size(
+            unencoded_bytes_available
+        )
+
+        # the final data size is the unencoded bytes available minus the bytes
+        # required to encode the data size
+        data_size: Final = max(0, unencoded_bytes_available - bytes_required_to_encode_data_size)
+
+        # the final CBOR size is the original header length plus the data size
+        # plus the bytes required to encode the data size
+        cbor_size: Final = h.length + data_size + self._cbor_integer_size(data_size)
+
+        return cbor_size, data_size
+
     def _maximize_packet(self, request: ImageUploadWrite, image: bytes) -> ImageUploadWrite:
         """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
 
-        def cbor_integer_size(integer: int) -> int:
-            """CBOR integers are packed as small as possible."""
-            return 0 if integer < 24 else 1 if integer < 0xFF else 2 if integer < 0xFFFF else 4
-
-        _h = cast(smpheader.Header, request.header)
-
-        chunk_size = self._transport.max_unencoded_size - len(bytes(request))
-        chunk_size -= cbor_integer_size(chunk_size)
-        chunk_size = max(0, chunk_size)
-        cbor_size = _h.length + chunk_size + cbor_integer_size(chunk_size)
+        h: Final = cast(smpheader.Header, request.header)
+        cbor_size, data_size = self._get_max_cbor_and_data_size(request)
 
         return ImageUploadWrite(
             header=smpheader.Header(
-                op=_h.op,
-                version=_h.version,
-                flags=_h.flags,
+                op=h.op,
+                version=h.version,
+                flags=h.flags,
                 length=cbor_size,
-                group_id=_h.group_id,
-                sequence=_h.sequence,
-                command_id=_h.command_id,
+                group_id=h.group_id,
+                sequence=h.sequence,
+                command_id=h.command_id,
             ),
             off=request.off,
-            data=image[request.off : request.off + chunk_size],
+            data=image[request.off : request.off + data_size],
             image=request.image,
             len=request.len,
             sha=request.sha,
