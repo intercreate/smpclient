@@ -102,6 +102,9 @@ class SMPClient:
     def _cbor_integer_size(integer: int) -> int:
         """CBOR integers are packed as small as possible."""
 
+        # If the integer is less than 24, then the size is encoded in the same
+        # byte as the value.
+        # https://datatracker.ietf.org/doc/html/rfc8949#name-core-deterministic-encoding
         return 0 if integer < 24 else 1 if integer < 0xFF else 2 if integer < 0xFFFF else 4
 
     def _get_max_cbor_and_data_size(self, request: smpmsg.WriteRequest) -> Tuple[int, int]:
