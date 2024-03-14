@@ -45,6 +45,10 @@ class ICUploadClient(SMPClient):
         h: Final = cast(smpheader.Header, request.header)
         cbor_size, data_size = self._get_max_cbor_and_data_size(request)
 
+        if data_size > len(data) - request.off:  # final packet
+            data_size = len(data) - request.off
+            cbor_size = h.length + data_size + self._cbor_integer_size(data_size)
+
         return ic.ImageUploadWrite(
             header=smpheader.Header(
                 op=h.op,
