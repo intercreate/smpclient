@@ -7,6 +7,7 @@ from smp import error as smperr
 from smp import image_management as smpimg
 from smp import message as smpmsg
 from smp import os_management as smpos
+from smp import shell_management as smpsh
 from smp.user import intercreate as smpic
 
 from smpclient.generics import SMPError, SMPRequest, TEr0, TEr1, TErr, TRep
@@ -17,6 +18,7 @@ from smpclient.requests.image_management import (
     ImageUploadWrite,
 )
 from smpclient.requests.os_management import EchoWrite, OSManagementError, ResetWrite
+from smpclient.requests.shell_management import Execute, ShellManagementError
 from smpclient.requests.user import intercreate as ic
 
 
@@ -62,6 +64,14 @@ from smpclient.requests.user import intercreate as ic
             smpos.OSManagementErrorV0,
             smpos.OSManagementErrorV1,
             OSManagementError,
+        ),
+        (
+            smpsh.ExecuteRequest(argv=["echo", "Hello"]),
+            Execute(argv=["echo", "Hello"]),
+            smpsh.ExecuteResponse,
+            smpsh.ShellManagementErrorV0,
+            smpsh.ShellManagementErrorV1,
+            ShellManagementError,
         ),
         (
             smpic.ImageUploadWriteRequest(off=0, data=b"a"),
