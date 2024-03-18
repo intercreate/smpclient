@@ -1,5 +1,6 @@
 """Tests for `SMPSerialTransport`."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -120,6 +121,45 @@ async def test_readuntil() -> None:
 
     for p in packets:
         assert p == await t._readuntil()
+
+
+@pytest.mark.asyncio
+async def test_readuntil_with_smp_server_logging(caplog: pytest.LogCaptureFixture) -> None:
+    t = SMPSerialTransport()
+    m1 = EchoWrite.Response(sequence=0, r="Hello pytest!")
+    m2 = EchoWrite.Response(sequence=1, r="Hello computer!")
+    p1 = [p for p in smppacket.encode(m1.BYTES, 8)]
+    p2 = [p for p in smppacket.encode(m2.BYTES, 8)]
+    packets = p1 + p2
+
+    t._conn.read_all = MagicMock(  # type: ignore
+        side_effect=(
+            [b"Hi, there!"]
+            + [b"newline \n"]
+            + [b"Another line\nAgain \n"]
+            + [b"log with no newline"]
+            + p1
+            + [b"Thought \n I'd just say hi!\n"]
+            + [bytes([0, 1, 2, 3])]
+            + [b"Bye!\n"]
+            + p2
+            + [b"One more thing...\n"]
+            + [b"We \n could \n use \n newlines\n"]
+        )
+    )
+
+    t._conn.port = "/dev/ttyUSB0"
+
+    with caplog.at_level(logging.WARNING):
+        for p in packets:
+            assert p == await t._readuntil()
+
+        messages = {r.message for r in caplog.records}
+        assert "/dev/ttyUSB0: Hi, there!newline " in messages
+        assert "/dev/ttyUSB0: Another line" in messages
+        assert "/dev/ttyUSB0: Again " in messages
+        assert "/dev/ttyUSB0: log with no newline" in messages
+        assert "/dev/ttyUSB0: Thought \n I'd just say hi!\n\x00\x01\x02\x03Bye!\n" in messages
 
 
 @pytest.mark.asyncio
