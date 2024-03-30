@@ -45,7 +45,7 @@ class SMPBLETransport:
 
     async def connect(self, address: str) -> None:
         logger.debug(f"Scanning for {address=}")
-        device = (
+        device: BLEDevice | None = (
             await BleakScanner.find_device_by_address(address)  # type: ignore # upstream fix
             if MAC_ADDRESS_PATTERN.match(address) or UUID_PATTERN.match(address)
             else await BleakScanner.find_device_by_name(address)  # type: ignore # upstream fix
