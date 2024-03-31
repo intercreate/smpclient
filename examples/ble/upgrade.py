@@ -10,7 +10,7 @@ from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 
 from smpclient import SMPClient
-from smpclient.generics import error, success
+from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite
 from smpclient.requests.os_management import ResetWrite
@@ -58,18 +58,22 @@ async def main() -> None:
     async with SMPClient(SMPBLETransport(), a_smp_dut.address) as client:
         print("OK")
 
-        print("Sending request...", end="", flush=True)
-        response = await client.request(ImageStatesRead())
-        print("OK")
+        async def ensure_request(request: SMPRequest[TRep, TEr0, TEr1, TErr]) -> TRep:
+            print("Sending request...", end="", flush=True)
+            response = await client.request(request)
+            print("OK")
 
-        if success(response):
-            print(f"Received response: {response}")
-            assert response.images[0].hash == a_smp_dut_hash.value
-            assert response.images[0].slot == 0
-        elif error(response):
-            raise SystemExit(f"Received error: {response}")
-        else:
-            raise Exception(f"Unknown response: {response}")
+            if success(response):
+                print(f"Received response: {response}")
+                return response
+            elif error(response):
+                raise Exception(f"Received error: {response}")
+            else:
+                raise Exception(f"Unknown response: {response}")
+
+        response = await ensure_request(ImageStatesRead())
+        assert response.images[0].hash == a_smp_dut_hash.value
+        assert response.images[0].slot == 0
 
         print()
         async for offset in client.upload(b_smp_dut_bin):
@@ -80,40 +84,19 @@ async def main() -> None:
             )
 
         print()
-        print("Sending request...", end="", flush=True)
-        images = await client.request(ImageStatesRead())
-        print("OK")
 
-        if success(images):
-            print(f"Received response: {images}")
-            assert images.images[1].hash == b_smp_dut_hash.value
-            assert images.images[1].slot == 1
-            print("Confirmed the upload")
-        elif error(images):
-            raise SystemExit(f"Received error: {images}")
-        else:
-            raise SystemExit(f"Unknown response: {images}")
+        response = await ensure_request(ImageStatesRead())
+        assert response.images[1].hash == b_smp_dut_hash.value
+        assert response.images[1].slot == 1
+        print("Confirmed the upload")
 
         print()
-        print("Marking B SMP DUT for test...", end="", flush=True)
-        response = await client.request(ImageStatesWrite(hash=images.images[1].hash))
-        print("OK")
-        if success(response):
-            print(f"Received response: {response}")
-        elif error(response):
-            raise SystemExit(f"Received error: {response}")
-        else:
-            raise Exception(f"Unknown response: {response}")
+        print("Marking B SMP DUT for test...")
+        await ensure_request(ImageStatesWrite(hash=response.images[1].hash))
 
         print()
-        print("Resetting for swap...", end="", flush=True)
-        reset_response = await client.request(ResetWrite())
-        if success(reset_response):
-            print(f"OK\nReceived response: {reset_response}")
-        elif error(response):
-            raise SystemExit(f"Received error: {reset_response}")
-        else:
-            raise Exception(f"Unknown response: {reset_response}")
+        print("Resetting for swap...")
+        await ensure_request(ResetWrite())
 
     print()
     print("Searching for B SMP DUT...", end="", flush=True)
@@ -140,6 +123,7 @@ async def main() -> None:
             assert images.images[0].slot == 0
             assert images.images[1].hash == a_smp_dut_hash.value
             assert images.images[1].slot == 1
+            print()
             print("Confirmed the swap")
         elif error(images):
             raise SystemExit(f"Received error: {images}")
