@@ -73,7 +73,7 @@ async def test_send() -> None:
 @pytest.mark.asyncio
 async def test_receive() -> None:
     t = SMPSerialTransport()
-    m = EchoWrite.Response(sequence=0, r="Hello pytest!")
+    m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
     p = [p for p in smppacket.encode(m.BYTES, t.max_unencoded_size)]
     t._readuntil = AsyncMock(side_effect=p)  # type: ignore
 
@@ -92,8 +92,8 @@ async def test_receive() -> None:
 @pytest.mark.asyncio
 async def test_readuntil() -> None:
     t = SMPSerialTransport()
-    m1 = EchoWrite.Response(sequence=0, r="Hello pytest!")
-    m2 = EchoWrite.Response(sequence=1, r="Hello computer!")
+    m1 = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
+    m2 = EchoWrite._Response.get_default()(sequence=1, r="Hello computer!")  # type: ignore
     p1 = [p for p in smppacket.encode(m1.BYTES, 8)]
     p2 = [p for p in smppacket.encode(m2.BYTES, 8)]
     packets = p1 + p2
@@ -126,8 +126,8 @@ async def test_readuntil() -> None:
 @pytest.mark.asyncio
 async def test_readuntil_with_smp_server_logging(caplog: pytest.LogCaptureFixture) -> None:
     t = SMPSerialTransport()
-    m1 = EchoWrite.Response(sequence=0, r="Hello pytest!")
-    m2 = EchoWrite.Response(sequence=1, r="Hello computer!")
+    m1 = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
+    m2 = EchoWrite._Response.get_default()(sequence=1, r="Hello computer!")  # type: ignore
     p1 = [p for p in smppacket.encode(m1.BYTES, 8)]
     p2 = [p for p in smppacket.encode(m2.BYTES, 8)]
     packets = p1 + p2

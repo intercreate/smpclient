@@ -53,17 +53,17 @@ class SMPRequest(Protocol[TRep, TEr0, TEr1, TErr]):
 
 
     class ImageStatesRead(smpimg.ImageStatesReadRequest):
-        Response = smpimg.ImageStatesReadResponse
-        ErrorV0 = smpimg.ImageManagementError1
-        ErrorV1 = smpimg.ImageManagementError2
-        Error = ImageManagementError
+        _Response = smpimg.ImageStatesReadResponse
+        _ErrorV0 = smpimg.ImageManagementError1
+        _ErrorV1 = smpimg.ImageManagementError2
+        _Error = ImageManagementError
     ```
     """
 
-    Response: Type[TRep]
-    ErrorV0: Type[TEr0]
-    ErrorV1: Type[TEr1]
-    Error: Type[TErr]
+    _Response: Type[TRep]
+    _ErrorV0: Type[TEr0]
+    _ErrorV1: Type[TEr1]
+    _Error: Type[TErr]
 
     @property
     def BYTES(self) -> bytes:  # pragma: no cover
