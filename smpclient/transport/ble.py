@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import re
-from typing import Final
+from typing import Final, List
 from uuid import UUID
 
 from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
@@ -15,9 +15,9 @@ from smpclient.exceptions import SMPClientException
 SMP_SERVICE_UUID: Final = UUID("8D53DC1D-1DB7-4CD3-868B-8A527460AA84")
 SMP_CHARACTERISTIC_UUID: Final = UUID("DA2E7828-FBCE-4E01-AE9E-261174997C48")
 
-MAC_ADDRESS_PATTERN: Final = re.compile(r'([0-9A-F]{2}[:]){5}[0-9A-F]{2}$', flags=re.IGNORECASE)
+MAC_ADDRESS_PATTERN: Final = re.compile(r"([0-9A-F]{2}[:]){5}[0-9A-F]{2}$", flags=re.IGNORECASE)
 UUID_PATTERN: Final = re.compile(
-    r'^[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}\Z',
+    r"^[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}\Z",
     flags=re.IGNORECASE,
 )
 
@@ -65,6 +65,12 @@ class SMPBLETransport:
             raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
         else:
             self._smp_characteristic = smp_characteristic
+
+        # BlueZ doesn't have a proper way to get the MTU, so we have this hack.
+        # If this doesn't work for you, you can set the client._mtu_size attribute
+        # to override the value instead.
+        if self._client._backend.__class__.__name__ == "BleakClientBlueZDBus":
+            await self._client._backend._acquire_mtu()  # type: ignore
 
         logger.debug(f"Starting notify on {SMP_CHARACTERISTIC_UUID=}")
         await self._client.start_notify(SMP_CHARACTERISTIC_UUID, self._notify_callback)
@@ -130,8 +136,21 @@ class SMPBLETransport:
 
     @property
     def mtu(self) -> int:
-        return self._smp_characteristic.max_write_without_response_size
+        return self._client.mtu_size
 
     @property
     def max_unencoded_size(self) -> int:
-        return self.mtu
+        return self.mtu - 3  # BLE overhead
+
+    @staticmethod
+    async def scan(timeout: int = 5) -> List[BLEDevice]:
+        """Scan for BLE devices."""
+        logger.debug(f"Scanning for BLE devices for {timeout} seconds")
+        devices: Final = await BleakScanner(service_uuids=[str(SMP_SERVICE_UUID)]).discover(
+            timeout=timeout, return_adv=True
+        )
+        smp_servers: Final = [
+            d for d, a in devices.values() if SMP_SERVICE_UUID in {UUID(u) for u in a.service_uuids}
+        ]
+        logger.debug(f"Found {len(smp_servers)} SMP devices: {smp_servers=}")
+        return smp_servers

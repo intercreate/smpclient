@@ -39,6 +39,7 @@ types-pyserial = "^3.5.0.11"
 
 [tool.black]
 line-length = 100
+extend-exclude = "dutfirmware|.venv|tests/fixtures"
 
 [tool.isort]
 profile = "black"

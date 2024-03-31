@@ -98,7 +98,7 @@ class ImageVersion:
     build_num: int
 
     @staticmethod
-    def loads(data: bytes) -> 'ImageVersion':
+    def loads(data: bytes) -> "ImageVersion":
         return ImageVersion(*IMAGE_VERSION_STRUCT.unpack(data))
 
     def __str__(self) -> str:
@@ -118,7 +118,7 @@ class ImageHeader:
     ver: ImageVersion
 
     @staticmethod
-    def loads(data: bytes) -> 'ImageHeader':
+    def loads(data: bytes) -> "ImageHeader":
         """Load an `ImageHeader` from `bytes`."""
         (
             magic,
@@ -145,12 +145,12 @@ class ImageHeader:
             raise MCUBootImageError(f"Magic is {hex(self.magic)}, expected {hex(IMAGE_MAGIC)}")
 
     @staticmethod
-    def load_from(file: BytesIO | BufferedReader) -> 'ImageHeader':
+    def load_from(file: BytesIO | BufferedReader) -> "ImageHeader":
         return ImageHeader.loads(file.read(IMAGE_HEADER_STRUCT.size))
 
     @staticmethod
-    def load_file(path: str) -> 'ImageHeader':
-        with open(path, 'rb') as f:
+    def load_file(path: str) -> "ImageHeader":
+        with open(path, "rb") as f:
             return ImageHeader.load_from(f)
 
 
@@ -170,12 +170,12 @@ class ImageTLVInfo:
             )
 
     @staticmethod
-    def loads(data: bytes) -> 'ImageTLVInfo':
+    def loads(data: bytes) -> "ImageTLVInfo":
         """Load an `ImageTLVInfo` from bytes."""
         return ImageTLVInfo(*IMAGE_TLV_INFO_STRUCT.unpack(data))
 
     @staticmethod
-    def load_from(file: BytesIO | BufferedReader) -> 'ImageTLVInfo':
+    def load_from(file: BytesIO | BufferedReader) -> "ImageTLVInfo":
         return ImageTLVInfo.loads(file.read(IMAGE_TLV_INFO_STRUCT.size))
 
 
@@ -188,7 +188,7 @@ class ImageTLV:
     """Data length (not including TLV header)."""
 
     @staticmethod
-    def load_from(file: BytesIO | BufferedReader) -> 'ImageTLV':
+    def load_from(file: BytesIO | BufferedReader) -> "ImageTLV":
         return ImageTLV(*IMAGE_TLV_STRUCT.unpack_from(file.read(IMAGE_TLV_STRUCT.size)))
 
 
@@ -222,7 +222,7 @@ class ImageInfo:
             raise TLVNotFound(f"{tlv} not found in image.")
 
     @staticmethod
-    def load_file(path: str) -> 'ImageInfo':
+    def load_file(path: str) -> "ImageInfo":
         file_path = pathlib.Path(path)
         if file_path.suffix not in {".bin", ".hex"}:
             raise MCUBootImageError(
@@ -230,7 +230,7 @@ class ImageInfo:
             )
 
         if file_path.suffix == ".bin":
-            with open(file_path, 'rb') as _f:
+            with open(file_path, "rb") as _f:
                 f = BytesIO(_f.read())
         else:
             f = BytesIO()

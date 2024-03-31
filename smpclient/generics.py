@@ -10,7 +10,7 @@ from smp import message as smpmessage
 TErrEnum = TypeVar("TErrEnum", bound=IntEnum)
 TEr0 = TypeVar("TEr0", bound=smperror.ErrorV0)
 TEr1 = TypeVar("TEr1", bound=smperror.ErrorV1)
-TErr = TypeVar("TErr", bound='SMPError')
+TErr = TypeVar("TErr", bound="SMPError")
 TRep = TypeVar("TRep", bound=smpmessage.ReadResponse | smpmessage.WriteResponse)
 
 

@@ -186,8 +186,8 @@ async def test_upload() -> None:
     assert e.value.args[0].err.rc == IMG_MGMT_ERR.FLASH_WRITE_FAILED
 
 
-@patch('tests.test_smp_client.SMPMockTransport.mtu', new_callable=PropertyMock)
-@patch('tests.test_smp_client.SMPMockTransport.max_unencoded_size', new_callable=PropertyMock)
+@patch("tests.test_smp_client.SMPMockTransport.mtu", new_callable=PropertyMock)
+@patch("tests.test_smp_client.SMPMockTransport.max_unencoded_size", new_callable=PropertyMock)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mtu", [23, 124, 127, 251, 498, 512, 1024, 2048, 4096, 8192])
 async def test_upload_hello_world_bin(
@@ -198,7 +198,7 @@ async def test_upload_hello_world_bin(
 
     with open(
         str(Path("tests", "fixtures", "zephyr-v3.5.0-2795-g28ff83515d", "hello_world.signed.bin")),
-        'rb',
+        "rb",
     ) as f:
         image = f.read()
 
@@ -219,7 +219,7 @@ async def test_upload_hello_world_bin(
     assert accumulated_image == image
 
 
-@patch('tests.test_smp_client.SMPSerialTransport.mtu', new_callable=PropertyMock)
+@patch("tests.test_smp_client.SMPSerialTransport.mtu", new_callable=PropertyMock)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mtu", [48, 80, 124, 127, 256, 512, 1024, 2048, 4096, 8192])
 async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock, mtu: int) -> None:
@@ -227,7 +227,7 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock, mtu: int) 
 
     with open(
         str(Path("tests", "fixtures", "zephyr-v3.5.0-2795-g28ff83515d", "hello_world.signed.bin")),
-        'rb',
+        "rb",
     ) as f:
         image = f.read()
 
