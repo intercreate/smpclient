@@ -19,7 +19,7 @@ from smpclient.transport.ble import SMPBLETransport
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Do an SMP DFU test")
-    parser.add_argument("board", help="Name of the board; the BUT")
+    parser.add_argument("board", help='Name of the board; the "BUT"')
 
     dut_folder: Final = Path(__file__).parent.parent / "duts" / parser.parse_args().board
     print(f"Using DUT folder: {dut_folder}")
@@ -67,7 +67,7 @@ async def main() -> None:
             assert response.images[0].hash == a_smp_dut_hash.value
             assert response.images[0].slot == 0
         elif error(response):
-            print(f"Received error: {response}")
+            raise SystemExit(f"Received error: {response}")
         else:
             raise Exception(f"Unknown response: {response}")
 
@@ -95,13 +95,13 @@ async def main() -> None:
             raise SystemExit(f"Unknown response: {images}")
 
         print()
-        print("Marking B SMP DUT for test", end="", flush=True)
+        print("Marking B SMP DUT for test...", end="", flush=True)
         response = await client.request(ImageStatesWrite(hash=images.images[1].hash))
         print("OK")
         if success(response):
             print(f"Received response: {response}")
         elif error(response):
-            print(f"Received error: {response}")
+            raise SystemExit(f"Received error: {response}")
         else:
             raise Exception(f"Unknown response: {response}")
 
@@ -111,7 +111,7 @@ async def main() -> None:
         if success(reset_response):
             print(f"OK\nReceived response: {reset_response}")
         elif error(response):
-            print(f"FAIL\nReceived error: {reset_response}")
+            raise SystemExit(f"Received error: {reset_response}")
         else:
             raise Exception(f"Unknown response: {reset_response}")
 
