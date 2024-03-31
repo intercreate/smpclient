@@ -57,3 +57,8 @@ Flash that FW, for example:
 ```
 west flash -d build/nrf52dk_nrf52832 --recover
 ```
+
+Or, for USB CDC ACM:
+```
+west build -b adafruit_feather_nrf52840 zephyr/samples/subsys/mgmt/mcumgr/smp_svr -- -DEXTRA_CONF_FILE="overlay-cdc.conf" -DEXTRA_DTC_OVERLAY_FILE="usb.overlay"
+```
