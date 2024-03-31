@@ -1,0 +1,9 @@
+nrf
+zephyr
+bootloader
+modules
+nrfxlib
+test
+tools
+build
+.west
