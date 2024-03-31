@@ -1,5 +1,3 @@
-from typing import ClassVar
-
 from smp import header as smpheader
 from smp import image_management as smpimg
 
@@ -11,18 +9,18 @@ class ImageManagementError(SMPError[smpimg.IMG_MGMT_ERR]):
 
 
 class _ImageGroupBase:
-    ErrorV0 = smpimg.ImageManagementErrorV0
-    ErrorV1 = smpimg.ImageManagementErrorV1
-    Error = ImageManagementError
+    _ErrorV0 = smpimg.ImageManagementErrorV0
+    _ErrorV1 = smpimg.ImageManagementErrorV1
+    _Error = ImageManagementError
 
 
 class ImageStatesRead(smpimg.ImageStatesReadRequest, _ImageGroupBase):
-    Response: ClassVar = smpimg.ImageStatesReadResponse
+    _Response = smpimg.ImageStatesReadResponse
 
 
 class ImageStatesWrite(smpimg.ImageStatesWriteRequest, _ImageGroupBase):
-    Response: ClassVar = smpimg.ImageStatesWriteResponse
+    _Response = smpimg.ImageStatesWriteResponse
 
 
 class ImageUploadWrite(smpimg.ImageUploadWriteRequest, _ImageGroupBase):
-    Response: ClassVar = smpimg.ImageUploadProgressWriteResponse
+    _Response = smpimg.ImageUploadProgressWriteResponse

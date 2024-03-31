@@ -1,5 +1,3 @@
-from typing import ClassVar
-
 from smp import header as smpheader
 from smp import os_management as smpos
 
@@ -11,14 +9,14 @@ class OSManagementError(SMPError[smpos.OS_MGMT_RET_RC]):
 
 
 class _OSGroupBase:
-    ErrorV0 = smpos.OSManagementErrorV0
-    ErrorV1 = smpos.OSManagementErrorV1
-    Error = OSManagementError
+    _ErrorV0 = smpos.OSManagementErrorV0
+    _ErrorV1 = smpos.OSManagementErrorV1
+    _Error = OSManagementError
 
 
 class EchoWrite(smpos.EchoWriteRequest, _OSGroupBase):
-    Response: ClassVar = smpos.EchoWriteResponse
+    _Response = smpos.EchoWriteResponse
 
 
 class ResetWrite(smpos.ResetWriteRequest, _OSGroupBase):
-    Response: ClassVar = smpos.ResetWriteResponse
+    _Response = smpos.ResetWriteResponse

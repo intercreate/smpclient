@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from hashlib import sha256
-from typing import AsyncIterator, Final, Tuple, cast
+from types import TracebackType
+from typing import AsyncIterator, Final, Tuple, Type, cast
 
 from pydantic import ValidationError
 from smp import header as smpheader
@@ -13,6 +15,8 @@ from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, flatten_error, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.transport import SMPTransport
+
+logger = logging.getLogger(__name__)
 
 
 class SMPClient:
@@ -40,12 +44,12 @@ class SMPClient:
             raise SMPBadSequence("Bad sequence")
 
         try:
-            return request.Response.loads(frame)  # type: ignore
+            return request._Response.loads(frame)  # type: ignore
         except ValidationError:
             return flatten_error(  # type: ignore
-                request.ErrorV0.loads(frame)
+                request._ErrorV0.loads(frame)
                 if header.version == smpheader.Version.V0
-                else request.ErrorV1.loads(frame)
+                else request._ErrorV1.loads(frame)
             )
 
     async def upload(
@@ -73,6 +77,8 @@ class SMPClient:
         if error(response):
             raise SMPUploadError(response)
         elif success(response):
+            if response.off is None:
+                raise SMPUploadError(f"No offset received: {response=}")
             yield response.off
         else:  # pragma: no cover
             raise Exception("Unreachable")
@@ -85,6 +91,8 @@ class SMPClient:
             if error(response):
                 raise SMPUploadError(response)
             elif success(response):
+                if response.off is None:
+                    raise SMPUploadError(f"No offset received: {response=}")
                 yield response.off
             else:  # pragma: no cover
                 raise Exception("Unreachable")
@@ -97,7 +105,14 @@ class SMPClient:
         await self.connect()
         return self
 
-    async def __aexit__(self) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if exc_value is not None:
+            logger.error(f"Exception in SMPClient: {exc_type=}, {exc_value=}, {traceback=}")
         await self.disconnect()
 
     @staticmethod

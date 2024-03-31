@@ -3,5 +3,6 @@ max-line-length = 100
 exclude = 
     .venv
     .tox
+    dutfirmware
 extend-ignore =
     E203

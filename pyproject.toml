@@ -45,12 +45,17 @@ skip-string-normalization = true
 profile = "black"
 line_length = 100
 multi_line_output = 3
+skip = [
+    ".venv",
+    "dutfirmware",
+]
 
 [tool.mypy]
 disallow_untyped_defs = true
-exclude = ['.venv']
+exclude = ['.venv', 'dutfirmware']
 
 [tool.pytest.ini_options]
+norecursedirs = "dutfirmware/*"
 filterwarnings = [
     "ignore:The --rsyncdir:DeprecationWarning",
 ]

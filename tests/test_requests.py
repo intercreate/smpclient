@@ -106,12 +106,12 @@ def test_requests(
     assert a.header.command_id == b.header.command_id  # type: ignore
 
     # assert that the CBOR payloads match
-    amodel = a.model_dump(exclude_unset=True, exclude={'header'}, exclude_none=True)
-    bmodel = b.model_dump(exclude_unset=True, exclude={'header'}, exclude_none=True)  # type: ignore
+    amodel = a.model_dump(exclude_unset=True, exclude={"header"}, exclude_none=True)
+    bmodel = b.model_dump(exclude_unset=True, exclude={"header"}, exclude_none=True)  # type: ignore
     assert amodel == bmodel
 
     # assert that the response and error types are as expected
-    assert b.Response is Response
-    assert b.ErrorV0 is ErrorV0
-    assert b.ErrorV1 is ErrorV1
-    assert b.Error is Error
+    assert b._Response is Response
+    assert b._ErrorV0 is ErrorV0
+    assert b._ErrorV1 is ErrorV1
+    assert b._Error is Error

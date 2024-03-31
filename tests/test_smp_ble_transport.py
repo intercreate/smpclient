@@ -157,7 +157,7 @@ async def test_receive() -> None:
     t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
     t._smp_characteristic.uuid = str(SMP_CHARACTERISTIC_UUID)
 
-    REP = EchoWrite.Response(sequence=0, r="Hello pytest!").BYTES
+    REP = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!").BYTES  # type: ignore
 
     b, _ = await asyncio.gather(
         t.receive(),
