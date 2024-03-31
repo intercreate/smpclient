@@ -64,7 +64,7 @@ class SMPClient:
             self._maximize_packet(
                 ImageUploadWrite(  # type: ignore
                     off=0,
-                    data=b'',
+                    data=b"",
                     image=slot,
                     len=len(image),
                     sha=sha256(image).digest(),
@@ -86,7 +86,7 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
             response = await self.request(
-                self._maximize_packet(ImageUploadWrite(off=response.off, data=b''), image)
+                self._maximize_packet(ImageUploadWrite(off=response.off, data=b""), image)
             )
             if error(response):
                 raise SMPUploadError(response)
@@ -101,7 +101,7 @@ class SMPClient:
     def address(self) -> str:
         return self._address
 
-    async def __aenter__(self) -> 'SMPClient':
+    async def __aenter__(self) -> "SMPClient":
         await self.connect()
         return self
 

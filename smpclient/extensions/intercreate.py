@@ -17,7 +17,7 @@ class ICUploadClient(SMPClient):
         """Iteratively upload `data` to the SMP server, yielding the offset."""
 
         response = await self.request(
-            ic.ImageUploadWrite(off=0, data=b'', image=image, len=len(data))  # type: ignore
+            ic.ImageUploadWrite(off=0, data=b"", image=image, len=len(data))  # type: ignore
         )
 
         if error(response):
@@ -30,7 +30,7 @@ class ICUploadClient(SMPClient):
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(data):
             response = await self.request(
-                self._ic_maximize_packet(ic.ImageUploadWrite(off=response.off, data=b''), data)
+                self._ic_maximize_packet(ic.ImageUploadWrite(off=response.off, data=b""), data)
             )
             if error(response):
                 raise SMPUploadError(response)
