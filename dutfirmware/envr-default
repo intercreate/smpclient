@@ -5,5 +5,6 @@ PYTHON_VENV=.venv
 [VARIABLES]
 
 [ADD_TO_PATH]
+JLINK=C:/Program Files/SEGGER/JLink
 
 [ALIASES]
