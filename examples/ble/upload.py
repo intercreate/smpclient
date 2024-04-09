@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import time
 from typing import Final
 
 from smpclient import SMPClient
@@ -37,8 +38,14 @@ async def main() -> None:
             raise Exception(f"Unknown response: {response}")
 
         print()
+        start_s = time.time()
         async for offset in client.upload(fw_file, 2):
-            print(f"\rUploaded {offset:,} / {len(fw_file):,} Bytes           ", end="", flush=True)
+            print(
+                f"\rUploaded {offset:,} / {len(fw_file):,} Bytes | "
+                f"{offset / (time.time() - start_s) / 1000:.2f} KB/s           ",
+                end="",
+                flush=True,
+            )
 
         print()
         print("Sending request...", end="", flush=True)
