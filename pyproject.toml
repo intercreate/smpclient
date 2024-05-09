@@ -65,4 +65,4 @@ filterwarnings = [
 ]
 
 [tool.setuptools]
-py-modules = []
+py-modules = ["smpclient"]
