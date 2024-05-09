@@ -1,3 +1,6 @@
+[project]
+name = "smpclient"
+
 [tool.poetry]
 name = "smpclient"
 version = "0"
