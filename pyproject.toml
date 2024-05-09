@@ -65,4 +65,4 @@ filterwarnings = [
 ]
 
 [tool.setuptools]
-packages = ["smpclient"]
+packages = ["smpclient*"]
