@@ -35,12 +35,16 @@ If you'd like an SMP CLI application instead of a library, then you should try
    ```
    poetry add -G dev <my_dev_dependency>
    ```
+7. run tests for all supported python versions:
+   ```
+   tox
+   ```
 
 ## Development Environment Setup
 
 ### Install Dependencies
 
-- python >=3.10, <3.13
+- python >=3.8, <3.13
 - poetry: https://python-poetry.org/docs/#installation
 
 ### Create the venv

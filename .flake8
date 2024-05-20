@@ -2,5 +2,6 @@
 max-line-length = 100
 exclude = 
     .venv
+    .tox
 extend-ignore =
     E203

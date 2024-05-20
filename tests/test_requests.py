@@ -1,5 +1,7 @@
 """Test the `SMPRequest` `Protocol` implementations."""
 
+from __future__ import annotations
+
 from typing import Tuple, Type
 
 import pytest

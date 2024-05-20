@@ -1,17 +1,20 @@
 """Some Generic helpers for the SMP module."""
 
+from __future__ import annotations
+
 from enum import IntEnum
-from typing import Protocol, Type, TypeGuard, TypeVar
+from typing import Protocol, Type, TypeVar, Union
 
 from smp import error as smperror
 from smp import header as smpheader
 from smp import message as smpmessage
+from typing_extensions import TypeGuard
 
 TErrEnum = TypeVar("TErrEnum", bound=IntEnum)
 TEr0 = TypeVar("TEr0", bound=smperror.ErrorV0)
 TEr1 = TypeVar("TEr1", bound=smperror.ErrorV1)
 TErr = TypeVar("TErr", bound='SMPError')
-TRep = TypeVar("TRep", bound=smpmessage.ReadResponse | smpmessage.WriteResponse)
+TRep = TypeVar("TRep", bound=Union[smpmessage.ReadResponse, smpmessage.WriteResponse])
 
 
 class SMPError(smperror.ErrorV0[TErrEnum]):

@@ -1,13 +1,13 @@
 from typing import ClassVar
 
-from smp import header as smpheader
+from smp import header as smphdr
 from smp.user import intercreate as smpic
 
 from smpclient.generics import SMPError
 
 
 class Error(SMPError[smpic.IC_MGMT_ERR]):
-    _GROUP_ID = smpheader.GroupId.INTERCREATE
+    _GROUP_ID = smphdr.UserGroupId.INTERCREATE
 
 
 class _GroupBase:

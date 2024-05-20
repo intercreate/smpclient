@@ -1,5 +1,7 @@
 """Simple Management Protocol (SMP) Client."""
 
+from __future__ import annotations
+
 from hashlib import sha256
 from typing import AsyncIterator, Final, Tuple, cast
 
