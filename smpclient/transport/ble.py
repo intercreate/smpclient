@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import platform
 import re
 from typing import Final, List
 from uuid import UUID
@@ -11,6 +12,7 @@ from bleak.backends.device import BLEDevice
 from smp import header as smphdr
 
 from smpclient.exceptions import SMPClientException
+from smpclient.transport import SMPTransport
 
 SMP_SERVICE_UUID: Final = UUID("8D53DC1D-1DB7-4CD3-868B-8A527460AA84")
 SMP_CHARACTERISTIC_UUID: Final = UUID("DA2E7828-FBCE-4E01-AE9E-261174997C48")
@@ -37,7 +39,7 @@ class SMPBLETransportNotSMPServer(SMPBLETransportException):
 logger = logging.getLogger(__name__)
 
 
-class SMPBLETransport:
+class SMPBLETransport(SMPTransport):
     def __init__(self) -> None:
         self._buffer = bytearray()
         self._notify_condition = asyncio.Condition()
@@ -64,13 +66,23 @@ class SMPBLETransport:
         if smp_characteristic is None:
             raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
         else:
-            self._smp_characteristic = smp_characteristic
+            logger.debug(f"Found SMP characteristic: {smp_characteristic=}")
+            logger.info(f"{smp_characteristic.max_write_without_response_size=}")
+            if (
+                platform.system() == "Windows"
+                and smp_characteristic.max_write_without_response_size == 20
+            ):
+                # https://github.com/hbldh/bleak/pull/1552#issuecomment-2105573291
+                logger.warning(
+                    "The SMP characteristic MTU is 20 bytes, possibly a Windows bug, checking again"
+                )
+                await asyncio.sleep(2)
+                smp_characteristic._max_write_without_response_size = (
+                    self._client._backend._session.max_pdu_size - 3  # type: ignore
+                )
+                logger.warning(f"{smp_characteristic.max_write_without_response_size=}")
 
-        # BlueZ doesn't have a proper way to get the MTU, so we have this hack.
-        # If this doesn't work for you, you can set the client._mtu_size attribute
-        # to override the value instead.
-        if self._client._backend.__class__.__name__ == "BleakClientBlueZDBus":
-            await self._client._backend._acquire_mtu()  # type: ignore
+            self._smp_characteristic = smp_characteristic
 
         logger.debug(f"Starting notify on {SMP_CHARACTERISTIC_UUID=}")
         await self._client.start_notify(SMP_CHARACTERISTIC_UUID, self._notify_callback)
@@ -82,9 +94,6 @@ class SMPBLETransport:
         logger.debug(f"Disconnected from {self._client.address}")
 
     async def send(self, data: bytes) -> None:
-        # TODO: Unclear whether Bleak + SMP spec support transport-level fragmentation.  We can
-        #       continue this manual fragmentation for now, but it is not ideal.
-
         logger.debug(f"Sending {len(data)} bytes, {self.mtu=}")
         for offset in range(0, len(data), self.mtu):
             await self._client.write_gatt_char(
@@ -136,11 +145,7 @@ class SMPBLETransport:
 
     @property
     def mtu(self) -> int:
-        return self._client.mtu_size
-
-    @property
-    def max_unencoded_size(self) -> int:
-        return self.mtu - 3  # BLE overhead
+        return self._smp_characteristic.max_write_without_response_size
 
     @staticmethod
     async def scan(timeout: int = 5) -> List[BLEDevice]:

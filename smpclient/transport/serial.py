@@ -7,10 +7,12 @@ import logging
 import math
 from enum import IntEnum, unique
 from functools import cached_property
-from typing import Final
+from typing import Final, override
 
 from serial import Serial
 from smp import packet as smppacket
+
+from smpclient.transport import SMPTransport
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ def _base64_max(size: int) -> int:
     return math.floor(3 / 4 * size) - 2
 
 
-class SMPSerialTransport:
+class SMPSerialTransport(SMPTransport):
     _POLLING_INTERVAL_S = 0.005
 
     class _ReadBuffer:
@@ -237,6 +239,7 @@ class SMPSerialTransport:
         return self._mtu
 
     @cached_property
+    @override
     def max_unencoded_size(self) -> int:
         """The serial transport encodes each packet instead of sending SMP messages as raw bytes.
 

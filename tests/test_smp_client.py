@@ -56,6 +56,8 @@ class SMPMockTransport:
         self.receive = AsyncMock()
         self.mtu = PropertyMock()
         self.max_unencoded_size = PropertyMock()
+        self._smp_server_transport_buffer_size: int | None = None
+        self.initialize = AsyncMock()
 
     async def send_and_receive(self, data: bytes) -> bytes:
         await self.send(data)
@@ -73,9 +75,11 @@ def test_constructor() -> None:
 async def test_connect() -> None:
     m = SMPMockTransport()
     s = SMPClient(m, "address")
+    s._initialize = AsyncMock()  # type: ignore
     await s.connect()
 
     m.connect.assert_awaited_once_with("address")
+    s._initialize.assert_awaited_once_with()  # type: ignore
 
 
 @pytest.mark.asyncio

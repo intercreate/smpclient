@@ -2,7 +2,9 @@
 
 import argparse
 import asyncio
+import logging
 import subprocess
+import time
 from pathlib import Path
 from typing import Final, cast
 
@@ -15,6 +17,12 @@ from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite
 from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.ble import SMPBLETransport
+
+logging.basicConfig(
+    format="%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s",
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 async def main() -> None:
@@ -76,9 +84,11 @@ async def main() -> None:
         assert response.images[0].slot == 0
 
         print()
+        start_s = time.time()
         async for offset in client.upload(b_smp_dut_bin):
             print(
-                f"\rUploaded {offset:,} / {len(b_smp_dut_bin):,} Bytes           ",
+                f"\rUploaded {offset:,} / {len(b_smp_dut_bin):,} Bytes | "
+                f"{offset / (time.time() - start_s) / 1000:.2f} KB/s           ",
                 end="",
                 flush=True,
             )

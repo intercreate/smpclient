@@ -154,8 +154,8 @@ async def test_disconnect() -> None:
 async def test_send() -> None:
     t = SMPBLETransport()
     t._client = MagicMock(spec=BleakClient)
-    t._client.mtu_size = 23
     t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
+    t._smp_characteristic.max_write_without_response_size = 20
     await t.send(b"Hello pytest!")
     t._client.write_gatt_char.assert_awaited_once_with(
         t._smp_characteristic, b"Hello pytest!", response=False
@@ -205,5 +205,15 @@ async def test_send_and_receive() -> None:
 def test_max_unencoded_size() -> None:
     t = SMPBLETransport()
     t._client = MagicMock(spec=BleakClient)
-    t._client.mtu_size = 23
-    assert t.max_unencoded_size == 20
+    t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
+    t._smp_characteristic.max_write_without_response_size = 42
+    assert t.max_unencoded_size == 42
+
+
+def test_max_unencoded_size_mcumgr_param() -> None:
+    t = SMPBLETransport()
+    t._client = MagicMock(spec=BleakClient)
+    t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
+    t._smp_characteristic.max_write_without_response_size = 42
+    t._smp_server_transport_buffer_size = 9001
+    assert t.max_unencoded_size == 9001
