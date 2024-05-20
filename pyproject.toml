@@ -40,7 +40,7 @@ tox = "^4.15.0"
 [tool.black]
 line-length = 100
 skip-string-normalization = true
-extend-exclude = "dutfirmware|.venv|tests/fixtures"
+extend-exclude = "dutfirmware|.venv|tests/fixtures|.tox"
 
 [tool.isort]
 profile = "black"
@@ -49,11 +49,12 @@ multi_line_output = 3
 skip = [
     ".venv",
     "dutfirmware",
+    ".tox",
 ]
 
 [tool.mypy]
 disallow_untyped_defs = true
-exclude = ['.venv', 'dutfirmware']
+exclude = ['.venv', 'dutfirmware', '.tox']
 
 [tool.pytest.ini_options]
 norecursedirs = "dutfirmware/*"
