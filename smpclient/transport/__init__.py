@@ -1,5 +1,7 @@
 """Simple Management Protocol (SMP) Client Transport Protocol."""
 
+from __future__ import annotations
+
 from typing import Protocol
 
 

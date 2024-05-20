@@ -7,10 +7,11 @@ import logging
 import math
 from enum import IntEnum, unique
 from functools import cached_property
-from typing import Final, override
+from typing import Final
 
 from serial import Serial
 from smp import packet as smppacket
+from typing_extensions import override
 
 from smpclient.transport import SMPTransport
 
