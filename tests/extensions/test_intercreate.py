@@ -13,14 +13,14 @@ from smpclient.requests.user import intercreate as ic
 from smpclient.transport.serial import SMPSerialTransport
 
 
-@patch("tests.test_smp_client.SMPSerialTransport.mtu", new_callable=PropertyMock)
+@patch('tests.test_smp_client.SMPSerialTransport.mtu', new_callable=PropertyMock)
 @pytest.mark.asyncio
 async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
     mock_mtu.return_value = 127  # testing at 127, the default for Shell Transport
 
     with open(
         str(Path("tests", "fixtures", "zephyr-v3.5.0-2795-g28ff83515d", "hello_world.signed.bin")),
-        "rb",
+        'rb',
     ) as f:
         image = f.read()
 
