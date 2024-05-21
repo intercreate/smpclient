@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from hashlib import sha256
-from typing import AsyncIterator, Final, Tuple, cast
+from types import TracebackType
+from typing import AsyncIterator, Final, Tuple, Type, cast
 
 from pydantic import ValidationError
 from smp import header as smpheader
@@ -12,7 +14,10 @@ from smp import message as smpmsg
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, flatten_error, success
 from smpclient.requests.image_management import ImageUploadWrite
+from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
+
+logger = logging.getLogger(__name__)
 
 
 class SMPClient:
@@ -24,6 +29,7 @@ class SMPClient:
     async def connect(self) -> None:
         """Connect to the SMP server."""
         await self._transport.connect(self._address)
+        await self._initialize()
 
     async def disconnect(self) -> None:
         """Disconnect from the SMP server."""
@@ -40,12 +46,12 @@ class SMPClient:
             raise SMPBadSequence("Bad sequence")
 
         try:
-            return request.Response.loads(frame)  # type: ignore
+            return request._Response.loads(frame)  # type: ignore
         except ValidationError:
             return flatten_error(  # type: ignore
-                request.ErrorV0.loads(frame)
+                request._ErrorV0.loads(frame)
                 if header.version == smpheader.Version.V0
-                else request.ErrorV1.loads(frame)
+                else request._ErrorV1.loads(frame)
             )
 
     async def upload(
@@ -58,9 +64,9 @@ class SMPClient:
 
         response = await self.request(
             self._maximize_packet(
-                ImageUploadWrite(  # type: ignore
+                ImageUploadWrite(
                     off=0,
-                    data=b'',
+                    data=b"",
                     image=slot,
                     len=len(image),
                     sha=sha256(image).digest(),
@@ -73,6 +79,8 @@ class SMPClient:
         if error(response):
             raise SMPUploadError(response)
         elif success(response):
+            if response.off is None:
+                raise SMPUploadError(f"No offset received: {response=}")
             yield response.off
         else:  # pragma: no cover
             raise Exception("Unreachable")
@@ -80,11 +88,13 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
             response = await self.request(
-                self._maximize_packet(ImageUploadWrite(off=response.off, data=b''), image)
+                self._maximize_packet(ImageUploadWrite(off=response.off, data=b""), image)
             )
             if error(response):
                 raise SMPUploadError(response)
             elif success(response):
+                if response.off is None:
+                    raise SMPUploadError(f"No offset received: {response=}")
                 yield response.off
             else:  # pragma: no cover
                 raise Exception("Unreachable")
@@ -93,11 +103,18 @@ class SMPClient:
     def address(self) -> str:
         return self._address
 
-    async def __aenter__(self) -> 'SMPClient':
+    async def __aenter__(self) -> "SMPClient":
         await self.connect()
         return self
 
-    async def __aexit__(self) -> None:
+    async def __aexit__(
+        self,
+        exc_type: Type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if exc_value is not None:
+            logger.error(f"Exception in SMPClient: {exc_type=}, {exc_value=}, {traceback=}")
         await self.disconnect()
 
     @staticmethod
@@ -159,3 +176,15 @@ class SMPClient:
             sha=request.sha,
             upgrade=request.upgrade,
         )
+
+    async def _initialize(self) -> None:
+        """Gather initialization information from the SMP server."""
+
+        mcumgr_parameters = await self.request(MCUMgrParametersRead())
+        if success(mcumgr_parameters):
+            logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
+            self._transport.initialize(mcumgr_parameters.buf_size)
+        elif error(mcumgr_parameters):
+            logger.error(f"MCUMgr parameters error: {mcumgr_parameters}")
+        else:
+            raise Exception("Unreachable")

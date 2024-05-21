@@ -111,7 +111,7 @@ def test_requests(
     assert amodel == bmodel
 
     # assert that the response and error types are as expected
-    assert b.Response is Response
-    assert b.ErrorV0 is ErrorV0
-    assert b.ErrorV1 is ErrorV1
-    assert b.Error is Error
+    assert b._Response is Response
+    assert b._ErrorV0 is ErrorV0
+    assert b._ErrorV1 is ErrorV1
+    assert b._Error is Error

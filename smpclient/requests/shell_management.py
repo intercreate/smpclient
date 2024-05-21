@@ -1,5 +1,3 @@
-from typing import ClassVar
-
 from smp import header as smpheader
 from smp import shell_management as smpshell
 
@@ -11,10 +9,10 @@ class ShellManagementError(SMPError[smpshell.SHELL_MGMT_RET_RC]):
 
 
 class _ShellGroupBase:
-    ErrorV0 = smpshell.ShellManagementErrorV0
-    ErrorV1 = smpshell.ShellManagementErrorV1
-    Error = ShellManagementError
+    _ErrorV0 = smpshell.ShellManagementErrorV0
+    _ErrorV1 = smpshell.ShellManagementErrorV1
+    _Error = ShellManagementError
 
 
 class Execute(smpshell.ExecuteRequest, _ShellGroupBase):
-    Response: ClassVar = smpshell.ExecuteResponse
+    _Response = smpshell.ExecuteResponse

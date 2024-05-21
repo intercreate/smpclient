@@ -16,6 +16,7 @@ from smp.image_management import (
     IMG_MGMT_ERR,
     ImageManagementErrorV0,
     ImageManagementErrorV1,
+    ImageUploadProgressWriteResponse,
     ImageUploadWriteRequest,
 )
 from smp.os_management import OS_MGMT_RET_RC, OSManagementErrorV0, ResetWriteResponse
@@ -55,6 +56,8 @@ class SMPMockTransport:
         self.receive = AsyncMock()
         self.mtu = PropertyMock()
         self.max_unencoded_size = PropertyMock()
+        self._smp_server_transport_buffer_size: int | None = None
+        self.initialize = AsyncMock()
 
     async def send_and_receive(self, data: bytes) -> bytes:
         await self.send(data)
@@ -72,9 +75,11 @@ def test_constructor() -> None:
 async def test_connect() -> None:
     m = SMPMockTransport()
     s = SMPClient(m, "address")
+    s._initialize = AsyncMock()  # type: ignore
     await s.connect()
 
     m.connect.assert_awaited_once_with("address")
+    s._initialize.assert_awaited_once_with()  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -87,30 +92,33 @@ async def test_request() -> None:
     rep = await s.request(req)  # type: ignore
     m.send.assert_has_awaits([call(req.BYTES)])
     m.receive.assert_awaited()
-    assert type(rep) is req.Response
+    assert type(rep) is req._Response
     assert success(rep) is True
     assert error(rep) is False
 
     # test that a bad sequence raises `SMPBadSequence`
     req = ResetWrite()
-    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence + 1).BYTES
+    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence + 1).BYTES  # type: ignore # noqa
     with pytest.raises(SMPBadSequence):
         await s.request(req)  # type: ignore
 
     # test that an error response is parsed
     req = ResetWrite()
     m.receive.return_value = OSManagementErrorV0(
-        header=ResetWriteResponse(sequence=req.header.sequence).header,
-        sequence=req.header.sequence,
+        header=ResetWriteResponse(sequence=req.header.sequence).header,  # type: ignore
+        sequence=req.header.sequence,  # type: ignore
         rc=OS_MGMT_RET_RC.UNKNOWN,
     ).BYTES
 
     rep = await s.request(req)  # type: ignore
     m.send.assert_has_awaits([call(req.BYTES)])
     m.receive.assert_awaited()
-    assert rep.rc == OS_MGMT_RET_RC.UNKNOWN
     assert success(rep) is False
     assert error(rep) is True
+    if error(rep):
+        assert rep.rc == OS_MGMT_RET_RC.UNKNOWN
+    else:
+        raise AssertionError(f"Unexpected response type: {type(rep)}")
 
 
 @pytest.mark.asyncio
@@ -139,7 +147,7 @@ async def test_upload() -> None:
     u = s.upload(image)
     h = cast(smphdr.Header, req.header)
 
-    s.request.return_value = ImageUploadWrite.Response(off=415)
+    s.request.return_value = ImageUploadWrite._Response.get_default()(off=415)  # type: ignore
     offset = await anext(u)
     assert offset == 415
     s.request.assert_awaited_once_with(
@@ -162,7 +170,7 @@ async def test_upload() -> None:
         )
     )
 
-    s.request.return_value = ImageUploadWrite.Response(off=415 + 474)
+    s.request.return_value = ImageUploadWrite._Response.get_default()(off=415 + 474)  # type: ignore
     offset = await anext(u)
     assert offset == 415 + 474
     s.request.assert_awaited_with(
@@ -202,8 +210,8 @@ async def test_upload() -> None:
     assert e.value.args[0].err.rc == IMG_MGMT_ERR.FLASH_WRITE_FAILED
 
 
-@patch('tests.test_smp_client.SMPMockTransport.mtu', new_callable=PropertyMock)
-@patch('tests.test_smp_client.SMPMockTransport.max_unencoded_size', new_callable=PropertyMock)
+@patch("tests.test_smp_client.SMPMockTransport.mtu", new_callable=PropertyMock)
+@patch("tests.test_smp_client.SMPMockTransport.max_unencoded_size", new_callable=PropertyMock)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mtu", [23, 124, 127, 251, 498, 512, 1024, 2048, 4096, 8192])
 async def test_upload_hello_world_bin(
@@ -214,7 +222,7 @@ async def test_upload_hello_world_bin(
 
     with open(
         str(Path("tests", "fixtures", "zephyr-v3.5.0-2795-g28ff83515d", "hello_world.signed.bin")),
-        'rb',
+        "rb",
     ) as f:
         image = f.read()
 
@@ -223,9 +231,9 @@ async def test_upload_hello_world_bin(
 
     accumulated_image = bytearray([])
 
-    async def mock_request(request: ImageUploadWrite) -> ImageUploadWrite.Response:
+    async def mock_request(request: ImageUploadWrite) -> ImageUploadProgressWriteResponse:
         accumulated_image.extend(request.data)
-        return ImageUploadWrite.Response(off=request.off + len(request.data))
+        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
@@ -260,11 +268,11 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock, mtu: int) 
     s._transport._conn.write = mock_write  # type: ignore
     type(s._transport._conn).out_waiting = 0  # type: ignore
 
-    async def mock_request(request: ImageUploadWrite) -> ImageUploadWrite.Response:
+    async def mock_request(request: ImageUploadWrite) -> ImageUploadProgressWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
         await s._transport.send(request.BYTES)
-        return ImageUploadWrite.Response(off=request.off + len(request.data))
+        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
