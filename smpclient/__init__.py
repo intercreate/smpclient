@@ -64,7 +64,7 @@ class SMPClient:
 
         response = await self.request(
             self._maximize_packet(
-                ImageUploadWrite(  # type: ignore
+                ImageUploadWrite(
                     off=0,
                     data=b"",
                     image=slot,

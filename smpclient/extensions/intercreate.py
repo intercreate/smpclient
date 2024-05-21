@@ -17,7 +17,7 @@ class ICUploadClient(SMPClient):
         """Iteratively upload `data` to the SMP server, yielding the offset."""
 
         response = await self.request(
-            ic.ImageUploadWrite(off=0, data=b'', image=image, len=len(data))  # type: ignore
+            ic.ImageUploadWrite(off=0, data=b'', image=image, len=len(data))
         )
 
         if error(response):

@@ -114,7 +114,7 @@ async def test_connect(
     # assert that connect is awaited
     t = SMPBLETransport()
     await t.connect("name")
-    t._client = cast(MagicMock, t._client)  # type: ignore
+    t._client = cast(MagicMock, t._client)
     t._client.reset_mock()
     await t.connect("name")
     t._client.connect.assert_awaited_once_with()
