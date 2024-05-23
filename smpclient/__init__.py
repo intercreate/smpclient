@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from hashlib import sha256
 from types import TracebackType
@@ -26,9 +27,9 @@ class SMPClient:
         self._transport: Final = transport
         self._address: Final = address
 
-    async def connect(self) -> None:
+    async def connect(self, timeout_s: float = 5.0) -> None:
         """Connect to the SMP server."""
-        await self._transport.connect(self._address)
+        await self._transport.connect(self._address, timeout_s)
         await self._initialize()
 
     async def disconnect(self) -> None:
@@ -180,11 +181,15 @@ class SMPClient:
     async def _initialize(self) -> None:
         """Gather initialization information from the SMP server."""
 
-        mcumgr_parameters = await self.request(MCUMgrParametersRead())
-        if success(mcumgr_parameters):
-            logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
-            self._transport.initialize(mcumgr_parameters.buf_size)
-        elif error(mcumgr_parameters):
-            logger.error(f"MCUMgr parameters error: {mcumgr_parameters}")
-        else:
-            raise Exception("Unreachable")
+        try:
+            async with asyncio.timeout(2):
+                mcumgr_parameters = await self.request(MCUMgrParametersRead())
+                if success(mcumgr_parameters):
+                    logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
+                    self._transport.initialize(mcumgr_parameters.buf_size)
+                elif error(mcumgr_parameters):
+                    logger.warning(f"Error reading MCUMgr parameters: {mcumgr_parameters}")
+                else:
+                    raise Exception("Unreachable")
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for MCUMgr parameters")

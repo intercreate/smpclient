@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Protocol, Type, TypeVar, Union
+from typing import Generic, Protocol, Type, TypeVar, Union
 
+from pydantic import BaseModel, ConfigDict
 from smp import error as smperror
 from smp import header as smpheader
 from smp import message as smpmessage
@@ -17,10 +18,16 @@ TErr = TypeVar("TErr", bound='SMPError')
 TRep = TypeVar("TRep", bound=Union[smpmessage.ReadResponse, smpmessage.WriteResponse])
 
 
-class SMPError(smperror.ErrorV0[TErrEnum]):
+class SMPError(BaseModel, Generic[TErrEnum]):
     """An abstraction on top of SMP that joins and flattens V0 and V1 `Error`s"""
 
-    group: smpheader.GroupId | None = None
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    RESPONSE_TYPE: smpmessage.ResponseType
+    header: smpheader.Header
+    group: IntEnum | int | smpheader.GroupId | smpheader.UserGroupId
+    rc: smperror.MGMT_ERR | TErrEnum
+    rsn: str | None = None
 
 
 def _is_ErrorV0(error: TEr0 | TEr1 | TRep) -> TypeGuard[TEr0]:
@@ -32,13 +39,26 @@ def _is_ErrorV1(error: TEr0 | TEr1 | TRep) -> TypeGuard[TEr1]:
 
 
 def flatten_error(
-    error: smperror.ErrorV0[TErrEnum] | smperror.ErrorV1[TErrEnum],
+    error: smperror.ErrorV0 | smperror.ErrorV1[TErrEnum],
 ) -> SMPError[TErrEnum]:
     """Flatten a `Generic` `ErrorV0` or `ErrorV1` into a `Generic` `SMPError`."""
+    if error.header is None:
+        raise TypeError(f"{error} does not have a valid header!")
     if _is_ErrorV0(error):
-        return SMPError(header=error.header, rc=error.rc, rsn=error.rsn)
+        return SMPError(
+            RESPONSE_TYPE=error.RESPONSE_TYPE,
+            header=error.header,
+            group=error.header.group_id,
+            rc=error.rc,
+            rsn=error.rsn,
+        )
     elif _is_ErrorV1(error):
-        return SMPError(header=error.header, rc=error.err.rc, group=error.err.group)
+        return SMPError[TErrEnum](
+            RESPONSE_TYPE=error.RESPONSE_TYPE,
+            header=error.header,
+            group=error.err.group,
+            rc=error.err.rc,
+        )
     else:
         raise Exception(f"{error} is not an Error?")
 

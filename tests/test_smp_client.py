@@ -78,7 +78,7 @@ async def test_connect() -> None:
     s._initialize = AsyncMock()  # type: ignore
     await s.connect()
 
-    m.connect.assert_awaited_once_with("address")
+    m.connect.assert_awaited_once_with("address", 5.0)
     s._initialize.assert_awaited_once_with()  # type: ignore
 
 
