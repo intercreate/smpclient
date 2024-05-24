@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from smp import header as smpheader
 from smp import message as smpmsg
 
+import smpclient._asyncio_timeout  # noqa: F401
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
 from smpclient.requests.image_management import ImageUploadWrite
