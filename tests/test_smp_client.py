@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, PropertyMock, call, patch
 import pytest
 from smp import header as smphdr
 from smp import packet as smppacket
+from smp.error import MGMT_ERR
 from smp.error import Err as SMPErr
 from smp.image_management import (
     IMG_MGMT_ERR,
@@ -19,11 +20,16 @@ from smp.image_management import (
     ImageUploadProgressWriteResponse,
     ImageUploadWriteRequest,
 )
-from smp.os_management import OS_MGMT_RET_RC, OSManagementErrorV0, ResetWriteResponse
+from smp.os_management import (
+    OS_MGMT_RET_RC,
+    OSManagementErrorV0,
+    OSManagementErrorV1,
+    ResetWriteResponse,
+)
 
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
-from smpclient.generics import error, success
+from smpclient.generics import error, error_v0, error_v1, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import SMPSerialTransport
@@ -95,6 +101,8 @@ async def test_request() -> None:
     assert type(rep) is req._Response
     assert success(rep) is True
     assert error(rep) is False
+    assert error_v0(rep) is False
+    assert error_v1(rep) is False
 
     # test that a bad sequence raises `SMPBadSequence`
     req = ResetWrite()
@@ -102,12 +110,43 @@ async def test_request() -> None:
     with pytest.raises(SMPBadSequence):
         await s.request(req)  # type: ignore
 
-    # test that an error response is parsed
+    # test that a genric MGMT_ERR error response is parsed
     req = ResetWrite()
     m.receive.return_value = OSManagementErrorV0(
         header=ResetWriteResponse(sequence=req.header.sequence).header,  # type: ignore
         sequence=req.header.sequence,  # type: ignore
-        rc=OS_MGMT_RET_RC.UNKNOWN,
+        rc=MGMT_ERR.ENOTSUP,
+    ).BYTES
+
+    rep = await s.request(req)  # type: ignore
+    m.send.assert_has_awaits([call(req.BYTES)])
+    m.receive.assert_awaited()
+    assert success(rep) is False
+    assert error_v1(rep) is False
+    assert error(rep) is True
+    assert error_v0(rep) is True
+    if error_v0(rep):
+        assert rep.rc == MGMT_ERR.ENOTSUP
+    else:
+        raise AssertionError(f"Unexpected response type: {type(rep)}")
+
+    # test that an OS_MGMT_RET_RC error response is parsed
+    req = ResetWrite()
+    _header = ResetWriteResponse(sequence=req.header.sequence).header  # type: ignore
+    assert _header is not None
+    header = smphdr.Header(
+        op=_header.op,
+        version=smphdr.Version.V1,
+        flags=_header.flags,
+        length=_header.length,
+        group_id=_header.group_id,
+        sequence=_header.sequence,
+        command_id=_header.command_id,
+    )
+    m.receive.return_value = OSManagementErrorV1(
+        header=header,  # type: ignore
+        sequence=req.header.sequence,  # type: ignore
+        err=SMPErr[OS_MGMT_RET_RC](rc=OS_MGMT_RET_RC.UNKNOWN, group=smphdr.GroupId.OS_MANAGEMENT),
     ).BYTES
 
     rep = await s.request(req)  # type: ignore
@@ -115,8 +154,10 @@ async def test_request() -> None:
     m.receive.assert_awaited()
     assert success(rep) is False
     assert error(rep) is True
-    if error(rep):
-        assert rep.rc == OS_MGMT_RET_RC.UNKNOWN
+    assert error_v0(rep) is False
+    assert error_v1(rep) is True
+    if error_v1(rep):
+        assert rep.err.rc == OS_MGMT_RET_RC.UNKNOWN
     else:
         raise AssertionError(f"Unexpected response type: {type(rep)}")
 
