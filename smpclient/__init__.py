@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from hashlib import sha256
 from types import TracebackType
 from typing import AsyncIterator, Final, Tuple, Type, cast
@@ -12,12 +13,16 @@ from pydantic import ValidationError
 from smp import header as smpheader
 from smp import message as smpmsg
 
-import smpclient._asyncio_timeout  # noqa: F401
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
+
+if sys.version_info < (3, 11):  # backport of asyncio.timeout for Python 3.10 and below
+    from smpclient._asyncio_timeout import timeout  # noqa: F401
+
+    asyncio.timeout = timeout
 
 logger = logging.getLogger(__name__)
 
