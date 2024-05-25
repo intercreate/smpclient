@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from hashlib import sha256
 from types import TracebackType
 from typing import AsyncIterator, Final, Tuple, Type, cast
@@ -19,10 +18,10 @@ from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
 
-if sys.version_info < (3, 11):  # backport of asyncio.timeout for Python 3.10 and below
-    from smpclient._asyncio_timeout import timeout  # noqa: F401
-
-    asyncio.timeout = timeout
+try:
+    from asyncio import timeout
+except ImportError:  # backport for Python3.10 and below
+    from smpclient._timeouts import timeout  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +196,7 @@ class SMPClient:
         """Gather initialization information from the SMP server."""
 
         try:
-            async with asyncio.timeout(2):
+            async with timeout(2):
                 mcumgr_parameters = await self.request(MCUMgrParametersRead())
                 if success(mcumgr_parameters):
                     logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
