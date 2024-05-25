@@ -19,9 +19,9 @@ from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
 
 try:
-    from asyncio import timeout
+    from asyncio import timeout  # type: ignore
 except ImportError:  # backport for Python3.10 and below
-    from smpclient._timeouts import timeout  # type: ignore
+    from async_timeout import timeout  # type: ignore
 
 logger = logging.getLogger(__name__)
 

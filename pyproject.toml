@@ -24,6 +24,7 @@ pyserial = "^3.5"
 smp = "^1.0.3"
 intelhex = "^2.3.0"
 bleak = "^0.22.1"
+async-timeout = { version = "^4.0.3", python = "<3.11" }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"
