@@ -7,10 +7,11 @@ on:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +26,15 @@ jobs:
       
       - run: poetry install
 
-      - name: Test
+      - name: Test (Linux or MacOS)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: |
           shopt -s expand_aliases
+          . ./envr.ps1
+          test
+      
+      - name: Test (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
           . ./envr.ps1
           test
