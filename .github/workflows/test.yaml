@@ -26,8 +26,15 @@ jobs:
       
       - run: poetry install
 
-      - name: Test
+      - name: Test (Linux or MacOS)
+        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: |
           shopt -s expand_aliases
           . ./envr.ps1
+          test
+      
+      - name: Test (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          .\envr.ps1
           test
