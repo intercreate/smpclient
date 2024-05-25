@@ -207,15 +207,12 @@ async def test_send_and_receive() -> None:
 def test_max_unencoded_size() -> None:
     t = SMPBLETransport()
     t._client = MagicMock(spec=BleakClient)
-    t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
-    t._smp_characteristic.max_write_without_response_size = 42
+    t._max_write_without_response_size = 42
     assert t.max_unencoded_size == 42
 
 
 def test_max_unencoded_size_mcumgr_param() -> None:
     t = SMPBLETransport()
     t._client = MagicMock(spec=BleakClient)
-    t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
-    t._smp_characteristic.max_write_without_response_size = 42
     t._smp_server_transport_buffer_size = 9001
     assert t.max_unencoded_size == 9001

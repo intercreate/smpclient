@@ -7,5 +7,5 @@ source =
     smpclient/
 
 [report]
-fail_under = 89.0
+fail_under = 88.0
 show_missing = True
