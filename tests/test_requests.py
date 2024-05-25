@@ -12,15 +12,10 @@ from smp import os_management as smpos
 from smp import shell_management as smpsh
 from smp.user import intercreate as smpic
 
-from smpclient.generics import SMPError, SMPRequest, TEr0, TEr1, TErr, TRep
-from smpclient.requests.image_management import (
-    ImageManagementError,
-    ImageStatesRead,
-    ImageStatesWrite,
-    ImageUploadWrite,
-)
-from smpclient.requests.os_management import EchoWrite, OSManagementError, ResetWrite
-from smpclient.requests.shell_management import Execute, ShellManagementError
+from smpclient.generics import SMPRequest, TEr0, TEr1, TRep
+from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite, ImageUploadWrite
+from smpclient.requests.os_management import EchoWrite, ResetWrite
+from smpclient.requests.shell_management import Execute
 from smpclient.requests.user import intercreate as ic
 
 
@@ -33,7 +28,6 @@ from smpclient.requests.user import intercreate as ic
             smpimg.ImageStatesReadResponse,
             smpimg.ImageManagementErrorV0,
             smpimg.ImageManagementErrorV1,
-            ImageManagementError,
         ),
         (
             smpimg.ImageStatesWriteRequest(hash=b"da hash"),
@@ -41,7 +35,6 @@ from smpclient.requests.user import intercreate as ic
             smpimg.ImageStatesWriteResponse,
             smpimg.ImageManagementErrorV0,
             smpimg.ImageManagementErrorV1,
-            ImageManagementError,
         ),
         (
             smpimg.ImageUploadWriteRequest(off=0, data=b"a"),
@@ -49,7 +42,6 @@ from smpclient.requests.user import intercreate as ic
             smpimg.ImageUploadProgressWriteResponse,
             smpimg.ImageManagementErrorV0,
             smpimg.ImageManagementErrorV1,
-            ImageManagementError,
         ),
         (
             smpos.EchoWriteRequest(d="a"),
@@ -57,7 +49,6 @@ from smpclient.requests.user import intercreate as ic
             smpos.EchoWriteResponse,
             smpos.OSManagementErrorV0,
             smpos.OSManagementErrorV1,
-            OSManagementError,
         ),
         (
             smpos.ResetWriteRequest(),
@@ -65,7 +56,6 @@ from smpclient.requests.user import intercreate as ic
             smpos.ResetWriteResponse,
             smpos.OSManagementErrorV0,
             smpos.OSManagementErrorV1,
-            OSManagementError,
         ),
         (
             smpsh.ExecuteRequest(argv=["echo", "Hello"]),
@@ -73,7 +63,6 @@ from smpclient.requests.user import intercreate as ic
             smpsh.ExecuteResponse,
             smpsh.ShellManagementErrorV0,
             smpsh.ShellManagementErrorV1,
-            ShellManagementError,
         ),
         (
             smpic.ImageUploadWriteRequest(off=0, data=b"a"),
@@ -81,21 +70,19 @@ from smpclient.requests.user import intercreate as ic
             smpic.ImageUploadWriteResponse,
             smpic.ErrorV0,
             smpic.ErrorV1,
-            ic.Error,
         ),
     ],
 )
 def test_requests(
     test_tuple: Tuple[
         smpmsg.Request,
-        SMPRequest[TRep, TEr0, TEr1, TErr],
+        SMPRequest[TRep, TEr0, TEr1],
         Type[smpmsg.Response],
         Type[smperr.ErrorV0],
         Type[smperr.ErrorV1],
-        Type[SMPError],
     ],
 ) -> None:
-    a, b, Response, ErrorV0, ErrorV1, Error = test_tuple
+    a, b, Response, ErrorV0, ErrorV1 = test_tuple
 
     # assert that headers match (other than sequence)
     assert a.header.op == b.header.op  # type: ignore
@@ -114,4 +101,3 @@ def test_requests(
     assert b._Response is Response
     assert b._ErrorV0 is ErrorV0
     assert b._ErrorV1 is ErrorV1
-    assert b._Error is Error

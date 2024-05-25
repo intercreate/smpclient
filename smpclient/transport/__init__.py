@@ -9,7 +9,7 @@ class SMPTransport(Protocol):
     _smp_server_transport_buffer_size: int | None = None
     """The SMP server transport buffer size, in 8-bit bytes."""
 
-    async def connect(self, address: str) -> None:  # pragma: no cover
+    async def connect(self, address: str, timeout_s: float) -> None:  # pragma: no cover
         """Connect the `SMPTransport`."""
 
     async def disconnect(self) -> None:  # pragma: no cover

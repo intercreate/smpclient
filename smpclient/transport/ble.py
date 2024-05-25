@@ -12,6 +12,7 @@ from uuid import UUID
 from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
 from bleak.backends.device import BLEDevice
 from smp import header as smphdr
+from typing_extensions import override
 
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import SMPTransport
@@ -47,12 +48,13 @@ class SMPBLETransport(SMPTransport):
         self._notify_condition = asyncio.Condition()
         logger.debug(f"Initialized {self.__class__.__name__}")
 
-    async def connect(self, address: str) -> None:
+    @override
+    async def connect(self, address: str, timeout_s: float) -> None:
         logger.debug(f"Scanning for {address=}")
         device: BLEDevice | None = (
-            await BleakScanner.find_device_by_address(address)  # type: ignore # upstream fix
+            await BleakScanner.find_device_by_address(address, timeout=timeout_s)
             if MAC_ADDRESS_PATTERN.match(address) or UUID_PATTERN.match(address)
-            else await BleakScanner.find_device_by_name(address)  # type: ignore # upstream fix
+            else await BleakScanner.find_device_by_name(address)
         )
 
         if type(device) is BLEDevice:
@@ -90,11 +92,13 @@ class SMPBLETransport(SMPTransport):
         await self._client.start_notify(SMP_CHARACTERISTIC_UUID, self._notify_callback)
         logger.debug(f"Started notify on {SMP_CHARACTERISTIC_UUID=}")
 
+    @override
     async def disconnect(self) -> None:
         logger.debug(f"Disonnecting from {self._client.address}")
         await self._client.disconnect()
         logger.debug(f"Disconnected from {self._client.address}")
 
+    @override
     async def send(self, data: bytes) -> None:
         logger.debug(f"Sending {len(data)} bytes, {self.mtu=}")
         for offset in range(0, len(data), self.mtu):
@@ -103,6 +107,7 @@ class SMPBLETransport(SMPTransport):
             )
         logger.debug(f"Sent {len(data)} bytes")
 
+    @override
     async def receive(self) -> bytes:
         # Note: self._buffer is mutated asynchronously by this method and self._notify_callback().
         #       self._notify_condition is used to synchronize access to self._buffer.
@@ -145,6 +150,7 @@ class SMPBLETransport(SMPTransport):
         await self.send(data)
         return await self.receive()
 
+    @override
     @property
     def mtu(self) -> int:
         return self._smp_characteristic.max_write_without_response_size

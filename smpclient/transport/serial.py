@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from enum import IntEnum, unique
 from functools import cached_property
 from typing import Final
 
-from serial import Serial
+from serial import Serial, SerialException
 from smp import packet as smppacket
 from typing_extensions import override
 
@@ -38,6 +39,7 @@ def _base64_max(size: int) -> int:
 
 class SMPSerialTransport(SMPTransport):
     _POLLING_INTERVAL_S = 0.005
+    _CONNECTION_RETRY_INTERVAL_S = 0.500
 
     class _ReadBuffer:
         """The state of the read buffer."""
@@ -96,17 +98,32 @@ class SMPSerialTransport(SMPTransport):
         self._buffer = SMPSerialTransport._ReadBuffer()
         logger.debug(f"Initialized {self.__class__.__name__}")
 
-    async def connect(self, address: str) -> None:
+    @override
+    async def connect(self, address: str, timeout_s: float) -> None:
         self._conn.port = address
         logger.debug(f"Connecting to {self._conn.port=}")
-        self._conn.open()
-        logger.debug(f"Connected to {self._conn.port=}")
+        start_time: Final = time.time()
+        while time.time() - start_time <= timeout_s:
+            try:
+                self._conn.open()
+                logger.debug(f"Connected to {self._conn.port=}")
+                return
+            except SerialException as e:
+                logger.debug(
+                    f"Failed to connect to {self._conn.port=}: {e}, "
+                    f"retrying in {SMPSerialTransport._CONNECTION_RETRY_INTERVAL_S} seconds"
+                )
+                await asyncio.sleep(SMPSerialTransport._CONNECTION_RETRY_INTERVAL_S)
 
+        raise TimeoutError(f"Failed to connect to {address=}")
+
+    @override
     async def disconnect(self) -> None:
         logger.debug(f"Disconnecting from {self._conn.port=}")
         self._conn.close()
         logger.debug(f"Disconnected from {self._conn.port=}")
 
+    @override
     async def send(self, data: bytes) -> None:
         logger.debug(f"Sending {len(data)} bytes")
         for packet in smppacket.encode(data, line_length=self.mtu):
@@ -123,6 +140,7 @@ class SMPSerialTransport(SMPTransport):
 
         logger.debug(f"Sent {len(data)} bytes")
 
+    @override
     async def receive(self) -> bytes:
         decoder = smppacket.decode()
         next(decoder)
@@ -231,16 +249,18 @@ class SMPSerialTransport(SMPTransport):
 
                 return out
 
+    @override
     async def send_and_receive(self, data: bytes) -> bytes:
         await self.send(data)
         return await self.receive()
 
+    @override
     @property
     def mtu(self) -> int:
         return self._mtu
 
-    @cached_property
     @override
+    @cached_property
     def max_unencoded_size(self) -> int:
         """The serial transport encodes each packet instead of sending SMP messages as raw bytes.
 

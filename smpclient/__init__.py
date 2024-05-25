@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from hashlib import sha256
 from types import TracebackType
@@ -12,10 +13,15 @@ from smp import header as smpheader
 from smp import message as smpmsg
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
-from smpclient.generics import SMPRequest, TEr0, TEr1, TErr, TRep, error, flatten_error, success
+from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
+
+try:
+    from asyncio import timeout  # type: ignore
+except ImportError:  # backport for Python3.10 and below
+    from async_timeout import timeout  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +32,16 @@ class SMPClient:
         self._transport: Final = transport
         self._address: Final = address
 
-    async def connect(self) -> None:
+    async def connect(self, timeout_s: float = 5.0) -> None:
         """Connect to the SMP server."""
-        await self._transport.connect(self._address)
+        await self._transport.connect(self._address, timeout_s)
         await self._initialize()
 
     async def disconnect(self) -> None:
         """Disconnect from the SMP server."""
         await self._transport.disconnect()
 
-    async def request(self, request: SMPRequest[TRep, TEr0, TEr1, TErr]) -> TRep | TErr:
+    async def request(self, request: SMPRequest[TRep, TEr0, TEr1]) -> TRep | TEr0 | TEr1:
         """Make an `SMPRequest` to the SMP server."""
 
         frame = await self._transport.send_and_receive(request.BYTES)
@@ -48,11 +54,20 @@ class SMPClient:
         try:
             return request._Response.loads(frame)  # type: ignore
         except ValidationError:
-            return flatten_error(  # type: ignore
-                request._ErrorV0.loads(frame)
-                if header.version == smpheader.Version.V0
-                else request._ErrorV1.loads(frame)
+            pass
+        try:
+            return request._ErrorV0.loads(frame)
+        except ValidationError:
+            pass
+        try:
+            return request._ErrorV1.loads(frame)
+        except ValidationError:
+            error_message = (
+                f"Response could not by parsed as one of {request._Response}, "
+                f"{request._ErrorV0}, or {request._ErrorV1}. {header=} {frame=}"
             )
+            logger.error(error_message)
+            raise ValidationError(error_message)
 
     async def upload(
         self, image: bytes, slot: int = 0, upgrade: bool = False
@@ -180,11 +195,15 @@ class SMPClient:
     async def _initialize(self) -> None:
         """Gather initialization information from the SMP server."""
 
-        mcumgr_parameters = await self.request(MCUMgrParametersRead())
-        if success(mcumgr_parameters):
-            logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
-            self._transport.initialize(mcumgr_parameters.buf_size)
-        elif error(mcumgr_parameters):
-            logger.error(f"MCUMgr parameters error: {mcumgr_parameters}")
-        else:
-            raise Exception("Unreachable")
+        try:
+            async with timeout(2):
+                mcumgr_parameters = await self.request(MCUMgrParametersRead())
+                if success(mcumgr_parameters):
+                    logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
+                    self._transport.initialize(mcumgr_parameters.buf_size)
+                elif error(mcumgr_parameters):
+                    logger.warning(f"Error reading MCUMgr parameters: {mcumgr_parameters}")
+                else:
+                    raise Exception("Unreachable")
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for MCUMgr parameters")

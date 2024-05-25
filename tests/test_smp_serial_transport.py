@@ -28,7 +28,7 @@ def test_constructor() -> None:
 async def test_connect(_: MagicMock) -> None:
     t = SMPSerialTransport()
 
-    await t.connect("COM2")
+    await t.connect("COM2", 1.0)
     assert t._conn.port == "COM2"
 
     t._conn.open.assert_called_once()  # type: ignore
@@ -37,7 +37,7 @@ async def test_connect(_: MagicMock) -> None:
 
     t = SMPSerialTransport()
 
-    await t.connect("/dev/ttyACM0")
+    await t.connect("/dev/ttyACM0", 1.0)
     assert t._conn.port == "/dev/ttyACM0"
 
     t._conn.open.assert_called_once()  # type: ignore
