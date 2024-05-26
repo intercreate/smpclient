@@ -29,7 +29,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="Do an SMP DFU test")
     parser.add_argument("board", help='Name of the board; the "BUT"')
 
-    dut_folder: Final = Path(__file__).parent.parent / "duts" / parser.parse_args().board
+    dut_folder: Final = Path(__file__).parent.parent / "duts" / parser.parse_args().board / "ble"
     print(f"Using DUT folder: {dut_folder}")
     merged_hex_path: Final = dut_folder / "a_smp_dut.merged.hex"
 
