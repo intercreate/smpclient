@@ -17,7 +17,7 @@ def test_constructor() -> None:
     t = SMPSerialTransport()
     assert isinstance(t._conn, Serial)
 
-    t = SMPSerialTransport(mtu=512)
+    t = SMPSerialTransport(max_smp_encoded_frame_size=512, line_length=128, line_buffers=4)
     assert isinstance(t._conn, Serial)
     assert t.mtu == 512
     assert t.max_unencoded_size < 512

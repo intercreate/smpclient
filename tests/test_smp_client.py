@@ -288,19 +288,29 @@ async def test_upload_hello_world_bin(
     assert accumulated_image == image
 
 
-@patch('tests.test_smp_client.SMPSerialTransport.mtu', new_callable=PropertyMock)
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mtu", [48, 80, 124, 127, 256, 512, 1024, 2048, 4096, 8192])
-async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock, mtu: int) -> None:
-    mock_mtu.return_value = mtu
-
+@pytest.mark.parametrize(
+    "max_smp_encoded_frame_size", [20, 48, 80, 124, 127, 256, 512, 1024, 2048, 4096, 8192]
+)
+@pytest.mark.parametrize("line_buffers", [1, 2, 3, 4, 8])
+async def test_upload_hello_world_bin_encoded(
+    max_smp_encoded_frame_size: int, line_buffers: int
+) -> None:
     with open(
         str(Path("tests", "fixtures", "zephyr-v3.5.0-2795-g28ff83515d", "hello_world.signed.bin")),
         'rb',
     ) as f:
         image = f.read()
 
-    m = SMPSerialTransport()
+    line_length = max_smp_encoded_frame_size // line_buffers
+    if line_length < 25:
+        pytest.skip("The line buffer size is too small")
+
+    m = SMPSerialTransport(
+        max_smp_encoded_frame_size=max_smp_encoded_frame_size,
+        line_length=line_length,
+        line_buffers=line_buffers,
+    )
     s = SMPClient(m, "address")
 
     packets: List[bytes] = []
@@ -322,9 +332,6 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock, mtu: int) 
         return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
-
-    # refer to: https://docs.python.org/3/library/unittest.mock.html#unittest.mock.PropertyMock
-    # type(m).mtu = PropertyMock(return_value=mtu)  # type: ignore
 
     assert (
         s._transport.max_unencoded_size < s._transport.mtu

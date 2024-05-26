@@ -84,11 +84,27 @@ class SMPClient:
         upgrade: bool = False,
         first_timeout_s: float = 40.000,
         subsequent_timeout_s: float = 2.500,
+        use_sha: bool = True,
     ) -> AsyncIterator[int]:
-        """Iteratively upload an `image` to `slot`, yielding the offset."""
+        """Iteratively upload an `image` to `slot`, yielding the offset.
 
-        if self._transport.max_unencoded_size < 23:
-            raise Exception("Upload requires an MTU >=23.")
+        Parameters:
+        - `image`: the `bytes` to upload
+        - `slot`: the slot to upload to (0 for default)
+        - `upgrade`: `True` to mark the image as confirmed.  This is unsafe and
+            can cause a boot-loop that could brick the device.  This setting
+            should be left at the default `False` and the image should be
+            confirmed from within the upgraded application.  Zephyr provides
+            [boot_write_img_confirmed()](https://docs.zephyrproject.org/apidoc/latest/group__mcuboot__api.html#ga95ccc9e1c7460fec16b9ce9ac8ad7a72)
+            for this purpose.
+        - `first_timeout_s`: the timeout for the first `ImageUploadWrite` request
+        - `subsequent_timeout_s`: the timeout for subsequent `ImageUploadWrite` requests
+        - `use_sha`: `True` to include the SHA256 hash of the image in the first
+            packet.
+            - Zephyr's SMP server will fail with `MGMT_ERR.EINVAL` if the
+            MTU is too small to include both the SHA256 and the first 32-bytes
+            of the image.  Increase the MTU or set `use_sha=False` in this case.
+        """
 
         response = await self.request(
             self._maximize_packet(
@@ -97,7 +113,7 @@ class SMPClient:
                     data=b"",
                     image=slot,
                     len=len(image),
-                    sha=sha256(image).digest(),
+                    sha=sha256(image).digest() if use_sha else None,
                     upgrade=upgrade,
                 ),
                 image,
