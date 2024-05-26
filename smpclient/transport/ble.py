@@ -87,10 +87,8 @@ class SMPBLETransport(SMPTransport):
 
         logger.debug(f"Found SMP characteristic: {smp_characteristic=}")
         logger.info(f"{smp_characteristic.max_write_without_response_size=}")
-        if (
-            platform.system() == "Windows"
-            and smp_characteristic.max_write_without_response_size == 20
-        ):
+        self._max_write_without_response_size = smp_characteristic.max_write_without_response_size
+        if platform.system() == "Windows" and self._max_write_without_response_size == 20:
             # https://github.com/hbldh/bleak/pull/1552#issuecomment-2105573291
             logger.warning(
                 "The SMP characteristic MTU is 20 bytes, possibly a Windows bug, checking again"
