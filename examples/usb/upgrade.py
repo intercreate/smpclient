@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import logging
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -23,16 +24,22 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+HEX_PATTERN: Final = re.compile(r'a_smp_dut_(\d+)_(\d+)_(\d+).merged.hex')
+
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Do an SMP DFU test")
     parser.add_argument("board", help='Name of the board; the "BUT"')
     parser.add_argument(
-        "--hex", help="The SMP server merged.hex", default="a_smp_dut.merged.hex", required=False
+        "--hex",
+        help="a_smp_dut_<line_length>_<line_buffers>_<netbuf_size>.merged.hex",
+        default="a_smp_dut.merged.hex",
+        required=False,
+        type=str,
     )
     args: Final = parser.parse_args()
 
-    hex: Final = args.hex
+    hex: Final[str] = args.hex
     print(f"Using hex: {hex}")
     if hex == "a_smp_dut.merged.hex":
         # This is the default config if a user follows the Zephyr example:
@@ -43,11 +50,25 @@ async def main() -> None:
 
         line_length = 128  # CONFIG_UART_MCUMGR_RX_BUF_SIZE=128
         line_buffers = 2  # CONFIG_UART_MCUMGR_RX_BUF_COUNT=2
-        max_smp_encoded_frame_size = 256  # CONFIG_MCUMGR_TRANSPORT_UART_MTU=256
+        max_smp_encoded_frame_size = 256  # CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE=256
+    else:
+        match = HEX_PATTERN.match(hex)
+        if match is None:
+            raise ValueError(
+                f"Cannot parse line_length, line_buffers, max_smp_encoded_frame_size: {hex}"
+            )
+        line_length, line_buffers, max_smp_encoded_frame_size = map(int, match.groups())
+
+    print(f"Using line_length: {line_length}")
+    print(f"Using line_buffers: {line_buffers}")
+    print(f"Using max_smp_encoded_frame_size (netbuf): {max_smp_encoded_frame_size}")
+
+    a_smp_bin: Final = hex.replace(".merged.hex", ".bin")
+    print(f"Using a_smp_dut.bin: {a_smp_bin}")
 
     dut_folder: Final = Path(__file__).parent.parent / "duts" / args.board / "usb"
     print(f"Using DUT folder: {dut_folder}")
-    merged_hex_path: Final = dut_folder / "a_smp_dut.merged.hex"
+    merged_hex_path: Final = dut_folder / hex
 
     print(f"Using merged.hex: {merged_hex_path}")
 
@@ -59,7 +80,7 @@ async def main() -> None:
         == 0
     )
 
-    a_smp_dut_hash: Final = ImageInfo.load_file(str(dut_folder / "a_smp_dut.bin")).get_tlv(
+    a_smp_dut_hash: Final = ImageInfo.load_file(str(dut_folder / a_smp_bin)).get_tlv(
         IMAGE_TLV.SHA256
     )
     print(f"A SMP DUT hash: {a_smp_dut_hash}")
