@@ -14,7 +14,7 @@ from serial import Serial, SerialException
 from smp import packet as smppacket
 from typing_extensions import override
 
-from smpclient.transport import SMPTransport
+from smpclient.transport import SMPTransport, SMPTransportDisconnected
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,9 @@ class SMPSerialTransport(SMPTransport):
 
     def __init__(
         self,
-        mtu: int = 4096,
+        max_smp_encoded_frame_size: int = 256,
+        line_length: int = 128,
+        line_buffers: int = 2,
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
@@ -79,9 +81,42 @@ class SMPSerialTransport(SMPTransport):
         write_timeout: float | None = None,
         dsrdtr: bool = False,
         inter_byte_timeout: float | None = None,
-        exclusive: float | None = None,
+        exclusive: bool | None = None,
     ) -> None:
-        self._mtu: Final = mtu
+        """Initialize the serial transport.
+
+        Parameters:
+        - `max_smp_encoded_frame_size`: The maximum size of an encoded SMP
+            frame.  The SMP server needs to have a buffer large enough to
+            receive the encoded frame packets and to store the decoded frame.
+        - `line_length`: The maximum SMP packet size.
+        - `line_buffers`: The number of line buffers in the serial buffer.
+        - `baudrate`: The baudrate of the serial connection.  OK to ignore for
+            USB CDC ACM.
+        - `bytesize`: The number of data bits.
+        - `parity`: The parity setting.
+        - `stopbits`: The number of stop bits.
+        - `timeout`: The read timeout.
+        - `xonxoff`: Enable software flow control.
+        - `rtscts`: Enable hardware (RTS/CTS) flow control.
+        - `write_timeout`: The write timeout.
+        - `dsrdtr`: Enable hardware (DSR/DTR) flow control.
+        - `inter_byte_timeout`: The inter-byte timeout.
+        - `exclusive`: The exclusive access timeout.
+
+        """
+        if max_smp_encoded_frame_size < line_length * line_buffers:
+            logger.error(
+                f"{max_smp_encoded_frame_size=} is less than {line_length=} * {line_buffers=}!"
+            )
+        elif max_smp_encoded_frame_size != line_length * line_buffers:
+            logger.warning(
+                f"{max_smp_encoded_frame_size=} is not equal to {line_length=} * {line_buffers=}!"
+            )
+
+        self._max_smp_encoded_frame_size: Final = max_smp_encoded_frame_size
+        self._line_length: Final = line_length
+        self._line_buffers: Final = line_buffers
         self._conn: Final = Serial(
             baudrate=baudrate,
             bytesize=bytesize,
@@ -125,18 +160,24 @@ class SMPSerialTransport(SMPTransport):
 
     @override
     async def send(self, data: bytes) -> None:
+        if len(data) > self.max_unencoded_size:
+            raise ValueError(
+                f"Data size {len(data)} exceeds maximum unencoded size {self.max_unencoded_size}"
+            )
         logger.debug(f"Sending {len(data)} bytes")
-        for packet in smppacket.encode(data, line_length=self.mtu):
-            if len(packet) > self.mtu:  # pragma: no cover
-                raise Exception(
-                    f"Encoded packet size {len(packet)} exceeds {self.mtu=}, this is a bug!"
-                )
-            self._conn.write(packet)
-            logger.debug(f"Writing encoded packet of size {len(packet)}B; {self.mtu=}")
+        try:
+            for packet in smppacket.encode(data, line_length=self._line_length):
+                self._conn.write(packet)
+                logger.debug(f"Writing encoded packet of size {len(packet)}B; {self._line_length=}")
 
-        # fake async until I get around to replacing pyserial
-        while self._conn.out_waiting > 0:
-            await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
+            # fake async until I get around to replacing pyserial
+            while self._conn.out_waiting > 0:
+                await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
+        except SerialException as e:
+            logger.error(f"Failed to send {len(data)} bytes: {e}")
+            raise SMPTransportDisconnected(
+                f"{self.__class__.__name__} disconnected from {self._conn.port}"
+            )
 
         logger.debug(f"Sent {len(data)} bytes")
 
@@ -153,6 +194,11 @@ class SMPSerialTransport(SMPTransport):
             except StopIteration as e:
                 logger.debug(f"Finished receiving {len(e.value)} byte response")
                 return e.value
+            except SerialException as e:
+                logger.error(f"Failed to receive response: {e}")
+                raise SMPTransportDisconnected(
+                    f"{self.__class__.__name__} disconnected from {self._conn.port}"
+                )
 
     async def _readuntil(self) -> bytes:
         """Read `bytes` until the `delimiter` then return the `bytes` including the `delimiter`."""
@@ -257,32 +303,23 @@ class SMPSerialTransport(SMPTransport):
     @override
     @property
     def mtu(self) -> int:
-        return self._mtu
+        return self._max_smp_encoded_frame_size
 
     @override
     @cached_property
     def max_unencoded_size(self) -> int:
-        """The serial transport encodes each packet instead of sending SMP messages as raw bytes.
+        """The serial transport encodes each packet instead of sending SMP messages as raw bytes."""
 
-        The worst case size of an encoded SMP packet is:
-        ```
-        base64_cost(
-            len(smp_message) + len(frame_length) + len(frame_crc16)
-        ) + len(delimiter) + len(line_ending)
-        ```
-        This simplifies to:
-        ```
-        base64_cost(len(smp_message) + 4) + 3
-        ```
-
-        This property specifies the maximum size of an SMP message before it has been encoded for
-        the serial transport.
-        """
-
+        # For each packet, AKA line_buffer, include the cost of the base64
+        # encoded frame_length and CRC16 and the start/continue delimiter.
+        # Add to that the cost of the stop delimiter.
         packet_framing_size: Final = (
             _base64_cost(smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size)
             + smppacket.DELIMITER_SIZE
-            + len(smppacket.CR)
-        )
+        ) * self._line_buffers + len(smppacket.CR)
 
+        # Get the number of unencoded bytes that can fit in self.mtu and
+        # subtract the cost of framing the separate packets.
+        # This is the maximum number of unencoded bytes that can be received by
+        # the SMP server with this transport configuration.
         return _base64_max(self.mtu) - packet_framing_size

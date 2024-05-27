@@ -32,6 +32,7 @@ async def main() -> None:
     dut_folder: Final = Path(__file__).parent.parent / "duts" / parser.parse_args().board / "ble"
     print(f"Using DUT folder: {dut_folder}")
     merged_hex_path: Final = dut_folder / "a_smp_dut.merged.hex"
+    print(f"Using merged.hex: {merged_hex_path}")
 
     print("Flashing the merged.hex...")
     assert (
