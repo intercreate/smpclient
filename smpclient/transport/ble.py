@@ -17,7 +17,7 @@ from smp import header as smphdr
 from typing_extensions import TypeGuard, override
 
 from smpclient.exceptions import SMPClientException
-from smpclient.transport import SMPTransport
+from smpclient.transport import SMPTransport, SMPTransportDisconnected
 
 if sys.platform == "linux":
     from bleak.backends.bluezdbus.client import BleakClientBlueZDBus
@@ -57,6 +57,8 @@ class SMPBLETransport(SMPTransport):
     def __init__(self) -> None:
         self._buffer = bytearray()
         self._notify_condition = asyncio.Condition()
+        self._disconnected_event = asyncio.Event()
+        self._disconnected_event.set()
 
         self._max_write_without_response_size = 20
         """Initially set to BLE minimum; may be mutated by the `connect()` method."""
@@ -73,12 +75,17 @@ class SMPBLETransport(SMPTransport):
         )
 
         if type(device) is BLEDevice:
-            self._client = BleakClient(device, services=(str(SMP_SERVICE_UUID),))
+            self._client = BleakClient(
+                device,
+                services=(str(SMP_SERVICE_UUID),),
+                disconnected_callback=self._set_disconnected_event,
+            )
         else:
             raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
 
         logger.debug(f"Found device: {device=}, connecting...")
         await self._client.connect()
+        self._disconnected_event.clear()
         logger.debug(f"Connected to {device=}")
 
         smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
@@ -136,7 +143,7 @@ class SMPBLETransport(SMPTransport):
 
         async with self._notify_condition:  # wait for the header
             logger.debug(f"Waiting for notify on {SMP_CHARACTERISTIC_UUID=}")
-            await self._notify_condition.wait()
+            await self._notify_or_disconnect()
 
             if len(self._buffer) < smphdr.Header.SIZE:  # pragma: no cover
                 raise SMPBLETransportException(
@@ -158,7 +165,7 @@ class SMPBLETransport(SMPTransport):
                     return out
                 elif len(self._buffer) > message_length:  # pragma: no cover
                     raise SMPBLETransportException("Length of buffer passed expected message size.")
-                await self._notify_condition.wait()
+                await self._notify_or_disconnect()
 
     async def _notify_callback(self, sender: BleakGATTCharacteristic, data: bytes) -> None:
         if sender.uuid != str(SMP_CHARACTERISTIC_UUID):  # pragma: no cover
@@ -193,3 +200,28 @@ class SMPBLETransport(SMPTransport):
     @staticmethod
     def _bluez_backend(client_backend: BaseBleakClient) -> TypeGuard[BleakClientBlueZDBus]:
         return client_backend.__class__.__name__ == "BleakClientBlueZDBus"
+
+    def _set_disconnected_event(self, client: BleakClient) -> None:
+        if client is not self._client:
+            raise SMPBLETransportException(
+                f"Unexpected client disconnected: {client=}, {self._client=}"
+            )
+        logger.warning(f"Disconnected from {client.address}")
+        self._disconnected_event.set()
+
+    async def _notify_or_disconnect(self) -> None:
+        disconnected_task: Final = asyncio.create_task(self._disconnected_event.wait())
+        notify_task: Final = asyncio.create_task(self._notify_condition.wait())
+        done, pending = await asyncio.wait(
+            (disconnected_task, notify_task), return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        try:
+            await asyncio.gather(*pending)
+        except asyncio.CancelledError:
+            pass
+        if disconnected_task in done:
+            raise SMPTransportDisconnected(
+                f"{self.__class__.__name__} disconnected from {self._client.address}"
+            )

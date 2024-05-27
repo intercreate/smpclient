@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Protocol
 
 
+class SMPTransportDisconnected(Exception):
+    ...
+
+
 class SMPTransport(Protocol):
     _smp_server_transport_buffer_size: int | None = None
     """The SMP server transport buffer size, in 8-bit bytes."""
