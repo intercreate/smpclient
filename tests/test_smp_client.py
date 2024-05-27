@@ -208,7 +208,8 @@ async def test_upload() -> None:
             len=len(image),
             sha=sha256(image).digest(),
             upgrade=False,
-        )
+        ),
+        timeout_s=40.000,
     )
 
     s.request.return_value = ImageUploadWrite._Response.get_default()(off=415 + 474)  # type: ignore
@@ -227,7 +228,8 @@ async def test_upload() -> None:
             ),
             off=415,
             data=image[415 : 415 + 474],
-        )
+        ),
+        timeout_s=2.500,
     )
 
     # assert that upload() raises SMPUploadError
@@ -272,7 +274,9 @@ async def test_upload_hello_world_bin(
 
     accumulated_image = bytearray([])
 
-    async def mock_request(request: ImageUploadWrite) -> ImageUploadProgressWriteResponse:
+    async def mock_request(
+        request: ImageUploadWrite, timeout_s: float = 120.000
+    ) -> ImageUploadProgressWriteResponse:
         accumulated_image.extend(request.data)
         return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
 
@@ -309,7 +313,9 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock, mtu: int) 
     s._transport._conn.write = mock_write  # type: ignore
     type(s._transport._conn).out_waiting = 0  # type: ignore
 
-    async def mock_request(request: ImageUploadWrite) -> ImageUploadProgressWriteResponse:
+    async def mock_request(
+        request: ImageUploadWrite, timeout_s: float = 120.000
+    ) -> ImageUploadProgressWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
         await s._transport.send(request.BYTES)
