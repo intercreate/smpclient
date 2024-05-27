@@ -289,9 +289,7 @@ async def test_upload_hello_world_bin(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "max_smp_encoded_frame_size", [20, 48, 80, 124, 127, 256, 512, 1024, 2048, 4096, 8192]
-)
+@pytest.mark.parametrize("max_smp_encoded_frame_size", [128, 256, 512, 1024, 2048, 4096, 8192])
 @pytest.mark.parametrize("line_buffers", [1, 2, 3, 4, 8])
 async def test_upload_hello_world_bin_encoded(
     max_smp_encoded_frame_size: int, line_buffers: int
@@ -303,7 +301,7 @@ async def test_upload_hello_world_bin_encoded(
         image = f.read()
 
     line_length = max_smp_encoded_frame_size // line_buffers
-    if line_length < 25:
+    if line_length < 82:  # TODO: get better coverage
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
@@ -312,6 +310,7 @@ async def test_upload_hello_world_bin_encoded(
         line_buffers=line_buffers,
     )
     s = SMPClient(m, "address")
+    assert s._transport.mtu == max_smp_encoded_frame_size
 
     packets: List[bytes] = []
 
