@@ -67,3 +67,8 @@ Fast USB CDC ACM:
 ```
 west build -b nrf52840dk_nrf52840 zephyr/samples/subsys/mgmt/mcumgr/smp_svr -- -DEXTRA_CONF_FILE="overlay-cdc.conf;${ENVR_ROOT}/usb_smp_dut.conf;${ENVR_ROOT}/usb_smp_dut_mtu4096.conf" -DEXTRA_DTC_OVERLAY_FILE="usb.overlay"mp_dut_mtu4096.conf" -DEXTRA_DTC_OVERLAY_FILE="usb.overlay"
 ```
+
+MCUBoot configuration with SMP USB DFU. USB PID will be 0x000C in bootloader.
+```
+west build -b nrf52840dk_nrf52840 zephyr/samples/subsys/mgmt/mcumgr/smp_svr -- -DEXTRA_CONF_FILE="overlay-bt.conf;overlay-cdc.conf;${ENVR_ROOT}/usb_a_smp_dut.conf" -DEXTRA_DTC_OVERLAY_FILE="usb.overlay" -Dmcuboot_CONF_FILE="../../../../mcuboot_usb.conf" -Dmcuboot_DTS_FILE="../../../../mcuboot_usb.overlay"
+```
