@@ -41,10 +41,18 @@ class SMPClient:
         """Disconnect from the SMP server."""
         await self._transport.disconnect()
 
-    async def request(self, request: SMPRequest[TRep, TEr0, TEr1]) -> TRep | TEr0 | TEr1:
+    async def request(
+        self, request: SMPRequest[TRep, TEr0, TEr1], timeout_s: float = 120.000
+    ) -> TRep | TEr0 | TEr1:
         """Make an `SMPRequest` to the SMP server."""
 
-        frame = await self._transport.send_and_receive(request.BYTES)
+        try:
+            async with timeout(timeout_s):
+                frame = await self._transport.send_and_receive(request.BYTES)
+        except asyncio.TimeoutError:
+            timeout_message: Final = f"Timeout ({timeout_s}s) waiting for request {request}"
+            logger.error(timeout_message)
+            raise TimeoutError(timeout_message)
 
         header = smpheader.Header.loads(frame[: smpheader.Header.SIZE])
 
@@ -70,7 +78,12 @@ class SMPClient:
             raise ValidationError(error_message)
 
     async def upload(
-        self, image: bytes, slot: int = 0, upgrade: bool = False
+        self,
+        image: bytes,
+        slot: int = 0,
+        upgrade: bool = False,
+        first_timeout_s: float = 40.000,
+        subsequent_timeout_s: float = 2.500,
     ) -> AsyncIterator[int]:
         """Iteratively upload an `image` to `slot`, yielding the offset."""
 
@@ -88,7 +101,8 @@ class SMPClient:
                     upgrade=upgrade,
                 ),
                 image,
-            )
+            ),
+            timeout_s=first_timeout_s,
         )
 
         if error(response):
@@ -103,7 +117,8 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
             response = await self.request(
-                self._maximize_packet(ImageUploadWrite(off=response.off, data=b""), image)
+                self._maximize_packet(ImageUploadWrite(off=response.off, data=b""), image),
+                timeout_s=subsequent_timeout_s,
             )
             if error(response):
                 raise SMPUploadError(response)
