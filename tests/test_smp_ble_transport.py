@@ -170,6 +170,7 @@ async def test_receive() -> None:
     t._client = MagicMock(spec=BleakClient)
     t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
     t._smp_characteristic.uuid = str(SMP_CHARACTERISTIC_UUID)
+    t._disconnected_event.clear()  # pretend t.connect() was successful
 
     REP = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!").BYTES  # type: ignore
 
