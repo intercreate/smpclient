@@ -14,7 +14,7 @@ from serial import Serial, SerialException
 from smp import packet as smppacket
 from typing_extensions import override
 
-from smpclient.transport import SMPTransport
+from smpclient.transport import SMPTransport, SMPTransportDisconnected
 
 logger = logging.getLogger(__name__)
 
@@ -160,14 +160,24 @@ class SMPSerialTransport(SMPTransport):
 
     @override
     async def send(self, data: bytes) -> None:
+        if len(data) > self.max_unencoded_size:
+            raise ValueError(
+                f"Data size {len(data)} exceeds maximum unencoded size {self.max_unencoded_size}"
+            )
         logger.debug(f"Sending {len(data)} bytes")
-        for packet in smppacket.encode(data, line_length=self._line_length):
-            self._conn.write(packet)
-            logger.debug(f"Writing encoded packet of size {len(packet)}B; {self._line_length=}")
+        try:
+            for packet in smppacket.encode(data, line_length=self._line_length):
+                self._conn.write(packet)
+                logger.debug(f"Writing encoded packet of size {len(packet)}B; {self._line_length=}")
 
-        # fake async until I get around to replacing pyserial
-        while self._conn.out_waiting > 0:
-            await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
+            # fake async until I get around to replacing pyserial
+            while self._conn.out_waiting > 0:
+                await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
+        except SerialException as e:
+            logger.error(f"Failed to send {len(data)} bytes: {e}")
+            raise SMPTransportDisconnected(
+                f"{self.__class__.__name__} disconnected from {self._conn.port}"
+            )
 
         logger.debug(f"Sent {len(data)} bytes")
 
@@ -184,6 +194,11 @@ class SMPSerialTransport(SMPTransport):
             except StopIteration as e:
                 logger.debug(f"Finished receiving {len(e.value)} byte response")
                 return e.value
+            except SerialException as e:
+                logger.error(f"Failed to receive response: {e}")
+                raise SMPTransportDisconnected(
+                    f"{self.__class__.__name__} disconnected from {self._conn.port}"
+                )
 
     async def _readuntil(self) -> bytes:
         """Read `bytes` until the `delimiter` then return the `bytes` including the `delimiter`."""
