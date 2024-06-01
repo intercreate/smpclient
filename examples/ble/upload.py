@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import logging
 import time
 from typing import Final
 
@@ -9,6 +10,12 @@ from smpclient import SMPClient
 from smpclient.generics import error, success
 from smpclient.requests.image_management import ImageStatesRead
 from smpclient.transport.ble import SMPBLETransport
+
+logging.basicConfig(
+    format="%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s",
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 async def main() -> None:
@@ -23,7 +30,9 @@ async def main() -> None:
     print(f"Found {len(smp_servers)} SMP servers: {smp_servers}")
 
     print("Connecting to the first SMP server...", end="", flush=True)
-    async with SMPClient(SMPBLETransport(), smp_servers[0].address) as client:
+    async with SMPClient(
+        SMPBLETransport(), smp_servers[0].name or smp_servers[0].address
+    ) as client:
         print("OK")
 
         print("Sending request...", end="", flush=True)
