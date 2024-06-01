@@ -145,6 +145,15 @@ class SMPClient:
             else:  # pragma: no cover
                 raise Exception("Unreachable")
 
+        logger.info("Upload complete")
+
+        if response.match is not None:
+            logger.info(f"Server reports {response.match=}")
+            if response.match is not True:
+                message: Final = f"Upload failed, server reported mismatched SHA256: {response}"
+                logger.error(message)
+                raise SMPUploadError(message)
+
     @property
     def address(self) -> str:
         return self._address
