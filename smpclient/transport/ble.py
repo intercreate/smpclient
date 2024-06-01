@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import platform
 import re
 import sys
-from typing import Final, List
+from typing import Final, List, Protocol
 from uuid import UUID
 
 from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
@@ -23,8 +22,21 @@ if sys.platform == "linux":
     from bleak.backends.bluezdbus.client import BleakClientBlueZDBus
 else:  # stub for mypy
 
-    class BleakClientBlueZDBus:
+    class BleakClientBlueZDBus(Protocol):
         async def _acquire_mtu(self) -> None:
+            ...
+
+
+if sys.platform == "win32":
+    from bleak.backends.winrt.client import BleakClientWinRT
+else:  # stub for mypy
+
+    class GattSession(Protocol):
+        max_pdu_size: int
+
+    class BleakClientWinRT(Protocol):
+        @property
+        def _session(self) -> GattSession:
             ...
 
 
@@ -95,7 +107,10 @@ class SMPBLETransport(SMPTransport):
         logger.debug(f"Found SMP characteristic: {smp_characteristic=}")
         logger.info(f"{smp_characteristic.max_write_without_response_size=}")
         self._max_write_without_response_size = smp_characteristic.max_write_without_response_size
-        if platform.system() == "Windows" and self._max_write_without_response_size == 20:
+        if (
+            self._winrt_backend(self._client._backend)
+            and self._max_write_without_response_size == 20
+        ):
             # https://github.com/hbldh/bleak/pull/1552#issuecomment-2105573291
             logger.warning(
                 "The SMP characteristic MTU is 20 bytes, possibly a Windows bug, checking again"
@@ -200,6 +215,10 @@ class SMPBLETransport(SMPTransport):
     @staticmethod
     def _bluez_backend(client_backend: BaseBleakClient) -> TypeGuard[BleakClientBlueZDBus]:
         return client_backend.__class__.__name__ == "BleakClientBlueZDBus"
+
+    @staticmethod
+    def _winrt_backend(client_backend: BaseBleakClient) -> TypeGuard[BleakClientWinRT]:
+        return client_backend.__class__.__name__ == "BleakClientWinRT"
 
     def _set_disconnected_event(self, client: BleakClient) -> None:
         if client is not self._client:
