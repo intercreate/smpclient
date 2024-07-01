@@ -15,7 +15,7 @@ class ImageStatesWrite(smpimg.ImageStatesWriteRequest, _ImageGroupBase):
 
 
 class ImageUploadWrite(smpimg.ImageUploadWriteRequest, _ImageGroupBase):
-    _Response = smpimg.ImageUploadProgressWriteResponse
+    _Response = smpimg.ImageUploadWriteResponse
 
 
 class ImageErase(smpimg.ImageEraseRequest, _ImageGroupBase):

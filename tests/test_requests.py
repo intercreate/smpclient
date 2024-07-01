@@ -39,7 +39,7 @@ from smpclient.requests.user import intercreate as ic
         (
             smpimg.ImageUploadWriteRequest(off=0, data=b"a"),
             ImageUploadWrite(off=0, data=b"a"),
-            smpimg.ImageUploadProgressWriteResponse,
+            smpimg.ImageUploadWriteResponse,
             smpimg.ImageManagementErrorV0,
             smpimg.ImageManagementErrorV1,
         ),

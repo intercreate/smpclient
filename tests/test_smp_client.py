@@ -17,8 +17,8 @@ from smp.image_management import (
     IMG_MGMT_ERR,
     ImageManagementErrorV0,
     ImageManagementErrorV1,
-    ImageUploadProgressWriteResponse,
     ImageUploadWriteRequest,
+    ImageUploadWriteResponse,
 )
 from smp.os_management import (
     OS_MGMT_RET_RC,
@@ -276,7 +276,7 @@ async def test_upload_hello_world_bin(
 
     async def mock_request(
         request: ImageUploadWrite, timeout_s: float = 120.000
-    ) -> ImageUploadProgressWriteResponse:
+    ) -> ImageUploadWriteResponse:
         accumulated_image.extend(request.data)
         return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
 
@@ -324,7 +324,7 @@ async def test_upload_hello_world_bin_encoded(
 
     async def mock_request(
         request: ImageUploadWrite, timeout_s: float = 120.000
-    ) -> ImageUploadProgressWriteResponse:
+    ) -> ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
         await s._transport.send(request.BYTES)
