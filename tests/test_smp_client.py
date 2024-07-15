@@ -15,6 +15,7 @@ from smp.error import MGMT_ERR
 from smp.error import Err as SMPErr
 from smp.file_management import (
     FS_MGMT_ERR,
+    FileDownloadResponse,
     FileSystemManagementErrorV0,
     FileSystemManagementErrorV1,
     FileUploadResponse,
@@ -36,7 +37,7 @@ from smp.os_management import (
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import error, error_v0, error_v1, success
-from smpclient.requests.file_management import FileUpload
+from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import SMPSerialTransport
@@ -380,7 +381,7 @@ async def test_upload_file() -> None:
     data = bytes([i % 255 for i in range(4097)])
     req = FileUpload(off=0, data=data[:chunk_size], len=len(data), name="test.txt")
 
-    u = s.upload_file(data, file_destination="test.txt")
+    u = s.upload_file(data, file_path="test.txt")
     h = cast(smphdr.Header, req.header)
 
     s.request.return_value = FileUpload._Response.get_default()(off=455)  # type: ignore
@@ -434,7 +435,7 @@ async def test_upload_file() -> None:
     with pytest.raises(SMPUploadError) as e:
         _ = await anext(u)
     assert e.value.args[0].rc == FS_MGMT_ERR.FILE_WRITE_FAILED
-    u = s.upload_file(data, file_destination="test.txt")
+    u = s.upload_file(data, file_path="test.txt")
     h = cast(smphdr.Header, req.header)
     s.request.return_value = FileSystemManagementErrorV1(
         header=req.header,
@@ -474,7 +475,7 @@ async def test_file_upload_test_txt(
 
     s.request = mock_request  # type: ignore
 
-    async for _ in s.upload_file(data, file_destination="test.txt"):
+    async for _ in s.upload_file(data, file_path="test.txt"):
         pass
 
     assert accumulated_data == data
@@ -545,3 +546,240 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
             next(decoder)
 
     assert reconstructed_file == file_data
+
+
+@pytest.mark.asyncio
+async def test_download_file() -> None:
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    s.request = AsyncMock()  # type: ignore
+
+    # refer to: https://docs.python.org/3/library/unittest.mock.html#unittest.mock.PropertyMock
+    type(m).mtu = PropertyMock(return_value=498)
+    type(m).max_unencoded_size = PropertyMock(return_value=498)
+
+    data = bytes([i % 255 for i in range(4097)])
+    req = FileDownload(off=3648, name="test.txt")
+    h = cast(smphdr.Header, req.header)
+    s.request.side_effect = [
+        FileDownloadResponse(off=0, data=data[0:456], len=4097),
+        FileDownloadResponse(off=456, data=data[456:912]),
+        FileDownloadResponse(off=912, data=data[912:1368]),
+        FileDownloadResponse(off=1368, data=data[1368:1824]),
+        FileDownloadResponse(off=1824, data=data[1824:2280]),
+        FileDownloadResponse(off=2280, data=data[2280:2736]),
+        FileDownloadResponse(off=2736, data=data[2736:3192]),
+        FileDownloadResponse(off=3192, data=data[3192:3648]),
+        FileDownloadResponse(off=3648, data=data[3648:4097]),
+    ]
+
+    file_data = await s.download_file(file_path="test.txt")
+    calls = [
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length - 2,  # Decrease size ass offset of 0 uses 2 less bytes
+                    group_id=h.group_id,
+                    sequence=h.sequence + 1,
+                    command_id=h.command_id,
+                ),
+                off=0,
+                name="test.txt",
+            ),
+            timeout_s=40.000,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 2,
+                    command_id=h.command_id,
+                ),
+                off=456,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 3,
+                    command_id=h.command_id,
+                ),
+                off=912,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 4,
+                    command_id=h.command_id,
+                ),
+                off=1368,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 5,
+                    command_id=h.command_id,
+                ),
+                off=1824,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 6,
+                    command_id=h.command_id,
+                ),
+                off=2280,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 7,
+                    command_id=h.command_id,
+                ),
+                off=2736,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 8,
+                    command_id=h.command_id,
+                ),
+                off=3192,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+        call(
+            FileDownload(
+                header=smphdr.Header(
+                    op=h.op,
+                    version=h.version,
+                    flags=h.flags,
+                    length=h.length,
+                    group_id=h.group_id,
+                    sequence=h.sequence + 9,
+                    command_id=h.command_id,
+                ),
+                off=3648,
+                name="test.txt",
+            ),
+            timeout_s=2.500,
+        ),
+    ]
+    s.request.assert_has_awaits(
+        calls,
+        any_order=False,
+    )
+
+    assert file_data == data
+
+
+@pytest.mark.asyncio
+async def test_download_file_error_first() -> None:
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    s.request = AsyncMock()  # type: ignore
+
+    req = FileDownload(off=3648, name="test.txt")
+
+    s.request.return_value = FileSystemManagementErrorV0(
+        header=req.header, sequence=req.header.sequence, rc=FS_MGMT_ERR.FILE_WRITE_FAILED  # type: ignore # noqa
+    )
+
+    with pytest.raises(SMPUploadError) as e:
+        await s.download_file("test.txt")
+    assert e.value.args[0].rc == FS_MGMT_ERR.FILE_WRITE_FAILED
+
+
+@pytest.mark.asyncio
+async def test_download_file_no_len_first() -> None:
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    s.request = AsyncMock()  # type: ignore
+
+    req = FileDownload(off=3648, name="test.txt")
+    data = bytes([i % 255 for i in range(4097)])
+
+    s.request.return_value = FileDownloadResponse(header=req.header, off=456, data=data[:456])
+
+    with pytest.raises(SMPUploadError) as e:
+        await s.download_file("test.txt")
+    assert e.value.args[0].startswith("No length received: ")
+
+
+@pytest.mark.asyncio
+async def test_download_file_error_not_first() -> None:
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    s.request = AsyncMock()  # type: ignore
+
+    req = FileDownload(off=3648, name="test.txt")
+    data = bytes([i % 255 for i in range(4097)])
+
+    s.request.side_effect = [
+        FileDownloadResponse(header=req.header, off=456, data=data[:456], len=len(data)),
+        FileSystemManagementErrorV0(
+            header=req.header, sequence=req.header.sequence, rc=FS_MGMT_ERR.FILE_WRITE_FAILED  # type: ignore # noqa
+        ),
+    ]
+    with pytest.raises(SMPUploadError) as e:
+        await s.download_file("test.txt")
+    assert e.value.args[0].rc == FS_MGMT_ERR.FILE_WRITE_FAILED

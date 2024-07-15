@@ -14,7 +14,7 @@ from smp import message as smpmsg
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
-from smpclient.requests.file_management import FileUpload
+from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
@@ -160,13 +160,13 @@ class SMPClient:
     async def upload_file(
         self,
         file_data: bytes,
-        file_destination: str,
+        file_path: str,
         first_timeout_s: float = 40.000,
         subsequent_timeout_s: float = 2.500,
     ) -> AsyncIterator[int]:
         response = await self.request(
             self._maximize_file_upload_packet(
-                FileUpload(name=file_destination, off=0, data=b"", len=len(file_data)),
+                FileUpload(name=file_path, off=0, data=b"", len=len(file_data)),
                 file_data,
             ),
             timeout_s=first_timeout_s,
@@ -185,20 +185,56 @@ class SMPClient:
         while response.off != len(file_data):
             response = await self.request(
                 self._maximize_file_upload_packet(
-                    FileUpload(name=file_destination, off=response.off, data=b""), file_data
+                    FileUpload(name=file_path, off=response.off, data=b""), file_data
                 ),
                 timeout_s=subsequent_timeout_s,
             )
             if error(response):
                 raise SMPUploadError(response)
             elif success(response):
-                if response.off is None:
-                    raise SMPUploadError(f"No offset received: {response=}")
                 yield response.off
             else:  # pragma: no cover
                 raise Exception("Unreachable")
 
         logger.info("Upload complete")
+
+    async def download_file(
+        self,
+        file_path: str,
+        first_timeout_s: float = 40.000,
+        subsequent_timeout_s: float = 2.500,
+    ) -> bytes:
+        response = await self.request(
+            FileDownload(off=0, name=file_path), timeout_s=first_timeout_s
+        )
+        file_length = 0
+
+        if error(response):
+            raise SMPUploadError(response)
+        elif success(response):
+            if response.len is None:
+                raise SMPUploadError(f"No length received: {response=}")
+            file_length = response.len
+        else:  # pragma: no cover
+            raise Exception("Unreachable")
+
+        file_data = response.data
+
+        # send chunks until the SMP server reports that the offset is at the end of the image
+        while response.off + len(response.data) != file_length:
+            response = await self.request(
+                FileDownload(off=response.off + len(response.data), name=file_path),
+                timeout_s=subsequent_timeout_s,
+            )
+            if error(response):
+                raise SMPUploadError(response)
+            elif success(response):
+                file_data += response.data
+            else:  # pragma: no cover
+                raise Exception("Unreachable")
+
+        logger.info("Download complete")
+        return file_data
 
     @property
     def address(self) -> str:

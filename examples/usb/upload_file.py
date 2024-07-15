@@ -1,9 +1,8 @@
-"""Upload a file."""
+"""Upload a file to an smp server"""
 
 import argparse
 import asyncio
 import time
-from typing import Final
 
 from smpclient import SMPClient
 from smpclient.transport.serial import SMPSerialTransport
@@ -12,10 +11,12 @@ from smpclient.transport.serial import SMPSerialTransport
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Upload an file to an smp server")
     parser.add_argument("port", help="The serial port to connect to")
-    parser.add_argument("file_destination", help="The location of the test file")
+    parser.add_argument(
+        "file_path", help="The target path where test file will be uploaded on the smp server"
+    )
     args = parser.parse_args()
     port = args.port
-    file_destination = args.file_destination
+    file_path = args.file_path
 
     file_data = b"""Test document
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla est purus, ultrices in porttitor
@@ -65,9 +66,7 @@ imperdiet ultrices orci in hendrerit.
 """
     async with SMPClient(SMPSerialTransport(), port) as client:
         start_s = time.time()
-        async for offset in client.upload_file(
-            file_data=file_data, file_destination=file_destination
-        ):
+        async for offset in client.upload_file(file_data=file_data, file_path=file_path):
             print(
                 f"\rUploaded {offset:,} / {len(file_data):,} Bytes | "
                 f"{offset / (time.time() - start_s) / 1000:.2f} KB/s           ",
