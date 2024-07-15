@@ -14,6 +14,7 @@ from smp import message as smpmsg
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
+from smpclient.requests.file_management import FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
@@ -107,7 +108,7 @@ class SMPClient:
         """
 
         response = await self.request(
-            self._maximize_packet(
+            self._maximize_image_upload_write_packet(
                 ImageUploadWrite(
                     off=0,
                     data=b"",
@@ -133,7 +134,9 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
             response = await self.request(
-                self._maximize_packet(ImageUploadWrite(off=response.off, data=b""), image),
+                self._maximize_image_upload_write_packet(
+                    ImageUploadWrite(off=response.off, data=b""), image
+                ),
                 timeout_s=subsequent_timeout_s,
             )
             if error(response):
@@ -153,6 +156,49 @@ class SMPClient:
                 message: Final = f"Upload failed, server reported mismatched SHA256: {response}"
                 logger.error(message)
                 raise SMPUploadError(message)
+
+    async def upload_file(
+        self,
+        file_data: bytes,
+        file_destination: str,
+        first_timeout_s: float = 40.000,
+        subsequent_timeout_s: float = 2.500,
+    ) -> AsyncIterator[int]:
+        response = await self.request(
+            self._maximize_file_upload_packet(
+                FileUpload(name=file_destination, off=0, data=b"", len=len(file_data)),
+                file_data,
+            ),
+            timeout_s=first_timeout_s,
+        )
+
+        if error(response):
+            raise SMPUploadError(response)
+        elif success(response):
+            if response.off is None:
+                raise SMPUploadError(f"No offset received: {response=}")
+            yield response.off
+        else:  # pragma: no cover
+            raise Exception("Unreachable")
+
+        # send chunks until the SMP server reports that the offset is at the end of the image
+        while response.off != len(file_data):
+            response = await self.request(
+                self._maximize_file_upload_packet(
+                    FileUpload(name=file_destination, off=response.off, data=b""), file_data
+                ),
+                timeout_s=subsequent_timeout_s,
+            )
+            if error(response):
+                raise SMPUploadError(response)
+            elif success(response):
+                if response.off is None:
+                    raise SMPUploadError(f"No offset received: {response=}")
+                yield response.off
+            else:  # pragma: no cover
+                raise Exception("Unreachable")
+
+        logger.info("Upload complete")
 
     @property
     def address(self) -> str:
@@ -197,14 +243,15 @@ class SMPClient:
         # the final data size is the unencoded bytes available minus the bytes
         # required to encode the data size
         data_size: Final = max(0, unencoded_bytes_available - bytes_required_to_encode_data_size)
-
         # the final CBOR size is the original header length plus the data size
         # plus the bytes required to encode the data size
         cbor_size: Final = h.length + data_size + self._cbor_integer_size(data_size)
 
         return cbor_size, data_size
 
-    def _maximize_packet(self, request: ImageUploadWrite, image: bytes) -> ImageUploadWrite:
+    def _maximize_image_upload_write_packet(
+        self, request: ImageUploadWrite, image: bytes
+    ) -> ImageUploadWrite:
         """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
 
         h: Final = cast(smpheader.Header, request.header)
@@ -230,6 +277,29 @@ class SMPClient:
             len=request.len,
             sha=request.sha,
             upgrade=request.upgrade,
+        )
+
+    def _maximize_file_upload_packet(self, request: FileUpload, data: bytes) -> FileUpload:
+        """Given an `FileUpload` with empty `data`, return the largest packet possible."""
+        h: Final = cast(smpheader.Header, request.header)
+        cbor_size, data_size = self._get_max_cbor_and_data_size(request)
+        if data_size > len(data) - request.off:  # final packet
+            data_size = len(data) - request.off
+            cbor_size = h.length + data_size + self._cbor_integer_size(data_size)
+        return FileUpload(
+            header=smpheader.Header(
+                op=h.op,
+                version=h.version,
+                flags=h.flags,
+                length=cbor_size,
+                group_id=h.group_id,
+                sequence=h.sequence,
+                command_id=h.command_id,
+            ),
+            name=request.name,
+            off=request.off,
+            data=data[request.off : request.off + data_size],
+            len=request.len,
         )
 
     async def _initialize(self) -> None:

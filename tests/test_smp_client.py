@@ -13,6 +13,12 @@ from smp import header as smphdr
 from smp import packet as smppacket
 from smp.error import MGMT_ERR
 from smp.error import Err as SMPErr
+from smp.file_management import (
+    FS_MGMT_ERR,
+    FileSystemManagementErrorV0,
+    FileSystemManagementErrorV1,
+    FileUploadResponse,
+)
 from smp.image_management import (
     IMG_MGMT_ERR,
     ImageManagementErrorV0,
@@ -30,6 +36,7 @@ from smp.os_management import (
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import error, error_v0, error_v1, success
+from smpclient.requests.file_management import FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import SMPSerialTransport
@@ -355,3 +362,186 @@ async def test_upload_hello_world_bin_encoded(
             next(decoder)
 
     assert reconstructed_image == image
+
+
+@pytest.mark.asyncio
+async def test_upload_file() -> None:
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    s.request = AsyncMock()  # type: ignore
+
+    # refer to: https://docs.python.org/3/library/unittest.mock.html#unittest.mock.PropertyMock
+    type(m).mtu = PropertyMock(return_value=498)
+    type(m).max_unencoded_size = PropertyMock(return_value=498)
+
+    chunk_size = 455  # max chunk given MTU
+
+    data = bytes([i % 255 for i in range(4097)])
+    req = FileUpload(off=0, data=data[:chunk_size], len=len(data), name="test.txt")
+
+    u = s.upload_file(data, file_destination="test.txt")
+    h = cast(smphdr.Header, req.header)
+
+    s.request.return_value = FileUpload._Response.get_default()(off=455)  # type: ignore
+    offset = await anext(u)
+    assert offset == 455
+    s.request.assert_awaited_once_with(
+        FileUpload(
+            header=smphdr.Header(
+                op=h.op,
+                version=h.version,
+                flags=h.flags,
+                length=h.length,
+                group_id=h.group_id,
+                sequence=h.sequence + 1,
+                command_id=h.command_id,
+            ),
+            off=0,
+            data=data[:chunk_size],
+            len=len(data),
+            name="test.txt",
+        ),
+        timeout_s=40.000,
+    )
+
+    s.request.return_value = FileUpload._Response.get_default()(off=455 + 460)  # type: ignore
+    offset = await anext(u)
+    assert offset == 455 + 460
+    s.request.assert_awaited_with(
+        FileUpload(
+            header=smphdr.Header(
+                op=h.op,
+                version=h.version,
+                flags=h.flags,
+                length=h.length,
+                group_id=h.group_id,
+                sequence=h.sequence + 2,
+                command_id=h.command_id,
+            ),
+            off=455,
+            data=data[455 : 455 + 460],
+            name="test.txt",
+        ),
+        timeout_s=2.500,
+    )
+
+    # assert that upload() raises SMPUploadError
+    s.request.return_value = FileSystemManagementErrorV0(
+        header=req.header, sequence=req.header.sequence, rc=FS_MGMT_ERR.FILE_WRITE_FAILED  # type: ignore # noqa
+    )
+
+    with pytest.raises(SMPUploadError) as e:
+        _ = await anext(u)
+    assert e.value.args[0].rc == FS_MGMT_ERR.FILE_WRITE_FAILED
+    u = s.upload_file(data, file_destination="test.txt")
+    h = cast(smphdr.Header, req.header)
+    s.request.return_value = FileSystemManagementErrorV1(
+        header=req.header,
+        sequence=req.header.sequence,  # type: ignore
+        err=SMPErr(  # type: ignore
+            rc=FS_MGMT_ERR.FILE_WRITE_FAILED, group=smphdr.GroupId.FILE_MANAGEMENT
+        ).model_dump(),
+    )
+    with pytest.raises(SMPUploadError) as e:
+        _ = await anext(u)
+    assert e.value.args[0].err.rc == FS_MGMT_ERR.FILE_WRITE_FAILED
+
+
+@patch("tests.test_smp_client.SMPMockTransport.mtu", new_callable=PropertyMock)
+@patch("tests.test_smp_client.SMPMockTransport.max_unencoded_size", new_callable=PropertyMock)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mtu", [124, 127, 251, 498, 512, 1024, 2048, 4096, 8192])
+async def test_file_upload_test_txt(
+    mock_mtu: PropertyMock, mock_max_unencoded_size: PropertyMock, mtu: int
+) -> None:
+    mock_mtu.return_value = mtu
+    mock_max_unencoded_size.return_value = mtu
+    with open(
+        str(Path("tests", "fixtures", "file_system", "test.txt")),
+        "rb",
+    ) as f:
+        data = f.read()
+
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    accumulated_data = bytearray([])
+
+    async def mock_request(request: FileUpload, timeout_s: float = 120.000) -> FileUploadResponse:
+        accumulated_data.extend(request.data)
+        return FileUpload._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+
+    s.request = mock_request  # type: ignore
+
+    async for _ in s.upload_file(data, file_destination="test.txt"):
+        pass
+
+    assert accumulated_data == data
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_smp_encoded_frame_size", [128, 256, 512, 1024, 2048, 4096, 8192])
+@pytest.mark.parametrize("line_buffers", [1, 2, 3, 4, 8])
+async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_buffers: int) -> None:
+    with open(
+        str(Path("tests", "fixtures", "file_system", "test.txt")),
+        "rb",
+    ) as f:
+        file_data = f.read()
+
+    line_length = max_smp_encoded_frame_size // line_buffers
+    if line_length < 83:  # TODO: get better coverage
+        pytest.skip("The line buffer size is too small")
+
+    m = SMPSerialTransport(
+        max_smp_encoded_frame_size=max_smp_encoded_frame_size,
+        line_length=line_length,
+        line_buffers=line_buffers,
+    )
+    s = SMPClient(m, "address")
+    assert s._transport.mtu == max_smp_encoded_frame_size
+
+    packets: List[bytes] = []
+
+    def mock_write(data: bytes) -> int:
+        """Accumulate the raw packets in the global `packets`."""
+        packets.append(data)
+        return len(data)
+
+    s._transport._conn.write = mock_write  # type: ignore
+    type(s._transport._conn).out_waiting = 0  # type: ignore
+
+    async def mock_request(
+        request: ImageUploadWrite, timeout_s: float = 120.000
+    ) -> ImageUploadWriteResponse:
+        # call the real send method (with write mocked) but don't bother with receive
+        # this does provide coverage for the MTU-limited encoding done in the send method
+        await s._transport.send(request.BYTES)
+        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+
+    s.request = mock_request  # type: ignore
+
+    assert (
+        s._transport.max_unencoded_size < s._transport.mtu
+    ), "The serial transport has encoding overhead"
+
+    async for _ in s.upload(file_data):
+        pass
+
+    reconstructed_file = bytearray([])
+
+    decoder = smppacket.decode()
+    next(decoder)
+
+    for packet in packets:
+        try:
+            decoder.send(packet)
+        except StopIteration as e:
+            reconstructed_request = ImageUploadWriteRequest.loads(e.value)
+            reconstructed_file.extend(reconstructed_request.data)
+
+            decoder = smppacket.decode()
+            next(decoder)
+
+    assert reconstructed_file == file_data
