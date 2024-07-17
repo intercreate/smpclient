@@ -871,13 +871,13 @@ testing = ["fields", "hunter", "process-tests", "pytest-xdist", "six", "virtuale
 
 [[package]]
 name = "smp"
-version = "2.0.0"
+version = "3.0.0"
 description = "Simple Management Protocol (SMP) for remotely managing MCU firmware"
 optional = false
 python-versions = "<3.13,>=3.8.1"
 files = [
-    {file = "smp-2.0.0-py3-none-any.whl", hash = "sha256:0aace5f5dc8e772be74ada2ef8f4d915b234bf4eefa008f09cd5c81d6610b778"},
-    {file = "smp-2.0.0.tar.gz", hash = "sha256:3113940b21a71b1217b3b3bab0b06b7010c241da6f7542b818dbe6ebac94d469"},
+    {file = "smp-3.0.0-py3-none-any.whl", hash = "sha256:a6964065f5452775ffbd50c3380e9cb92d67104bbf77689f9ca17a423e5edb56"},
+    {file = "smp-3.0.0.tar.gz", hash = "sha256:89bf773c4e094fce8b92cc4ebbad21209d715bf4488134fe7a83753ba6c7cd9f"},
 ]
 
 [package.dependencies]
@@ -1187,4 +1187,4 @@ all = ["winrt-Windows.Foundation.Collections[all] (==2.1.0)", "winrt-Windows.Fou
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.8.1, <3.13"
-content-hash = "798e59f31789b7a7bb64872355d3ef2b8f3cf9c8268097ec6b8598c291818bfb"
+content-hash = "42858d94ee9db006e43d9da9da5a94fbf35cb8cd0f91db6d94a3b3ab01f3ebc2"
