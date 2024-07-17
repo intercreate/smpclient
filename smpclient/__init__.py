@@ -6,7 +6,7 @@ import asyncio
 import logging
 from hashlib import sha256
 from types import TracebackType
-from typing import AsyncIterator, Final, Tuple, Type, cast
+from typing import AsyncIterator, Final, Tuple, Type
 
 from pydantic import ValidationError
 from smp import header as smpheader
@@ -57,9 +57,9 @@ class SMPClient:
 
         header = smpheader.Header.loads(frame[: smpheader.Header.SIZE])
 
-        if header.sequence != request.header.sequence:  # type: ignore
+        if header.sequence != request.header.sequence:
             raise SMPBadSequence(
-                f"Bad sequence {header.sequence}, expected {request.header.sequence}"  # type: ignore # noqa
+                f"Bad sequence {header.sequence}, expected {request.header.sequence}"
             )
 
         try:
@@ -268,8 +268,6 @@ class SMPClient:
     def _get_max_cbor_and_data_size(self, request: smpmsg.WriteRequest) -> Tuple[int, int]:
         """Given an `ImageUploadWrite`, return the maximum CBOR size and data size."""
 
-        h: Final = cast(smpheader.Header, request.header)
-
         # given empty data in the request, how many bytes are available for the data?
         unencoded_bytes_available: Final = self._transport.max_unencoded_size - len(bytes(request))
 
@@ -283,7 +281,7 @@ class SMPClient:
         data_size: Final = max(0, unencoded_bytes_available - bytes_required_to_encode_data_size)
         # the final CBOR size is the original header length plus the data size
         # plus the bytes required to encode the data size
-        cbor_size: Final = h.length + data_size + self._cbor_integer_size(data_size)
+        cbor_size: Final = request.header.length + data_size + self._cbor_integer_size(data_size)
 
         return cbor_size, data_size
 
@@ -292,7 +290,7 @@ class SMPClient:
     ) -> ImageUploadWrite:
         """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
 
-        h: Final = cast(smpheader.Header, request.header)
+        h: Final = request.header
         cbor_size, data_size = self._get_max_cbor_and_data_size(request)
 
         if data_size > len(image) - request.off:  # final packet
