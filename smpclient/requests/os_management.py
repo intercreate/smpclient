@@ -2,8 +2,8 @@ from smp import os_management as smpos
 
 
 class _OSGroupBase:
-    _ErrorV0 = smpos.OSManagementErrorV0
     _ErrorV1 = smpos.OSManagementErrorV1
+    _ErrorV2 = smpos.OSManagementErrorV2
 
 
 class EchoWrite(smpos.EchoWriteRequest, _OSGroupBase):

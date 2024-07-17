@@ -12,7 +12,7 @@ from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 
 from smpclient import SMPClient
-from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
+from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite
 from smpclient.requests.os_management import ResetWrite
@@ -67,7 +67,7 @@ async def main() -> None:
     async with SMPClient(SMPBLETransport(), a_smp_dut.name or a_smp_dut.address) as client:
         print("OK")
 
-        async def ensure_request(request: SMPRequest[TRep, TEr0, TEr1]) -> TRep:
+        async def ensure_request(request: SMPRequest[TRep, TEr1, TEr2]) -> TRep:
             print("Sending request...", end="", flush=True)
             response = await client.request(request)
             print("OK")

@@ -11,9 +11,10 @@ from typing import Final
 
 from serial.tools.list_ports import comports
 from smp import error as smperr
+from smp.os_management import OS_MGMT_RET_RC
 
 from smpclient import SMPClient
-from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, error_v0, error_v1, success
+from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, error_v1, error_v2, success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite
 from smpclient.requests.os_management import ResetWrite
@@ -111,7 +112,7 @@ async def main() -> None:
     ) as client:
         print("OK")
 
-        async def ensure_request(request: SMPRequest[TRep, TEr0, TEr1]) -> TRep:
+        async def ensure_request(request: SMPRequest[TRep, TEr1, TEr2]) -> TRep:
             print("Sending request...", end="", flush=True)
             response = await client.request(request)
             print("OK")
@@ -166,10 +167,10 @@ async def main() -> None:
         print()
         print("Resetting for swap...")
         reset_response = await client.request(ResetWrite())
-        if error_v0(reset_response):
+        if error_v1(reset_response):
             assert reset_response.rc == smperr.MGMT_ERR.EOK
-        elif error_v1(reset_response):
-            assert reset_response.err.rc == smperr.MGMT_ERR.EOK
+        elif error_v2(reset_response):
+            assert reset_response.err.rc == OS_MGMT_RET_RC.OK
 
     print()
     print("Searching for B SMP DUT...", end="", flush=True)

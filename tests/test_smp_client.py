@@ -22,21 +22,21 @@ from smp.file_management import (
 )
 from smp.image_management import (
     IMG_MGMT_ERR,
-    ImageManagementErrorV0,
     ImageManagementErrorV1,
+    ImageManagementErrorV2,
     ImageUploadWriteRequest,
     ImageUploadWriteResponse,
 )
 from smp.os_management import (
     OS_MGMT_RET_RC,
-    OSManagementErrorV0,
     OSManagementErrorV1,
+    OSManagementErrorV2,
     ResetWriteResponse,
 )
 
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
-from smpclient.generics import error, error_v0, error_v1, success
+from smpclient.generics import error, error_v1, error_v2, success
 from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
@@ -109,8 +109,8 @@ async def test_request() -> None:
     assert type(rep) is req._Response
     assert success(rep) is True
     assert error(rep) is False
-    assert error_v0(rep) is False
     assert error_v1(rep) is False
+    assert error_v2(rep) is False
 
     # test that a bad sequence raises `SMPBadSequence`
     req = ResetWrite()
@@ -120,9 +120,16 @@ async def test_request() -> None:
 
     # test that a genric MGMT_ERR error response is parsed
     req = ResetWrite()
-    m.receive.return_value = OSManagementErrorV0(
-        header=ResetWriteResponse(sequence=req.header.sequence).header,  # type: ignore
-        sequence=req.header.sequence,  # type: ignore
+    m.receive.return_value = OSManagementErrorV1(
+        header=smphdr.Header(
+            op=smphdr.OP.WRITE_RSP,
+            version=smphdr.Version.V1,
+            flags=smphdr.Flag(0),
+            length=5,
+            group_id=req.header.group_id,
+            sequence=req.header.sequence,
+            command_id=req.header.command_id,
+        ),
         rc=MGMT_ERR.ENOTSUP,
     ).BYTES
 
@@ -130,41 +137,39 @@ async def test_request() -> None:
     m.send.assert_has_awaits([call(req.BYTES)])
     m.receive.assert_awaited()
     assert success(rep) is False
-    assert error_v1(rep) is False
+    assert error_v2(rep) is False
     assert error(rep) is True
-    assert error_v0(rep) is True
-    if error_v0(rep):
+    assert error_v1(rep) is True
+    if error_v1(rep):
         assert rep.rc == MGMT_ERR.ENOTSUP
     else:
         raise AssertionError(f"Unexpected response type: {type(rep)}")
 
     # test that an OS_MGMT_RET_RC error response is parsed
     req = ResetWrite()
-    _header = ResetWriteResponse(sequence=req.header.sequence).header  # type: ignore
-    assert _header is not None
+    # _header = ResetWriteResponse(sequence=req.header.sequence).header
     header = smphdr.Header(
-        op=_header.op,
-        version=smphdr.Version.V1,
-        flags=_header.flags,
-        length=_header.length,
-        group_id=_header.group_id,
-        sequence=_header.sequence,
-        command_id=_header.command_id,
+        op=smphdr.OP.WRITE_RSP,
+        version=smphdr.Version.V2,
+        flags=smphdr.Flag(0),
+        length=17,
+        group_id=smphdr.GroupId.OS_MANAGEMENT,
+        sequence=req.sequence,
+        command_id=smphdr.CommandId.OSManagement.RESET,
     )
-    m.receive.return_value = OSManagementErrorV1(
-        header=header,  # type: ignore
-        sequence=req.header.sequence,  # type: ignore
+    m.receive.return_value = OSManagementErrorV2(
+        header=header,
         err=SMPErr[OS_MGMT_RET_RC](rc=OS_MGMT_RET_RC.UNKNOWN, group=smphdr.GroupId.OS_MANAGEMENT),
     ).BYTES
 
-    rep = await s.request(req)  # type: ignore
+    rep = await s.request(req)
     m.send.assert_has_awaits([call(req.BYTES)])
     m.receive.assert_awaited()
     assert success(rep) is False
     assert error(rep) is True
-    assert error_v0(rep) is False
-    assert error_v1(rep) is True
-    if error_v1(rep):
+    assert error_v1(rep) is False
+    assert error_v2(rep) is True
+    if error_v2(rep):
         assert rep.err.rc == OS_MGMT_RET_RC.UNKNOWN
     else:
         raise AssertionError(f"Unexpected response type: {type(rep)}")
@@ -194,7 +199,7 @@ async def test_upload() -> None:
     )
 
     u = s.upload(image)
-    h = cast(smphdr.Header, req.header)
+    h = req.header
 
     s.request.return_value = ImageUploadWrite._Response.get_default()(off=415)  # type: ignore
     offset = await anext(u)
@@ -207,7 +212,7 @@ async def test_upload() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 1,
+                sequence=h.sequence + 2,
                 command_id=h.command_id,
             ),
             off=0,
@@ -231,7 +236,7 @@ async def test_upload() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 2,
+                sequence=h.sequence + 4,
                 command_id=h.command_id,
             ),
             off=415,
@@ -241,17 +246,33 @@ async def test_upload() -> None:
     )
 
     # assert that upload() raises SMPUploadError
-    s.request.return_value = ImageManagementErrorV0(
-        header=req.header, sequence=req.header.sequence, rc=IMG_MGMT_ERR.FLASH_ERASE_FAILED  # type: ignore # noqa
+    s.request.return_value = ImageManagementErrorV1(
+        header=smphdr.Header(
+            op=req.header.op,
+            version=req.header.version,
+            flags=req.header.flags,
+            length=5,
+            group_id=req.header.group_id,
+            sequence=req.header.sequence + 6,
+            command_id=req.header.command_id,
+        ),
+        rc=IMG_MGMT_ERR.FLASH_ERASE_FAILED,  # type: ignore # noqa
     )
     with pytest.raises(SMPUploadError) as e:
         _ = await anext(u)
     assert e.value.args[0].rc == IMG_MGMT_ERR.FLASH_ERASE_FAILED
     u = s.upload(image)
     h = cast(smphdr.Header, req.header)
-    s.request.return_value = ImageManagementErrorV1(
-        header=req.header,
-        sequence=req.header.sequence,  # type: ignore
+    s.request.return_value = ImageManagementErrorV2(
+        header=smphdr.Header(
+            op=req.header.op,
+            version=req.header.version,
+            flags=req.header.flags,
+            length=17,
+            group_id=req.header.group_id,
+            sequence=req.header.sequence + 7,
+            command_id=req.header.command_id,
+        ),
         err=SMPErr(  # type: ignore
             rc=IMG_MGMT_ERR.FLASH_WRITE_FAILED, group=smphdr.GroupId.IMAGE_MANAGEMENT
         ).model_dump(),

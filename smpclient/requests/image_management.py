@@ -2,8 +2,8 @@ from smp import image_management as smpimg
 
 
 class _ImageGroupBase:
-    _ErrorV0 = smpimg.ImageManagementErrorV0
     _ErrorV1 = smpimg.ImageManagementErrorV1
+    _ErrorV2 = smpimg.ImageManagementErrorV2
 
 
 class ImageStatesRead(smpimg.ImageStatesReadRequest, _ImageGroupBase):
