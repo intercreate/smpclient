@@ -18,7 +18,7 @@ class SMPRequest(Protocol[TRep, TEr1, TEr2]):
     """A `Protocol` that groups the expected response and errors with a request.
 
     To use, inherit from an SMP Read or Write `Request` and define its expected
-    `Response`, `ErrorV1`, and `ErrorV1`.
+    `Response`, `ErrorV1`, and `ErrorV2`.
 
     Example:
     ```python
