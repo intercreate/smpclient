@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol, Type, TypeVar, Union
 
 from smp import error as smperror
+from smp import header as smphdr
 from smp import message as smpmessage
 from typing_extensions import TypeGuard
 
@@ -34,6 +35,10 @@ class SMPRequest(Protocol[TRep, TEr1, TEr2]):
 
     @property
     def BYTES(self) -> bytes:  # pragma: no cover
+        ...
+
+    @property
+    def header(self) -> smphdr.Header:  # pragma: no cover
         ...
 
 

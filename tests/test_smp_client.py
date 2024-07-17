@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from hashlib import sha256
 from pathlib import Path
-from typing import List, cast
+from typing import List
 from unittest.mock import AsyncMock, PropertyMock, call, patch
 
 import pytest
@@ -85,7 +85,7 @@ async def test_connect() -> None:
     await s.connect()
 
     m.connect.assert_awaited_once_with("address", 5.0)
-    s._initialize.assert_awaited_once_with()  # type: ignore
+    s._initialize.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -94,8 +94,8 @@ async def test_request() -> None:
     s = SMPClient(m, "address")
 
     req = ResetWrite()
-    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence).BYTES  # type: ignore # noqa
-    rep = await s.request(req)  # type: ignore
+    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence).BYTES
+    rep = await s.request(req)
     m.send.assert_has_awaits([call(req.BYTES)])
     m.receive.assert_awaited()
     assert type(rep) is req._Response
@@ -106,9 +106,9 @@ async def test_request() -> None:
 
     # test that a bad sequence raises `SMPBadSequence`
     req = ResetWrite()
-    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence + 1).BYTES  # type: ignore # noqa
+    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence + 1).BYTES
     with pytest.raises(SMPBadSequence):
-        await s.request(req)  # type: ignore
+        await s.request(req)
 
     # test that a genric MGMT_ERR error response is parsed
     req = ResetWrite()
@@ -125,7 +125,7 @@ async def test_request() -> None:
         rc=MGMT_ERR.ENOTSUP,
     ).BYTES
 
-    rep = await s.request(req)  # type: ignore
+    rep = await s.request(req)
     m.send.assert_has_awaits([call(req.BYTES)])
     m.receive.assert_awaited()
     assert success(rep) is False
@@ -248,13 +248,13 @@ async def test_upload() -> None:
             sequence=req.header.sequence + 6,
             command_id=req.header.command_id,
         ),
-        rc=IMG_MGMT_ERR.FLASH_ERASE_FAILED,  # type: ignore # noqa
+        rc=MGMT_ERR.ECORRUPT,
     )
     with pytest.raises(SMPUploadError) as e:
         _ = await anext(u)
-    assert e.value.args[0].rc == IMG_MGMT_ERR.FLASH_ERASE_FAILED
+    assert e.value.args[0].rc == MGMT_ERR.ECORRUPT
     u = s.upload(image)
-    h = cast(smphdr.Header, req.header)
+    h = req.header
     s.request.return_value = ImageManagementErrorV2(
         header=smphdr.Header(
             op=req.header.op,

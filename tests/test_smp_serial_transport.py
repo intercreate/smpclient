@@ -60,7 +60,7 @@ async def test_send() -> None:
 
     r = EchoWrite(d="Hello pytest!")
     await t.send(r.BYTES)
-    t._conn.write.assert_called_once()  # type: ignore
+    t._conn.write.assert_called_once()
     p.assert_called_once_with()
 
     t._conn.write.reset_mock()
@@ -68,7 +68,7 @@ async def test_send() -> None:
     type(t._conn).out_waiting = p  # type: ignore
 
     await t.send(r.BYTES)
-    t._conn.write.assert_called_once()  # type: ignore
+    t._conn.write.assert_called_once()
     assert p.call_count == 2  # called twice since out buffer was not drained on first call
 
 

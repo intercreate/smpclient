@@ -85,12 +85,12 @@ def test_requests(
     a, b, Response, ErrorV1, ErrorV2 = test_tuple
 
     # assert that headers match (other than sequence)
-    assert a.header.op == b.header.op  # type: ignore
-    assert a.header.version == b.header.version  # type: ignore
-    assert a.header.flags == b.header.flags  # type: ignore
-    assert a.header.length == b.header.length  # type: ignore
-    assert a.header.group_id == b.header.group_id  # type: ignore
-    assert a.header.command_id == b.header.command_id  # type: ignore
+    assert a.header.op == b.header.op
+    assert a.header.version == b.header.version
+    assert a.header.flags == b.header.flags
+    assert a.header.length == b.header.length
+    assert a.header.group_id == b.header.group_id
+    assert a.header.command_id == b.header.command_id
 
     # assert that the CBOR payloads match
     amodel = a.model_dump(exclude_unset=True, exclude={'header'}, exclude_none=True)
