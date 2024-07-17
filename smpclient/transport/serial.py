@@ -316,7 +316,7 @@ class SMPSerialTransport(SMPTransport):
         packet_framing_size: Final = (
             _base64_cost(smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size)
             + smppacket.DELIMITER_SIZE
-        ) * self._line_buffers + len(smppacket.CR)
+        ) * self._line_buffers + len(smppacket.END_DELIMITER)
 
         # Get the number of unencoded bytes that can fit in self.mtu and
         # subtract the cost of framing the separate packets.

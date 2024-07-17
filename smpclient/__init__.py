@@ -13,7 +13,7 @@ from smp import header as smpheader
 from smp import message as smpmsg
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
-from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
+from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
@@ -42,8 +42,8 @@ class SMPClient:
         await self._transport.disconnect()
 
     async def request(
-        self, request: SMPRequest[TRep, TEr0, TEr1], timeout_s: float = 120.000
-    ) -> TRep | TEr0 | TEr1:
+        self, request: SMPRequest[TRep, TEr1, TEr2], timeout_s: float = 120.000
+    ) -> TRep | TEr1 | TEr2:
         """Make an `SMPRequest` to the SMP server."""
 
         try:
@@ -57,22 +57,24 @@ class SMPClient:
         header = smpheader.Header.loads(frame[: smpheader.Header.SIZE])
 
         if header.sequence != request.header.sequence:  # type: ignore
-            raise SMPBadSequence("Bad sequence")
+            raise SMPBadSequence(
+                f"Bad sequence {header.sequence}, expected {request.header.sequence}"  # type: ignore # noqa
+            )
 
         try:
             return request._Response.loads(frame)  # type: ignore
         except ValidationError:
             pass
         try:
-            return request._ErrorV0.loads(frame)
+            return request._ErrorV1.loads(frame)
         except ValidationError:
             pass
         try:
-            return request._ErrorV1.loads(frame)
+            return request._ErrorV2.loads(frame)
         except ValidationError:
             error_message = (
                 f"Response could not by parsed as one of {request._Response}, "
-                f"{request._ErrorV0}, or {request._ErrorV1}. {header=} {frame=}"
+                f"{request._ErrorV1}, or {request._ErrorV2}. {header=} {frame=}"
             )
             logger.error(error_message)
             raise ValidationError(error_message)
