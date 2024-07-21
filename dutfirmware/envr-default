@@ -5,6 +5,8 @@ PYTHON_VENV=.venv
 [VARIABLES]
 
 [ADD_TO_PATH]
+# override here or in envr-local
 JLINK=C:/Program Files/SEGGER/JLink
+LINK_SERVER=C:/NXP/LinkServer_1.6.133
 
 [ALIASES]
