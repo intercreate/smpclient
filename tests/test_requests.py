@@ -6,6 +6,7 @@ from typing import Tuple, Type
 
 import pytest
 from smp import error as smperr
+from smp import file_management as smpfs
 from smp import image_management as smpimg
 from smp import message as smpmsg
 from smp import os_management as smpos
@@ -13,6 +14,14 @@ from smp import shell_management as smpsh
 from smp.user import intercreate as smpic
 
 from smpclient.generics import SMPRequest, TEr1, TEr2, TRep
+from smpclient.requests.file_management import (
+    FileClose,
+    FileDownload,
+    FileHashChecksum,
+    FileStatus,
+    FileUpload,
+    SupportedFileHashChecksumTypes,
+)
 from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite, ImageUploadWrite
 from smpclient.requests.os_management import EchoWrite, ResetWrite
 from smpclient.requests.shell_management import Execute
@@ -70,6 +79,48 @@ from smpclient.requests.user import intercreate as ic
             smpic.ImageUploadWriteResponse,
             smpic.ErrorV1,
             smpic.ErrorV2,
+        ),
+        (
+            smpfs.FileDownloadRequest(off=0, name="test.txt"),
+            FileDownload(off=0, name="test.txt"),
+            smpfs.FileDownloadResponse,
+            smpfs.FileSystemManagementErrorV1,
+            smpfs.FileSystemManagementErrorV2,
+        ),
+        (
+            smpfs.FileUploadRequest(off=0, name="test.txt", data=b"a", len=100),
+            FileUpload(off=0, name="test.txt", data=b"a", len=100),
+            smpfs.FileUploadResponse,
+            smpfs.FileSystemManagementErrorV1,
+            smpfs.FileSystemManagementErrorV2,
+        ),
+        (
+            smpfs.FileStatusRequest(name="test.txt"),
+            FileStatus(name="test.txt"),
+            smpfs.FileStatusResponse,
+            smpfs.FileSystemManagementErrorV1,
+            smpfs.FileSystemManagementErrorV2,
+        ),
+        (
+            smpfs.FileHashChecksumRequest(name="test.txt", type="sha256", off=0, len=200),
+            FileHashChecksum(name="test.txt", type="sha256", off=0, len=200),
+            smpfs.FileHashChecksumResponse,
+            smpfs.FileSystemManagementErrorV1,
+            smpfs.FileSystemManagementErrorV2,
+        ),
+        (
+            smpfs.SupportedFileHashChecksumTypesRequest(),
+            SupportedFileHashChecksumTypes(),
+            smpfs.SupportedFileHashChecksumTypesResponse,
+            smpfs.FileSystemManagementErrorV1,
+            smpfs.FileSystemManagementErrorV2,
+        ),
+        (
+            smpfs.FileCloseRequest(),
+            FileClose(),
+            smpfs.FileCloseResponse,
+            smpfs.FileSystemManagementErrorV1,
+            smpfs.FileSystemManagementErrorV2,
         ),
     ],
 )
