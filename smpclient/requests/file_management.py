@@ -2,8 +2,8 @@ from smp import file_management as smpfs
 
 
 class _FileGroupBase:
-    _ErrorV0 = smpfs.FileSystemManagementErrorV0
     _ErrorV1 = smpfs.FileSystemManagementErrorV1
+    _ErrorV2 = smpfs.FileSystemManagementErrorV2
 
 
 class FileDownload(smpfs.FileDownloadRequest, _FileGroupBase):

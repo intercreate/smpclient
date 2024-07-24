@@ -16,8 +16,8 @@ from smp.error import Err as SMPErr
 from smp.file_management import (
     FS_MGMT_ERR,
     FileDownloadResponse,
-    FileSystemManagementErrorV0,
     FileSystemManagementErrorV1,
+    FileSystemManagementErrorV2,
     FileUploadResponse,
 )
 from smp.image_management import (
@@ -403,7 +403,7 @@ async def test_upload_file() -> None:
     req = FileUpload(off=0, data=data[:chunk_size], len=len(data), name="test.txt")
 
     u = s.upload_file(data, file_path="test.txt")
-    h = cast(smphdr.Header, req.header)
+    h = req.header
 
     s.request.return_value = FileUpload._Response.get_default()(off=455)  # type: ignore
     offset = await anext(u)
@@ -416,7 +416,7 @@ async def test_upload_file() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 1,
+                sequence=h.sequence + 2,
                 command_id=h.command_id,
             ),
             off=0,
@@ -438,7 +438,7 @@ async def test_upload_file() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 2,
+                sequence=h.sequence + 4,
                 command_id=h.command_id,
             ),
             off=455,
@@ -449,18 +449,34 @@ async def test_upload_file() -> None:
     )
 
     # assert that upload() raises SMPUploadError
-    s.request.return_value = FileSystemManagementErrorV0(
-        header=req.header, sequence=req.header.sequence, rc=FS_MGMT_ERR.FILE_WRITE_FAILED  # type: ignore # noqa
+    s.request.return_value = FileSystemManagementErrorV1(
+        header=smphdr.Header(
+            op=req.header.op,
+            version=req.header.version,
+            flags=req.header.flags,
+            length=5,
+            group_id=req.header.group_id,
+            sequence=req.header.sequence + 5,
+            command_id=req.header.command_id,
+        ),
+        rc=MGMT_ERR.EACCESSDENIED,
     )
 
     with pytest.raises(SMPUploadError) as e:
         _ = await anext(u)
-    assert e.value.args[0].rc == FS_MGMT_ERR.FILE_WRITE_FAILED
+    assert e.value.args[0].rc == MGMT_ERR.EACCESSDENIED
     u = s.upload_file(data, file_path="test.txt")
-    h = cast(smphdr.Header, req.header)
-    s.request.return_value = FileSystemManagementErrorV1(
-        header=req.header,
-        sequence=req.header.sequence,  # type: ignore
+    h = req.header
+    s.request.return_value = FileSystemManagementErrorV2(
+        header=smphdr.Header(
+            op=req.header.op,
+            version=req.header.version,
+            flags=req.header.flags,
+            length=17,
+            group_id=req.header.group_id,
+            sequence=req.header.sequence + 6,
+            command_id=req.header.command_id,
+        ),
         err=SMPErr(  # type: ignore
             rc=FS_MGMT_ERR.FILE_WRITE_FAILED, group=smphdr.GroupId.FILE_MANAGEMENT
         ).model_dump(),
@@ -581,8 +597,6 @@ async def test_download_file() -> None:
     type(m).max_unencoded_size = PropertyMock(return_value=498)
 
     data = bytes([i % 255 for i in range(4097)])
-    req = FileDownload(off=3648, name="test.txt")
-    h = cast(smphdr.Header, req.header)
     s.request.side_effect = [
         FileDownloadResponse(off=0, data=data[0:456], len=4097),
         FileDownloadResponse(off=456, data=data[456:912]),
@@ -594,6 +608,9 @@ async def test_download_file() -> None:
         FileDownloadResponse(off=3192, data=data[3192:3648]),
         FileDownloadResponse(off=3648, data=data[3648:4097]),
     ]
+
+    req = FileDownload(off=3648, name="test.txt")
+    h = req.header
 
     file_data = await s.download_file(file_path="test.txt")
     calls = [
@@ -759,13 +776,24 @@ async def test_download_file_error_first() -> None:
 
     req = FileDownload(off=3648, name="test.txt")
 
-    s.request.return_value = FileSystemManagementErrorV0(
-        header=req.header, sequence=req.header.sequence, rc=FS_MGMT_ERR.FILE_WRITE_FAILED  # type: ignore # noqa
+    s.request.return_value = FileSystemManagementErrorV2(
+        header=smphdr.Header(
+            op=req.header.op,
+            version=req.header.version,
+            flags=req.header.flags,
+            length=17,
+            group_id=req.header.group_id,
+            sequence=req.header.sequence + 6,
+            command_id=req.header.command_id,
+        ),
+        err=SMPErr(  # type: ignore
+            rc=FS_MGMT_ERR.FILE_WRITE_FAILED, group=smphdr.GroupId.FILE_MANAGEMENT
+        ).model_dump(),
     )
 
     with pytest.raises(SMPUploadError) as e:
         await s.download_file("test.txt")
-    assert e.value.args[0].rc == FS_MGMT_ERR.FILE_WRITE_FAILED
+    assert e.value.args[0].err.rc == FS_MGMT_ERR.FILE_WRITE_FAILED
 
 
 @pytest.mark.asyncio
@@ -778,7 +806,19 @@ async def test_download_file_no_len_first() -> None:
     req = FileDownload(off=3648, name="test.txt")
     data = bytes([i % 255 for i in range(4097)])
 
-    s.request.return_value = FileDownloadResponse(header=req.header, off=456, data=data[:456])
+    s.request.return_value = FileDownloadResponse(
+        header=smphdr.Header(
+            op=req.header.op,
+            version=req.header.version,
+            flags=req.header.flags,
+            length=472,
+            group_id=req.header.group_id,
+            sequence=req.header.sequence + 1,
+            command_id=req.header.command_id,
+        ),
+        off=456,
+        data=data[:456],
+    )
 
     with pytest.raises(SMPUploadError) as e:
         await s.download_file("test.txt")
@@ -796,11 +836,35 @@ async def test_download_file_error_not_first() -> None:
     data = bytes([i % 255 for i in range(4097)])
 
     s.request.side_effect = [
-        FileDownloadResponse(header=req.header, off=456, data=data[:456], len=len(data)),
-        FileSystemManagementErrorV0(
-            header=req.header, sequence=req.header.sequence, rc=FS_MGMT_ERR.FILE_WRITE_FAILED  # type: ignore # noqa
+        FileDownloadResponse(
+            header=smphdr.Header(
+                op=req.header.op,
+                version=req.header.version,
+                flags=req.header.flags,
+                length=479,
+                group_id=req.header.group_id,
+                sequence=req.header.sequence + 1,
+                command_id=req.header.command_id,
+            ),
+            off=456,
+            data=data[:456],
+            len=len(data),
+        ),
+        FileSystemManagementErrorV2(
+            header=smphdr.Header(
+                op=req.header.op,
+                version=req.header.version,
+                flags=req.header.flags,
+                length=17,
+                group_id=req.header.group_id,
+                sequence=req.header.sequence + 2,
+                command_id=req.header.command_id,
+            ),
+            err=SMPErr(  # type: ignore
+                rc=FS_MGMT_ERR.FILE_WRITE_FAILED, group=smphdr.GroupId.FILE_MANAGEMENT
+            ).model_dump(),
         ),
     ]
     with pytest.raises(SMPUploadError) as e:
         await s.download_file("test.txt")
-    assert e.value.args[0].rc == FS_MGMT_ERR.FILE_WRITE_FAILED
+    assert e.value.args[0].err.rc == FS_MGMT_ERR.FILE_WRITE_FAILED

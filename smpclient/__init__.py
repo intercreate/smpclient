@@ -317,7 +317,7 @@ class SMPClient:
 
     def _maximize_file_upload_packet(self, request: FileUpload, data: bytes) -> FileUpload:
         """Given an `FileUpload` with empty `data`, return the largest packet possible."""
-        h: Final = cast(smpheader.Header, request.header)
+        h: Final = request.header
         cbor_size, data_size = self._get_max_cbor_and_data_size(request)
         if data_size > len(data) - request.off:  # final packet
             data_size = len(data) - request.off
