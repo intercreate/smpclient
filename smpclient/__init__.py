@@ -163,15 +163,14 @@ class SMPClient:
         self,
         file_data: bytes,
         file_path: str,
-        first_timeout_s: float = 40.000,
-        subsequent_timeout_s: float = 2.500,
+        timeout_s: float = 2.500,
     ) -> AsyncIterator[int]:
         response = await self.request(
             self._maximize_file_upload_packet(
                 FileUpload(name=file_path, off=0, data=b"", len=len(file_data)),
                 file_data,
             ),
-            timeout_s=first_timeout_s,
+            timeout_s=timeout_s,
         )
 
         if error(response):
@@ -189,7 +188,7 @@ class SMPClient:
                 self._maximize_file_upload_packet(
                     FileUpload(name=file_path, off=response.off, data=b""), file_data
                 ),
-                timeout_s=subsequent_timeout_s,
+                timeout_s=timeout_s,
             )
             if error(response):
                 raise SMPUploadError(response)
@@ -203,12 +202,9 @@ class SMPClient:
     async def download_file(
         self,
         file_path: str,
-        first_timeout_s: float = 40.000,
-        subsequent_timeout_s: float = 2.500,
+        timeout_s: float = 2.500,
     ) -> bytes:
-        response = await self.request(
-            FileDownload(off=0, name=file_path), timeout_s=first_timeout_s
-        )
+        response = await self.request(FileDownload(off=0, name=file_path), timeout_s=timeout_s)
         file_length = 0
 
         if error(response):
@@ -226,7 +222,7 @@ class SMPClient:
         while response.off + len(response.data) != file_length:
             response = await self.request(
                 FileDownload(off=response.off + len(response.data), name=file_path),
-                timeout_s=subsequent_timeout_s,
+                timeout_s=timeout_s,
             )
             if error(response):
                 raise SMPUploadError(response)

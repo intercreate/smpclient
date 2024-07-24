@@ -424,7 +424,7 @@ async def test_upload_file() -> None:
             len=len(data),
             name="test.txt",
         ),
-        timeout_s=40.000,
+        timeout_s=2.500,
     )
 
     s.request.return_value = FileUpload._Response.get_default()(off=455 + 460)  # type: ignore
@@ -628,7 +628,7 @@ async def test_download_file() -> None:
                 off=0,
                 name="test.txt",
             ),
-            timeout_s=40.000,
+            timeout_s=2.500,
         ),
         call(
             FileDownload(
