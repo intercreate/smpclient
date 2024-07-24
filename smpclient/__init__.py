@@ -6,14 +6,14 @@ import asyncio
 import logging
 from hashlib import sha256
 from types import TracebackType
-from typing import AsyncIterator, Final, Tuple, Type, cast
+from typing import AsyncIterator, Final, Tuple, Type
 
 from pydantic import ValidationError
 from smp import header as smpheader
 from smp import message as smpmsg
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
-from smpclient.generics import SMPRequest, TEr0, TEr1, TRep, error, success
+from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
@@ -42,8 +42,8 @@ class SMPClient:
         await self._transport.disconnect()
 
     async def request(
-        self, request: SMPRequest[TRep, TEr0, TEr1], timeout_s: float = 120.000
-    ) -> TRep | TEr0 | TEr1:
+        self, request: SMPRequest[TRep, TEr1, TEr2], timeout_s: float = 120.000
+    ) -> TRep | TEr1 | TEr2:
         """Make an `SMPRequest` to the SMP server."""
 
         try:
@@ -56,23 +56,25 @@ class SMPClient:
 
         header = smpheader.Header.loads(frame[: smpheader.Header.SIZE])
 
-        if header.sequence != request.header.sequence:  # type: ignore
-            raise SMPBadSequence("Bad sequence")
+        if header.sequence != request.header.sequence:
+            raise SMPBadSequence(
+                f"Bad sequence {header.sequence}, expected {request.header.sequence}"
+            )
 
         try:
             return request._Response.loads(frame)  # type: ignore
         except ValidationError:
             pass
         try:
-            return request._ErrorV0.loads(frame)
+            return request._ErrorV1.loads(frame)
         except ValidationError:
             pass
         try:
-            return request._ErrorV1.loads(frame)
+            return request._ErrorV2.loads(frame)
         except ValidationError:
             error_message = (
                 f"Response could not by parsed as one of {request._Response}, "
-                f"{request._ErrorV0}, or {request._ErrorV1}. {header=} {frame=}"
+                f"{request._ErrorV1}, or {request._ErrorV2}. {header=} {frame=}"
             )
             logger.error(error_message)
             raise ValidationError(error_message)
@@ -184,8 +186,6 @@ class SMPClient:
     def _get_max_cbor_and_data_size(self, request: smpmsg.WriteRequest) -> Tuple[int, int]:
         """Given an `ImageUploadWrite`, return the maximum CBOR size and data size."""
 
-        h: Final = cast(smpheader.Header, request.header)
-
         # given empty data in the request, how many bytes are available for the data?
         unencoded_bytes_available: Final = self._transport.max_unencoded_size - len(bytes(request))
 
@@ -200,14 +200,14 @@ class SMPClient:
 
         # the final CBOR size is the original header length plus the data size
         # plus the bytes required to encode the data size
-        cbor_size: Final = h.length + data_size + self._cbor_integer_size(data_size)
+        cbor_size: Final = request.header.length + data_size + self._cbor_integer_size(data_size)
 
         return cbor_size, data_size
 
     def _maximize_packet(self, request: ImageUploadWrite, image: bytes) -> ImageUploadWrite:
         """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
 
-        h: Final = cast(smpheader.Header, request.header)
+        h: Final = request.header
         cbor_size, data_size = self._get_max_cbor_and_data_size(request)
 
         if data_size > len(image) - request.off:  # final packet

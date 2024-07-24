@@ -1,6 +1,6 @@
 """Intercreate extensions of the `SMPClient`."""
 
-from typing import AsyncIterator, Final, cast
+from typing import AsyncIterator, Final
 
 from smp import header as smpheader
 
@@ -42,7 +42,7 @@ class ICUploadClient(SMPClient):
     def _ic_maximize_packet(self, request: ic.ImageUploadWrite, data: bytes) -> ic.ImageUploadWrite:
         """Given an `ic.ImageUploadWrite` with empty `data`, return the largest packet possible."""
 
-        h: Final = cast(smpheader.Header, request.header)
+        h: Final = request.header
         cbor_size, data_size = self._get_max_cbor_and_data_size(request)
 
         if data_size > len(data) - request.off:  # final packet
