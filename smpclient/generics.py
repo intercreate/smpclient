@@ -48,12 +48,12 @@ def error_v1(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeGuard[smperror.Err
 
 
 def error_v2(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeGuard[TEr2]:
-    """`TypeGuard` that returns `True` if the `response` is an `ErrorV1`."""
+    """`TypeGuard` that returns `True` if the `response` is an `ErrorV2`."""
     return response.RESPONSE_TYPE == smpmessage.ResponseType.ERROR_V2
 
 
 def error(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeGuard[smperror.ErrorV1 | TEr2]:
-    """`TypeGuard` that returns `True` if the `response` is an `ErrorV1` or `ErrorV1`."""
+    """`TypeGuard` that returns `True` if the `response` is an `ErrorV1` or `ErrorV2`."""
     return error_v1(response) or error_v2(response)
 
 
