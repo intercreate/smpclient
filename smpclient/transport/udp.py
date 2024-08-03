@@ -2,9 +2,10 @@
 
 import asyncio
 import logging
-from typing import Final, override
+from typing import Final
 
 from smp import header as smphdr
+from typing_extensions import override
 
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import SMPTransport

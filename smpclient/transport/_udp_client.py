@@ -1,8 +1,12 @@
 """A UDP Client."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any, Final, NamedTuple, Tuple, override
+from typing import Any, Final, NamedTuple, Tuple
+
+from typing_extensions import override
 
 logger = logging.getLogger(__name__)
 

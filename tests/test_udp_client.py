@@ -1,6 +1,7 @@
 """Test the generic UDP client implementation."""
 
 import asyncio
+import sys
 from typing import List, Tuple, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,6 +10,11 @@ import pytest_asyncio
 from typing_extensions import AsyncGenerator
 
 from smpclient.transport._udp_client import Addr, UDPClient, _UDPProtocol
+
+try:
+    from asyncio import timeout  # type: ignore
+except ImportError:  # backport for Python3.10 and below
+    from async_timeout import timeout  # type: ignore
 
 
 def test_UDPClient_init() -> None:
@@ -31,7 +37,10 @@ async def test_UDPClient_connect(_: MagicMock) -> None:
     c = UDPClient()
 
     await c.connect(Addr("127.0.0.1", 1337))
-    assert isinstance(c._transport, asyncio.DatagramTransport)
+    if sys.version_info < (3, 9):
+        assert isinstance(c._transport, asyncio.BaseTransport)
+    else:
+        assert isinstance(c._transport, asyncio.DatagramTransport)
     assert isinstance(c._protocol, _UDPProtocol)
     assert isinstance(c._protocol.receive_queue, MagicMock)
     c._protocol = cast(MagicMock, c._protocol)
@@ -118,10 +127,11 @@ async def test_receive(udp_server: Tuple[asyncio.DatagramTransport, _ServerProto
 
     t.sendto(b"hello", CLIENT_ADDR)
 
-    async with asyncio.timeout(0.050):
+    async with timeout(0.050):
         assert await c.receive() == b"hello"
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 @pytest.mark.asyncio
 async def test_error_received() -> None:
     c = UDPClient()
@@ -131,10 +141,11 @@ async def test_error_received() -> None:
         ...
 
     c._protocol.error_received(MockError())
-    async with asyncio.timeout(0.050):
+    async with timeout(0.050):
         assert isinstance(await c._protocol.error_queue.get(), MockError)
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 @pytest.mark.asyncio
 async def test_connection_lost_no_exception() -> None:
     c = UDPClient()
@@ -145,6 +156,7 @@ async def test_connection_lost_no_exception() -> None:
     assert c._protocol.error_queue.empty()
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 @pytest.mark.asyncio
 async def test_connection_lost() -> None:
     c = UDPClient()
@@ -154,5 +166,5 @@ async def test_connection_lost() -> None:
         ...
 
     c._protocol.connection_lost(MockError())
-    async with asyncio.timeout(0.050):
+    async with timeout(0.050):
         assert isinstance(await c._protocol.error_queue.get(), MockError)
