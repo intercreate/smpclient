@@ -1,7 +1,6 @@
 """Test the generic UDP client implementation."""
 
 import asyncio
-import sys
 from typing import List, Tuple, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -37,10 +36,7 @@ async def test_UDPClient_connect(_: MagicMock) -> None:
     c = UDPClient()
 
     await c.connect(Addr("127.0.0.1", 1337))
-    if sys.version_info < (3, 9):
-        assert isinstance(c._transport, asyncio.BaseTransport)
-    else:
-        assert isinstance(c._transport, asyncio.DatagramTransport)
+    assert isinstance(c._transport, asyncio.BaseTransport)
     assert isinstance(c._protocol, _UDPProtocol)
     assert isinstance(c._protocol.receive_queue, MagicMock)
     c._protocol = cast(MagicMock, c._protocol)
