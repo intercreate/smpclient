@@ -7,7 +7,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from typing import Final
+from typing import Final, Tuple
 
 from serial.tools.list_ports import comports
 from smp import error as smperr
@@ -26,8 +26,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-HEX_PATTERN: Final = re.compile(r'a_smp_dut_(\d+)_(\d+)_(\d+).merged.hex')
-MCUBOOT_HEX_PATTERN: Final = re.compile(r'mcuboot_a_(\d+)_(\d+)_(\d+).merged.hex')
+HEX_PATTERN: Final = re.compile(r'a_smp_dut_(\d+)_(\d+)_(\d+)[\.merged]?\.hex')
+MCUBOOT_HEX_PATTERN: Final = re.compile(r'mcuboot_a_(\d+)_(\d+)_(\d+)\.merged\.hex')
 
 
 async def main() -> None:
@@ -67,15 +67,19 @@ async def main() -> None:
     print(f"Using DUT folder: {dut_folder}")
     hex_path: Final = dut_folder / hex
 
-    print(f"Using merged.hex: {hex_path}")
+    if "merged" in str(hex):
+        print(f"Using merged.hex: {hex_path}")
+        print("Flashing the merged.hex...")
+    else:
+        mcuboot_path: Final = dut_folder / "mcuboot.hex"
+        print(f"Using mcuboot: {mcuboot_path}")
+        print("Flashing the mcuboot.hex...")
+        assert subprocess.run(get_runner_command(args.board, mcuboot_path)).returncode == 0
 
-    print("Flashing the merged.hex...")
-    assert (
-        subprocess.run(
-            ("nrfjprog", "--recover", "--reset", "--verify", "--program", hex_path)
-        ).returncode
-        == 0
-    )
+        print(f"Using app hex: {hex_path}")
+        print("Flashing the app hex...")
+
+    assert subprocess.run(get_runner_command(args.board, hex_path)).returncode == 0
 
     a_smp_dut_hash: Final = ImageInfo.load_file(str(dut_folder / a_smp_bin)).get_tlv(
         IMAGE_TLV.SHA256
@@ -209,6 +213,17 @@ async def main() -> None:
             raise SystemExit(f"Received error: {images}")
         else:
             raise SystemExit(f"Unknown response: {images}")
+
+
+def get_runner_command(board: str, hex_path: Path) -> Tuple[str, ...]:
+    if "nrf" in board:
+        print("Using the nrfjprog runner")
+        return ("nrfjprog", "--recover", "--reset", "--verify", "--program", str(hex_path))
+    elif "mimxrt" in board:
+        print("Using the NXP linkserver runner")
+        return ("linkserver", "flash", "MIMXRT1062xxxxA:EVK-MIMXRT1060", "load", str(hex_path))
+    else:
+        raise ValueError(f"Don't know what runner to use for {board}")
 
 
 if __name__ == "__main__":
