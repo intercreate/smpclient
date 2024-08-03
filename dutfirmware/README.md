@@ -108,6 +108,11 @@ Create FW for USB CDC ACM SMP server:
 west build -b mimxrt1060_evkb zephyr/samples/subsys/mgmt/mcumgr/smp_svr -- -DEXTRA_CONF_FILE="overlay-cdc.conf;${ENVR_ROOT}/usb_a_smp_dut.conf;${ENVR_ROOT}/usb_smp_dut_8192_1_8192.conf" -DEXTRA_DTC_OVERLAY_FILE="usb.overlay" -DCONFIG_BUILD_OUTPUT_HEX=y
 ```
 
+Create FW for UDP (ethernet) SMP server:
+```
+west build -b mimxrt1060_evkb zephyr/samples/subsys/mgmt/mcumgr/smp_svr -- -DEXTRA_CONF_FILE="overlay-udp.conf;${ENVR_ROOT}/udp_a_smp_dut.conf" -DCONFIG_BUILD_OUTPUT_HEX=y
+```
+
 Flash signed app:
 ```
 west flash --runner=linkserver -d build/mimxrt1060_evkb
