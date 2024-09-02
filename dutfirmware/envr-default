@@ -8,5 +8,6 @@ PYTHON_VENV=.venv
 # override here or in envr-local
 JLINK=C:/Program Files/SEGGER/JLink
 LINK_SERVER=C:/NXP/LinkServer_1.6.133
+OPENOCD=$HOME/.local/xpack-openocd-0.12.0-4/bin
 
 [ALIASES]

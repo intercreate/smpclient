@@ -127,3 +127,16 @@ And then you only have to flash once:
 ```
 west flash --runner=linkserver -d build/mimxrt1060_evkb --hex-file a_smp_dut_8192_1_8192.merged.hex
 ```
+
+### ST
+
+#### stm32f4_disco
+
+> Note: documented on Zephyr `v3.7.0-1987-g1540bd7d`
+
+Create bootloader:
+
+```
+west build -b stm32f4_disco -d build/stm32f4_disco_mcuboot bootloader/mcuboot/boot/zephyr -- -DCONFIG_BUILD_OUTPUT_HEX=y -DEXTRA_DTC_OVERLAY_FILE="${ENVR_ROOT}/stm32f4_disco_flash_overlay.dts;${ENVR_ROOT}/stm32f4_disco_serial_overlay.dts;${ENVR_ROOT}/stm32f4_disco_serial_recovery_button_overlay.dts" -DEXTRA_CONF_FILE="${ENVR_ROOT}/mcuboot_serial.conf"
+```
+
