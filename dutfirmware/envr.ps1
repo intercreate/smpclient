@@ -1,12 +1,25 @@
-# envr v0.5.3
+# envr v0.5.9
 # https://www.github.com/JPHutchins/envr
 # https://www.crumpledpaper.tech
 
 # MIT License
-# Copyright (c) 2022-2023 J.P. Hutchins
+# Copyright (c) 2022-2024 JP Hutchins
 # License text at the bottom of this source file
 
 # Usage: . ./envr.ps1
+
+# To "install" envr, add the alias `envr = . ./envr.ps1` to your shell profile.
+# This will allow you to run `envr` instead of `. ./envr.ps1` to activate the 
+# environment defined for the current directory,
+
+# Windows (PowerShell) "installation":
+#   Add-Content -Path $profile -Value "function envr { . ./envr.ps1 }"
+
+# bash "installation":
+#   echo "alias envr='. ./envr.ps1'" >> ~/.bashrc
+
+# zsh "installation":
+#   echo "alias envr='. ./envr.ps1'" >> ~/.zshrc
 
 # The following line is for PowerShell/bash cross compatability.
 # - The bash section shall begin with the delimiter "<#'"
@@ -270,7 +283,7 @@ _envr_set_prompt_prefix () {
         if [[ -n "${BASH:-}" ]] ; then
             PS1="\[\033[0;36m\](${_PROMPT}) ${PS1:-}"
         elif [[ -n "${ZSH_VERSION:-}" ]] ; then
-            PS1="\033[0;36m(${_PROMPT}) ${PS1:-}"
+            PS1="%F{36}(${_PROMPT})%F{reset} ${PS1:-}"
         fi
         
         export PS1
@@ -516,7 +529,15 @@ function global:unsource ([switch]$NonDestructive) {
 
     if (Get-Variable -Name "ENVR_ROOT" -ErrorAction SilentlyContinue) {
         Remove-Variable -Name ENVR_ROOT -Scope Global -Force
-    } 
+    }
+
+    # Remove project options:
+    if (Test-Path -Path env:ENVR_ROOT) {
+        Remove-Item -Path env:ENVR_ROOT
+    }
+    if (Test-Path -Path env:ENVR_PROJECT_NAME) {
+        Remove-Item -Path env:ENVR_PROJECT_NAME
+    }
 
     # Remove variables leftover from script run
     # $_VAR_REMOVE_LIST = 
@@ -668,17 +689,17 @@ $global:_ENVR_NEW_ALIASES.GetEnumerator().ForEach({
     $global:_ALIAS_COMMAND_ARR += ,$ExecutionContext.InvokeCommand.ExpandString($val)
 
     # Hack to support aliases with parameters
-    function _ENVR_ALIAS_FN_0 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[0]) $args" }
-    function _ENVR_ALIAS_FN_1 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[1]) $args" }
-    function _ENVR_ALIAS_FN_2 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[2]) $args" }
-    function _ENVR_ALIAS_FN_3 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[3]) $args" }
-    function _ENVR_ALIAS_FN_4 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[4]) $args" }
-    function _ENVR_ALIAS_FN_5 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[5]) $args" }
-    function _ENVR_ALIAS_FN_6 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[6]) $args" }
-    function _ENVR_ALIAS_FN_7 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[7]) $args" }
-    function _ENVR_ALIAS_FN_8 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[8]) $args" }
-    function _ENVR_ALIAS_FN_9 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[9]) $args" }
-    Set-Alias -Name $key -Value "_ENVR_ALIAS_FN_$global:_ALIAS_FN_INDEX"
+    function script:_ENVR_ALIAS_FN_0 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[0]) $args" }
+    function script:_ENVR_ALIAS_FN_1 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[1]) $args" }
+    function script:_ENVR_ALIAS_FN_2 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[2]) $args" }
+    function script:_ENVR_ALIAS_FN_3 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[3]) $args" }
+    function script:_ENVR_ALIAS_FN_4 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[4]) $args" }
+    function script:_ENVR_ALIAS_FN_5 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[5]) $args" }
+    function script:_ENVR_ALIAS_FN_6 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[6]) $args" }
+    function script:_ENVR_ALIAS_FN_7 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[7]) $args" }
+    function script:_ENVR_ALIAS_FN_8 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[8]) $args" }
+    function script:_ENVR_ALIAS_FN_9 { Invoke-Expression "$($global:_ALIAS_COMMAND_ARR[9]) $args" }
+    Set-Alias -Name $key -Value "_ENVR_ALIAS_FN_$global:_ALIAS_FN_INDEX" -Scope script
     $global:_ALIAS_FN_INDEX += 1
 })
 
@@ -687,17 +708,30 @@ $global:_ENVR_PATH_ADDITIONS.GetEnumerator().ForEach({
     $key = $($_.Key)
     $val = $($_.Value)
 
-    # expand the variables
-    if ($null -ne $val) {
-        $val = $ExecutionContext.InvokeCommand.ExpandString($val.Replace('$', '$env:'))
+    if ($null -eq $val) {
+        continue
     }
 
-    if (Test-Path -Path "$val") {
+    # expand the variables - Windows could have $env:<val> or $<val>
+    $env_val = $ExecutionContext.InvokeCommand.ExpandString($val.Replace('$', '$env:'))
+    $exp_val = $ExecutionContext.InvokeCommand.ExpandString($val)
+
+    if (("$env_val" -ne "$exp_val") -and (Test-Path -Path "$env_val") -and (Test-Path -Path "$exp_val")) {
+        Write-Host "ERROR - $key=$val is ambigious because both $env_val and $exp_val are valid paths" -ForegroundColor Red
+        unsource
+        exit 1
+    }
+
+    if (($env_val -ne "") -and (Test-Path -Path "$env_val")) {
+        $path_addition = $env_val
+    } elseif (($exp_val -ne "") -and (Test-Path -Path "$exp_val")) {
+        $path_addition = $exp_val
     } else {
-        Write-Host "WARNING - $key=$val is not a directory." -ForegroundColor Yellow
+        Write-Host "WARNING - $key=$env_val is not a directory." -ForegroundColor Yellow
+        $path_addition = $env_val
     }
     foreach ($folder in $(Get-Item env:path).value.split($([System.IO.Path]::PathSeparator))) {
-        if ($folder -eq $val) {
+        if ($folder -eq $path_addition) {
             $duplicate = 1
         }
     }
@@ -705,7 +739,7 @@ $global:_ENVR_PATH_ADDITIONS.GetEnumerator().ForEach({
         continue
     }
 
-    $Env:PATH = "$val$([System.IO.Path]::PathSeparator)$Env:PATH"
+    $Env:PATH = "$path_addition$([System.IO.Path]::PathSeparator)$Env:PATH"
 })
 
 # Activate the python venv if specified
@@ -746,7 +780,7 @@ POWERSHELL_SECTION
 # License text continued
 
 # MIT License
-# Copyright (c) 2022 J.P. Hutchins
+# Copyright (c) 2022-2024 JP Hutchins
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
