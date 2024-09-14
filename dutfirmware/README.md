@@ -134,7 +134,7 @@ west flash --runner=linkserver -d build/mimxrt1060_evkb --hex-file a_smp_dut_819
 
 > Note: documented on Zephyr `v3.7.0-1987-g1540bd7d`
 
-Create bootloader:
+Create bootloader with a serial recovery button that can update FW over serial:
 
 ```
 west build -b stm32f4_disco -d build/stm32f4_disco_mcuboot bootloader/mcuboot/boot/zephyr -- -DCONFIG_BUILD_OUTPUT_HEX=y -DEXTRA_DTC_OVERLAY_FILE="${ENVR_ROOT}/stm32f4_disco_flash_overlay.dts;${ENVR_ROOT}/stm32f4_disco_serial_overlay.dts;${ENVR_ROOT}/stm32f4_disco_serial_recovery_button_overlay.dts" -DEXTRA_CONF_FILE="${ENVR_ROOT}/mcuboot_serial.conf"
