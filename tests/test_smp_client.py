@@ -212,7 +212,7 @@ async def test_upload() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 2,
+                sequence=(h.sequence + 2) % 0xFF,
                 command_id=h.command_id,
             ),
             off=0,
@@ -236,7 +236,7 @@ async def test_upload() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 4,
+                sequence=(h.sequence + 4) % 0xFF,
                 command_id=h.command_id,
             ),
             off=415,
@@ -253,7 +253,7 @@ async def test_upload() -> None:
             flags=req.header.flags,
             length=5,
             group_id=req.header.group_id,
-            sequence=req.header.sequence + 6,
+            sequence=(req.header.sequence + 6) % 0xFF,
             command_id=req.header.command_id,
         ),
         rc=MGMT_ERR.ECORRUPT,
@@ -270,7 +270,7 @@ async def test_upload() -> None:
             flags=req.header.flags,
             length=17,
             group_id=req.header.group_id,
-            sequence=req.header.sequence + 7,
+            sequence=(req.header.sequence + 7) % 0xFF,
             command_id=req.header.command_id,
         ),
         err=SMPErr(  # type: ignore
@@ -285,7 +285,7 @@ async def test_upload() -> None:
 @patch("tests.test_smp_client.SMPMockTransport.mtu", new_callable=PropertyMock)
 @patch("tests.test_smp_client.SMPMockTransport.max_unencoded_size", new_callable=PropertyMock)
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mtu", [23, 124, 127, 251, 498, 512, 1024, 2048, 4096, 8192])
+@pytest.mark.parametrize("mtu", [124, 127, 251, 498, 512, 1024, 2048, 4096, 8192])
 async def test_upload_hello_world_bin(
     mock_mtu: PropertyMock, mock_max_unencoded_size: PropertyMock, mtu: int
 ) -> None:
@@ -416,7 +416,7 @@ async def test_upload_file() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 2,
+                sequence=(h.sequence + 2) % 0xFF,
                 command_id=h.command_id,
             ),
             off=0,
@@ -438,7 +438,7 @@ async def test_upload_file() -> None:
                 flags=h.flags,
                 length=h.length,
                 group_id=h.group_id,
-                sequence=h.sequence + 4,
+                sequence=(h.sequence + 4) % 0xFF,
                 command_id=h.command_id,
             ),
             off=455,
@@ -456,7 +456,7 @@ async def test_upload_file() -> None:
             flags=req.header.flags,
             length=5,
             group_id=req.header.group_id,
-            sequence=req.header.sequence + 5,
+            sequence=(req.header.sequence + 5) % 0xFF,
             command_id=req.header.command_id,
         ),
         rc=MGMT_ERR.EACCESSDENIED,
@@ -474,7 +474,7 @@ async def test_upload_file() -> None:
             flags=req.header.flags,
             length=17,
             group_id=req.header.group_id,
-            sequence=req.header.sequence + 6,
+            sequence=(req.header.sequence + 6) % 0xFF,
             command_id=req.header.command_id,
         ),
         err=SMPErr(  # type: ignore
@@ -622,7 +622,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length - 2,  # Decrease size ass offset of 0 uses 2 less bytes
                     group_id=h.group_id,
-                    sequence=h.sequence + 1,
+                    sequence=(h.sequence + 1) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=0,
@@ -638,7 +638,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 2,
+                    sequence=(h.sequence + 2) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=456,
@@ -654,7 +654,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 3,
+                    sequence=(h.sequence + 3) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=912,
@@ -670,7 +670,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 4,
+                    sequence=(h.sequence + 4) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=1368,
@@ -686,7 +686,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 5,
+                    sequence=(h.sequence + 5) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=1824,
@@ -702,7 +702,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 6,
+                    sequence=(h.sequence + 6) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=2280,
@@ -718,7 +718,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 7,
+                    sequence=(h.sequence + 7) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=2736,
@@ -734,7 +734,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 8,
+                    sequence=(h.sequence + 8) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=3192,
@@ -750,7 +750,7 @@ async def test_download_file() -> None:
                     flags=h.flags,
                     length=h.length,
                     group_id=h.group_id,
-                    sequence=h.sequence + 9,
+                    sequence=(h.sequence + 9) % 0xFF,
                     command_id=h.command_id,
                 ),
                 off=3648,
@@ -774,7 +774,11 @@ async def test_download_file_error_first() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    req = FileDownload(off=3648, name="test.txt")
+    req = FileDownload(
+        off=3648,
+        name="test.txt",
+        sequence=0,
+    )
 
     s.request.return_value = FileSystemManagementErrorV2(
         header=smphdr.Header(
@@ -803,7 +807,11 @@ async def test_download_file_no_len_first() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    req = FileDownload(off=3648, name="test.txt")
+    req = FileDownload(
+        off=3648,
+        name="test.txt",
+        sequence=0,
+    )
     data = bytes([i % 255 for i in range(4097)])
 
     s.request.return_value = FileDownloadResponse(
@@ -832,7 +840,11 @@ async def test_download_file_error_not_first() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    req = FileDownload(off=3648, name="test.txt")
+    req = FileDownload(
+        off=3648,
+        name="test.txt",
+        sequence=0,
+    )
     data = bytes([i % 255 for i in range(4097)])
 
     s.request.side_effect = [

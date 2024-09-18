@@ -137,7 +137,14 @@ class SMPClient:
         while response.off != len(image):
             response = await self.request(
                 self._maximize_image_upload_write_packet(
-                    ImageUploadWrite(off=response.off, data=b""), image
+                    ImageUploadWrite(
+                        off=response.off,
+                        data=b"",
+                        len=len(image) if response.off == 0 else None,
+                        image=slot if response.off == 0 else None,
+                        upgrade=upgrade if response.off == 0 else None,
+                    ),
+                    image,
                 ),
                 timeout_s=subsequent_timeout_s,
             )
