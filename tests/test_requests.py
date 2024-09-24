@@ -7,10 +7,14 @@ from typing import Tuple, Type
 import pytest
 from smp import error as smperr
 from smp import file_management as smpfs
+from smp import header as smphdr
 from smp import image_management as smpimg
 from smp import message as smpmsg
 from smp import os_management as smpos
+from smp import settings_management as smpset
 from smp import shell_management as smpsh
+from smp import statistics_management as smpstat
+from smp import zephyr_management as smpz
 from smp.user import intercreate as smpic
 
 from smpclient.generics import SMPRequest, TEr1, TEr2, TRep
@@ -23,14 +27,34 @@ from smpclient.requests.file_management import (
     SupportedFileHashChecksumTypes,
 )
 from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite, ImageUploadWrite
-from smpclient.requests.os_management import EchoWrite, ResetWrite
+from smpclient.requests.os_management import (
+    BootloaderInformationRead,
+    DateTimeRead,
+    DateTimeWrite,
+    EchoWrite,
+    MCUMgrParametersRead,
+    MemoryPoolStatisticsRead,
+    OSApplicationInfoRead,
+    ResetWrite,
+    TaskStatisticsRead,
+)
+from smpclient.requests.settings_management import (
+    CommitSettings,
+    DeleteSetting,
+    LoadSettings,
+    ReadSetting,
+    SaveSettings,
+    WriteSetting,
+)
 from smpclient.requests.shell_management import Execute
+from smpclient.requests.statistics_management import GroupData, ListOfGroups
 from smpclient.requests.user import intercreate as ic
+from smpclient.requests.zephyr_management import EraseStorage
 
 
 @pytest.mark.parametrize(
     "test_tuple",
-    [
+    (
         (
             smpimg.ImageStatesReadRequest(),
             ImageStatesRead(),
@@ -122,7 +146,119 @@ from smpclient.requests.user import intercreate as ic
             smpfs.FileSystemManagementErrorV1,
             smpfs.FileSystemManagementErrorV2,
         ),
-    ],
+        (
+            smpos.BootloaderInformationReadRequest(),
+            BootloaderInformationRead(),
+            smpos.BootloaderInformationReadResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpos.DateTimeReadRequest(),
+            DateTimeRead(),
+            smpos.DateTimeReadResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpos.DateTimeWriteRequest(datetime="2040-01-01T00:00:00"),
+            DateTimeWrite(datetime="2040-01-01T00:00:00"),
+            smpos.DateTimeWriteResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpos.MCUMgrParametersReadRequest(),
+            MCUMgrParametersRead(),
+            smpos.MCUMgrParametersReadResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpos.MemoryPoolStatisticsReadRequest(),
+            MemoryPoolStatisticsRead(),
+            smpos.MemoryPoolStatisticsReadResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpos.OSApplicationInfoReadRequest(),
+            OSApplicationInfoRead(),
+            smpos.OSApplicationInfoReadResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpos.TaskStatisticsReadRequest(),
+            TaskStatisticsRead(),
+            smpos.TaskStatisticsReadResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpset.CommitSettingsRequest(),
+            CommitSettings(),
+            smpset.CommitSettingsResponse,
+            smpset.SettingsManagementErrorV1,
+            smpset.SettingsManagementErrorV2,
+        ),
+        (
+            smpset.DeleteSettingRequest(name="test"),
+            DeleteSetting(name="test"),
+            smpset.DeleteSettingResponse,
+            smpset.SettingsManagementErrorV1,
+            smpset.SettingsManagementErrorV2,
+        ),
+        (
+            smpset.LoadSettingsRequest(),
+            LoadSettings(),
+            smpset.LoadSettingsResponse,
+            smpset.SettingsManagementErrorV1,
+            smpset.SettingsManagementErrorV2,
+        ),
+        (
+            smpset.ReadSettingRequest(name="test"),
+            ReadSetting(name="test"),
+            smpset.ReadSettingResponse,
+            smpset.SettingsManagementErrorV1,
+            smpset.SettingsManagementErrorV2,
+        ),
+        (
+            smpset.SaveSettingsRequest(),
+            SaveSettings(),
+            smpset.SaveSettingsResponse,
+            smpset.SettingsManagementErrorV1,
+            smpset.SettingsManagementErrorV2,
+        ),
+        (
+            smpset.WriteSettingRequest(name="test", val=b"value"),
+            WriteSetting(name="test", val=b"value"),
+            smpset.WriteSettingResponse,
+            smpset.SettingsManagementErrorV1,
+            smpset.SettingsManagementErrorV2,
+        ),
+        (
+            smpstat.GroupDataRequest(name="test"),
+            GroupData(name="test"),
+            smpstat.GroupDataResponse,
+            smpstat.StatisticsManagementErrorV1,
+            smpstat.StatisticsManagementErrorV2,
+        ),
+        (
+            smpstat.ListOfGroupsRequest(),
+            ListOfGroups(),
+            smpstat.ListOfGroupsResponse,
+            smpstat.StatisticsManagementErrorV1,
+            smpstat.StatisticsManagementErrorV2,
+        ),
+        (
+            smpz.EraseStorageRequest(),
+            EraseStorage(),
+            smpz.EraseStorageResponse,
+            smpz.ZephyrManagementErrorV1,
+            smpz.ZephyrManagementErrorV2,
+        ),
+    ),
 )
 def test_requests(
     test_tuple: Tuple[
@@ -147,7 +283,12 @@ def test_requests(
     amodel = a.model_dump(exclude_unset=True, exclude={'header'}, exclude_none=True)
     bmodel = b.model_dump(exclude_unset=True, exclude={'header'}, exclude_none=True)  # type: ignore
     assert amodel == bmodel
+    assert a.BYTES[smphdr.Header.SIZE :] == b.BYTES[smphdr.Header.SIZE :]
 
+    # assert that the response and error types are as expected
+    assert b._Response is Response
+    assert b._ErrorV1 is ErrorV1
+    assert b._ErrorV2 is ErrorV2
     # assert that the response and error types are as expected
     assert b._Response is Response
     assert b._ErrorV1 is ErrorV1
