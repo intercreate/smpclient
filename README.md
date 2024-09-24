@@ -44,7 +44,6 @@ If you'd like an SMP CLI application instead of a library, then you should try
 
 ### Install Dependencies
 
-- python >=3.8, <3.13
 - poetry: https://python-poetry.org/docs/#installation
 
 ### Create the venv
