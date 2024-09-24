@@ -6,6 +6,7 @@ authors = [
     "J.P. Hutchins <jphutchins@gmail.com>",
     "J.P. Hutchins <jp@intercreate.io",
 ]
+repository = "https://github.com/intercreate/smpclient"
 readme = "README.md"
 license = "Apache-2.0"
 packages = [{ include = "smpclient" }]
