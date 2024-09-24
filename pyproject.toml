@@ -4,13 +4,11 @@ version = "0"
 description = "Simple Management Protocol (SMP) Client for remotely managing MCU firmware"
 authors = [
     "J.P. Hutchins <jphutchins@gmail.com>",
-    "J.P. Hutchins <jp@intercreate.io"
+    "J.P. Hutchins <jp@intercreate.io",
 ]
 readme = "README.md"
 license = "Apache-2.0"
-packages = [
-    { include = "smpclient" },
-]
+packages = [{ include = "smpclient" }]
 
 [tool.poetry.scripts]
 mcuimg = "smpclient.mcuboot:mcuimg"
@@ -21,7 +19,7 @@ source = "git-tag"
 [tool.poetry.dependencies]
 python = ">=3.8.1, <3.13"
 pyserial = "^3.5"
-smp = "^3.0.2"
+smp = "^3.1.1"
 intelhex = "^2.3.0"
 bleak = "^0.22.1"
 async-timeout = { version = "^4.0.3", python = "<3.11" }
@@ -47,11 +45,7 @@ extend-exclude = "dutfirmware|.venv|tests/fixtures|.tox"
 profile = "black"
 line_length = 100
 multi_line_output = 3
-skip = [
-    ".venv",
-    "dutfirmware",
-    ".tox",
-]
+skip = [".venv", "dutfirmware", ".tox"]
 
 [tool.mypy]
 disallow_untyped_defs = true
@@ -59,9 +53,7 @@ exclude = ['.venv', 'dutfirmware', '.tox']
 
 [tool.pytest.ini_options]
 norecursedirs = "dutfirmware/*"
-filterwarnings = [
-    "ignore:The --rsyncdir:DeprecationWarning",
-]
+filterwarnings = ["ignore:The --rsyncdir:DeprecationWarning"]
 
 [tool.tox]
 legacy_tox_ini = """
