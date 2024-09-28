@@ -1,15 +1,15 @@
 name: Test
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   tests:
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13.0-rc.2"]
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
@@ -22,8 +22,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'poetry'
-      
+          cache: "poetry"
+
       - run: poetry install
 
       - name: Test (Linux or MacOS)
@@ -32,7 +32,7 @@ jobs:
           shopt -s expand_aliases
           . ./envr.ps1
           test
-      
+
       - name: Test (Windows)
         if: matrix.os == 'windows-latest'
         run: |
