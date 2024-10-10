@@ -6,3 +6,4 @@ exclude =
     dutfirmware
 extend-ignore =
     E203
+    DOC301

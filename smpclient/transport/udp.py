@@ -1,4 +1,4 @@
-"""A UDP SMPTransport."""
+"""A UDP SMPTransport for Network connections like Wi-Fi or Ethernet."""
 
 import asyncio
 import logging
@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 
 class SMPUDPTransport(SMPTransport):
     def __init__(self, mtu: int = 1500) -> None:
+        """Initialize the SMP UDP transport.
+
+        Args:
+            mtu: The Maximum Transmission Unit (MTU) in 8-bit bytes.
+        """
         self._mtu = mtu
 
         self._client: Final = UDPClient()

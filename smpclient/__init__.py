@@ -1,4 +1,27 @@
-"""Simple Management Protocol (SMP) Client."""
+"""Simple Management Protocol (SMP) Client.
+
+This package implements transport layers for the Simple Management Protocol (SMP).
+The SMP Protocol defines common management operations for MCUs like firmware
+updates, file management, configuration, and statistics retrieval.
+
+Additionally, SMP is extensible, allowing for custom commands to be defined to
+meet the specific needs of the product.
+
+### Operating Systems
+
+|   | Windows 11 | Ubuntu | macOS (Arm/x86) |
+|---|------------|-------|-------|
+| Serial (UART, USB, CAN, ...) | ✅ | ✅ | ✅ |
+| Bluetooth Low Energy (BLE)  | ✅ | ✅ | ✅ |
+| UDP (Ethernet, Wi-Fi) | ✅ | ✅ | ✅ |
+
+### Examples
+
+Many usage examples are available on
+[GitHub](https://github.com/intercreate/smpclient/tree/main/examples)
+or in your local clone at `examples/`.
+
+"""
 
 from __future__ import annotations
 
@@ -6,7 +29,7 @@ import asyncio
 import logging
 from hashlib import sha256
 from types import TracebackType
-from typing import AsyncIterator, Final, Tuple, Type
+from typing import AsyncIterator, Final, NoReturn, Tuple, Type
 
 from pydantic import ValidationError
 from smp import header as smpheader
@@ -28,13 +51,51 @@ logger = logging.getLogger(__name__)
 
 
 class SMPClient:
-    def __init__(self, transport: SMPTransport, address: str):
-        """Create a client to the SMP server `address`, using `transport`."""
+    """Create a client to the SMP server `address`, using `transport`.
+
+    This class provides a high-level interface to an SMP server.  Other than
+    the `request` method, all methods are abstractions of common SMP routines,
+    such as uploading a FW image or downloading a file.
+
+    The `request` method is used to send an SMP request to the server and return
+    the response or error.
+
+    Args:
+        transport: the `SMPTransport` to use
+        address: the address of the SMP server, see `smpclient.transport` for details
+
+    Example:
+
+    ```python
+    import asyncio
+    from smpclient import SMPClient
+    from smpclient.requests.os_management import EchoWrite
+    from smpclient.transport.ble import SMPBLETransport
+
+    async def main():
+        async with SMPClient(SMPBLETransport(), "00:11:22:33:44:55") as client:
+            response = await client.request(EchoWrite(d="Hello, World!"))
+
+            if success(response):
+                print(f"Response: {response=}")
+            elif error(response):
+                print(f"Error: {response=}")
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+    """
+
+    def __init__(self, transport: SMPTransport, address: str):  # noqa: DOC301
         self._transport: Final = transport
         self._address: Final = address
 
     async def connect(self, timeout_s: float = 5.0) -> None:
-        """Connect to the SMP server."""
+        """Connect to the SMP server.
+
+        Args:
+            timeout_s: the timeout for the connection attempt in seconds
+        """
         await self._transport.connect(self._address, timeout_s)
         await self._initialize()
 
@@ -45,7 +106,53 @@ class SMPClient:
     async def request(
         self, request: SMPRequest[TRep, TEr1, TEr2], timeout_s: float = 120.000
     ) -> TRep | TEr1 | TEr2:
-        """Make an `SMPRequest` to the SMP server."""
+        """Make an `SMPRequest` to the SMP server and return the Response or Error.
+
+        Args:
+            request: the `SMPRequest` to send
+            timeout_s: the timeout for the request in seconds
+
+        Returns:
+            The typed and validated Response or Error
+
+        Raises:
+            TimeoutError: if the request times out
+            SMPBadSequence: if the response sequence does not match the request sequence
+            ValidationError: if the response cannot be parsed as a Response or Error
+
+        Examples:
+
+        Usage:
+
+        ```python
+        response = await client.request(EchoWrite(d="Hello, World!"))
+        if success(response):
+            print(f"Response: {response=}")
+        elif error(response):
+            print(f"Error: {response=}")
+        ```
+
+        Type Safety with Generic Typing:
+
+        ```python
+        response = await client.request(EchoWrite(d="Hello, World!"))
+        reveal_type(response)
+        # Revealed type is 'Union[EchoWriteResponse, EchoWriteErrorV1, EchoWriteErrorV2]'
+        if success(response):
+            reveal_type(response)
+            # Revealed type is 'EchoWriteResponse'
+        elif error(response):
+            reveal_type(response)
+            # Revealed type is 'Union[EchoWriteErrorV1, EchoWriteErrorV2]'
+            if error_v1(response):
+                reveal_type(response)
+                # Revealed type is 'EchoWriteErrorV1'
+            else:
+                reveal_type(response)
+                # Revealed type is 'EchoWriteErrorV2'
+        ```
+
+        """
 
         try:
             async with timeout(timeout_s):
@@ -91,22 +198,29 @@ class SMPClient:
     ) -> AsyncIterator[int]:
         """Iteratively upload an `image` to `slot`, yielding the offset.
 
-        Parameters:
-        - `image`: the `bytes` to upload
-        - `slot`: the slot to upload to (0 for default)
-        - `upgrade`: `True` to mark the image as confirmed.  This is unsafe and
-            can cause a boot-loop that could brick the device.  This setting
-            should be left at the default `False` and the image should be
-            confirmed from within the upgraded application.  Zephyr provides
-            [boot_write_img_confirmed()](https://docs.zephyrproject.org/apidoc/latest/group__mcuboot__api.html#ga95ccc9e1c7460fec16b9ce9ac8ad7a72)
-            for this purpose.
-        - `first_timeout_s`: the timeout for the first `ImageUploadWrite` request
-        - `subsequent_timeout_s`: the timeout for subsequent `ImageUploadWrite` requests
-        - `use_sha`: `True` to include the SHA256 hash of the image in the first
-            packet.
-            - Zephyr's SMP server will fail with `MGMT_ERR.EINVAL` if the
-            MTU is too small to include both the SHA256 and the first 32-bytes
-            of the image.  Increase the MTU or set `use_sha=False` in this case.
+        Args:
+            image: the `bytes` to upload
+            slot: the slot to upload to (0 for default)
+            upgrade: `True` to mark the image as confirmed.  This is unsafe and
+                can cause a boot-loop that could brick the device.  This setting
+                should be left at the default `False` and the image should be
+                confirmed from within the upgraded application.  Zephyr provides
+                [boot_write_img_confirmed()](https://docs.zephyrproject.org/apidoc/latest/group__mcuboot__api.html#ga95ccc9e1c7460fec16b9ce9ac8ad7a72)
+                for this purpose.
+            first_timeout_s: the timeout for the first `ImageUploadWrite` request
+            subsequent_timeout_s: the timeout for subsequent `ImageUploadWrite` requests
+            use_sha: `True` to include the SHA256 hash of the image in the first
+                packet.
+
+                Zephyr's SMP server will fail with `MGMT_ERR.EINVAL` if the
+                MTU is too small to include both the SHA256 and the first 32-bytes
+                of the image.  Increase the MTU or set `use_sha=False` in this case.
+
+        Yields:
+            the offset of the image upload
+
+        Raises:
+            SMPUploadError: if the upload routine fails
         """
 
         response = await self.request(
@@ -131,7 +245,7 @@ class SMPClient:
                 raise SMPUploadError(f"No offset received: {response=}")
             yield response.off
         else:  # pragma: no cover
-            raise Exception("Unreachable")
+            _unreachable()
 
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
@@ -155,7 +269,7 @@ class SMPClient:
                     raise SMPUploadError(f"No offset received: {response=}")
                 yield response.off
             else:  # pragma: no cover
-                raise Exception("Unreachable")
+                _unreachable()
 
         logger.info("Upload complete")
 
@@ -172,6 +286,19 @@ class SMPClient:
         file_path: str,
         timeout_s: float = 2.500,
     ) -> AsyncIterator[int]:
+        """Iteratively upload a `file_data` to `file_path`, yielding the offset.
+
+        Args:
+            file_data: the `bytes` to upload
+            file_path: the path to upload to
+            timeout_s: the timeout for each `FileUpload` request
+
+        Yields:
+            int: the offset of the file upload
+
+        Raises:
+            SMPUploadError: if the upload routine fails
+        """
         response = await self.request(
             self._maximize_file_upload_packet(
                 FileUpload(name=file_path, off=0, data=b"", len=len(file_data)),
@@ -187,7 +314,7 @@ class SMPClient:
                 raise SMPUploadError(f"No offset received: {response=}")
             yield response.off
         else:  # pragma: no cover
-            raise Exception("Unreachable")
+            _unreachable()
 
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(file_data):
@@ -202,7 +329,7 @@ class SMPClient:
             elif success(response):
                 yield response.off
             else:  # pragma: no cover
-                raise Exception("Unreachable")
+                _unreachable()
 
         logger.info("Upload complete")
 
@@ -211,6 +338,18 @@ class SMPClient:
         file_path: str,
         timeout_s: float = 2.500,
     ) -> bytes:
+        """Download a file from the SMP server.
+
+        Args:
+            file_path: the path to download
+            timeout_s: the timeout for each `FileDownload` request
+
+        Returns:
+            The downloaded file as `bytes`
+
+        Raises:
+            SMPUploadError: if the download routine fails
+        """
         response = await self.request(FileDownload(off=0, name=file_path), timeout_s=timeout_s)
         file_length = 0
 
@@ -221,7 +360,7 @@ class SMPClient:
                 raise SMPUploadError(f"No length received: {response=}")
             file_length = response.len
         else:  # pragma: no cover
-            raise Exception("Unreachable")
+            _unreachable()
 
         file_data = response.data
 
@@ -236,13 +375,15 @@ class SMPClient:
             elif success(response):
                 file_data += response.data
             else:  # pragma: no cover
-                raise Exception("Unreachable")
+                _unreachable()
 
         logger.info("Download complete")
         return file_data
 
     @property
     def address(self) -> str:
+        """The SMP server address."""
+
         return self._address
 
     async def __aenter__(self) -> "SMPClient":
@@ -353,6 +494,10 @@ class SMPClient:
                 elif error(mcumgr_parameters):
                     logger.warning(f"Error reading MCUMgr parameters: {mcumgr_parameters}")
                 else:
-                    raise Exception("Unreachable")
+                    _unreachable()
         except asyncio.TimeoutError:
             logger.warning("Timeout waiting for MCUMgr parameters")
+
+
+def _unreachable() -> NoReturn:
+    raise Exception("Unreachable")

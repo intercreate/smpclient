@@ -6,7 +6,7 @@ from typing import Protocol
 
 
 class SMPTransportDisconnected(Exception):
-    ...
+    """Raised when the SMP transport is disconnected."""
 
 
 class SMPTransport(Protocol):
@@ -14,22 +14,45 @@ class SMPTransport(Protocol):
     """The SMP server transport buffer size, in 8-bit bytes."""
 
     async def connect(self, address: str, timeout_s: float) -> None:  # pragma: no cover
-        """Connect the `SMPTransport`."""
+        """Connect the `SMPTransport`.
+
+        Args:
+            address: The SMP server address.
+            timeout_s: The connection timeout in seconds."""
 
     async def disconnect(self) -> None:  # pragma: no cover
         """Disconnect the `SMPTransport`."""
 
     async def send(self, data: bytes) -> None:  # pragma: no cover
-        """Send the encoded `SMPRequest` `data`."""
+        """Send the encoded `SMPRequest` `data`.
+
+        Args:
+            data: The encoded `SMPRequest`.
+        """
 
     async def receive(self) -> bytes:  # pragma: no cover
-        """Receive the decoded `SMPResponse`."""
+        """Receive the decoded `SMPResponse` data.
+
+        Returns:
+            The `SMPResponse` bytes.
+        """
 
     async def send_and_receive(self, data: bytes) -> bytes:  # pragma: no cover
-        """Send the encoded `SMPRequest` `data` and receive the decoded `SMPResponse`."""
+        """Send the encoded `SMPRequest` `data` and receive the decoded `SMPResponse`.
+
+        Args:
+            data: The encoded `SMPRequest`.
+
+        Returns:
+            The `SMPResponse` bytes.
+        """
 
     def initialize(self, smp_server_transport_buffer_size: int) -> None:  # pragma: no cover
-        """Initialize the `SMPTransport` with the server transport buffer size."""
+        """Initialize the `SMPTransport` with the server transport buffer size.
+
+        Args:
+            smp_server_transport_buffer_size: The SMP server transport buffer size, in 8-bit bytes.
+        """
         self._smp_server_transport_buffer_size = smp_server_transport_buffer_size
 
     @property

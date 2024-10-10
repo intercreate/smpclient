@@ -1,0 +1,76 @@
+site_name: Simple Management Protocol (SMP) Client
+
+repo_name: intercreate/smpclient
+repo_url: https://github.com/intercreate/smpclient
+
+nav:
+  - Home: index.md
+  - Transport: transport/transport.md
+  - Serial (USB): transport/serial.md
+  - BLE: transport/ble.md
+  - UDP (Network): transport/udp.md
+  - Request/Response: requests.md
+  - File Management: file_management.md
+  - Image Management: image_management.md
+  - OS Management: os_management.md
+  - Settings Management: settings_management.md
+  - Shell Management: shell_management.md
+  - Statistics Management: statistics_management.md
+  - Zephyr Management: zephyr_management.md
+  - User:
+      - Intercreate: user/intercreate.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          griffe:
+            allow_inspections: true
+          options:
+            docstring_style: google
+            show_source: true
+            members_order: source
+            show_signature_annotations: true
+            show_inherited_class_members: true
+            show_if_no_docstring: true
+            extensions:
+              - griffe_inherited_docstrings
+  - mike:
+      # These fields are all optional; the defaults are as below...
+      alias_type: symlink
+      redirect_template: null
+      deploy_prefix: ""
+      canonical_version: null
+      version_selector: true
+      css_dir: css
+      javascript_dir: js
+
+extra:
+  version:
+    provider: mike
+
+extra_css:
+  - stylesheets/extra.css
+
+theme:
+  name: material
+  palette:
+    primary: custom
+    accent: custom
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - footnotes
+  - meta
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.magiclink
+  - pymdownx.snippets
+  - pymdownx.superfences
