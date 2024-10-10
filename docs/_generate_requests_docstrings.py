@@ -7,6 +7,8 @@ This is solely for generating documentation with mkdocs.
 
 It is wrangled LLM code and should be replaced ASAP.
 """
+from __future__ import annotations
+
 import ast
 import importlib.util
 import inspect
