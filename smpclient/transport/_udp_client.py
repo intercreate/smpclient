@@ -22,9 +22,11 @@ class UDPClient:
     async def connect(self, remote_addr: Addr, _local_addr: Addr | None = None) -> None:
         """Create a UDP connection to the given `Addr`.
 
-        Parameters:
-        - remote_addr: The remote address to connect to.
-        - _local_addr: For unit tests only!  The local address to connect from.
+        Args:
+            remote_addr: The remote address to connect to.
+            _local_addr: For unit tests only!  The local address to connect from.
+
+        Example:
 
         ```python
 
@@ -44,12 +46,19 @@ class UDPClient:
 
         This does not block; it buffers the data and arranges for it to be sent
         out asynchronously.
+
+        Args:
+            data: The data to send.
         """
 
         self._transport.sendto(data)
 
     async def receive(self) -> bytes:
-        """Receive data from the transport."""
+        """Receive data from the transport.
+
+        Returns:
+            bytes: The data received
+        """
 
         return await self._protocol.receive_queue.get()
 

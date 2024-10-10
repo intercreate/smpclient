@@ -1,4 +1,4 @@
-"""Some Generic helpers for the SMP module."""
+"""Generics and TypeGuards for SMP Requests and Responses."""
 
 from __future__ import annotations
 
@@ -10,8 +10,13 @@ from smp import message as smpmessage
 from typing_extensions import TypeGuard
 
 TEr1 = TypeVar("TEr1", bound=smperror.ErrorV1)
+"""Type of SMP Error V1."""
+
 TEr2 = TypeVar("TEr2", bound=smperror.ErrorV2)
+"""Type of SMP Error V2."""
+
 TRep = TypeVar("TRep", bound=Union[smpmessage.ReadResponse, smpmessage.WriteResponse])
+"""Type of successful SMP Response (ReadResponse or WriteResponse)."""
 
 
 class SMPRequest(Protocol[TRep, TEr1, TEr2]):
@@ -43,20 +48,48 @@ class SMPRequest(Protocol[TRep, TEr1, TEr2]):
 
 
 def error_v1(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeGuard[smperror.ErrorV1]:
-    """`TypeGuard` that returns `True` if the `response` is an `ErrorV1`."""
+    """`TypeGuard` that returns `True` if the `response` is an `ErrorV1`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV1`.
+    """
     return response.RESPONSE_TYPE == smpmessage.ResponseType.ERROR_V1
 
 
 def error_v2(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeGuard[TEr2]:
-    """`TypeGuard` that returns `True` if the `response` is an `ErrorV2`."""
+    """`TypeGuard` that returns `True` if the `response` is an `ErrorV2`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV2`.
+    """
     return response.RESPONSE_TYPE == smpmessage.ResponseType.ERROR_V2
 
 
 def error(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeGuard[smperror.ErrorV1 | TEr2]:
-    """`TypeGuard` that returns `True` if the `response` is an `ErrorV1` or `ErrorV2`."""
+    """`TypeGuard` that returns `True` if the `response` is an `ErrorV1` or `ErrorV2`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV1` or `ErrorV2`.
+    """
     return error_v1(response) or error_v2(response)
 
 
 def success(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeGuard[TRep]:
-    """`TypeGuard` that returns `True` if the `response` is a successful `Response`."""
+    """`TypeGuard` that returns `True` if the `response` is a successful `Response`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is a successful `Response`.
+    """
     return response.RESPONSE_TYPE == smpmessage.ResponseType.SUCCESS

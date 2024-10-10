@@ -1,0 +1,27 @@
+name: Test Docs Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          cache: "poetry"
+
+      - run: poetry install --only doc
+
+      - name: Build docs
+        run: |
+          poetry run python docs/_generate_requests_docstrings.py
+          poetry run mkdocs build
