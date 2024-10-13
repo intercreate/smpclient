@@ -16,6 +16,11 @@ If you'd like an SMP CLI application instead of a library, then you should try
 
 `smpclient` is [distributed by PyPI](https://pypi.org/project/smpclient/) and can be installed with `poetry`, `pip`, and other dependency managers.
 
+## User Documentation
+
+Documentation is in the source code so that it is available to your editor.
+An online version is generated and available [here](https://intercreate.github.io/smpclient/).
+
 ## Development Quickstart
 
 > Assumes that you've already [setup your development environment](#development-environment-setup).
