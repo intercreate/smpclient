@@ -1,4 +1,7 @@
-"""A serial SMPTransport."""
+"""A serial SMPTransport.
+
+In addition to UART, this transport can be used with USB CDC ACM and CAN.
+"""
 
 from __future__ import annotations
 
@@ -66,7 +69,7 @@ class SMPSerialTransport(SMPTransport):
             self.state = SMPSerialTransport._ReadBuffer.State.SER
             """The state of the read buffer."""
 
-    def __init__(
+    def __init__(  # noqa: DOC301
         self,
         max_smp_encoded_frame_size: int = 256,
         line_length: int = 128,
@@ -85,24 +88,24 @@ class SMPSerialTransport(SMPTransport):
     ) -> None:
         """Initialize the serial transport.
 
-        Parameters:
-        - `max_smp_encoded_frame_size`: The maximum size of an encoded SMP
-            frame.  The SMP server needs to have a buffer large enough to
-            receive the encoded frame packets and to store the decoded frame.
-        - `line_length`: The maximum SMP packet size.
-        - `line_buffers`: The number of line buffers in the serial buffer.
-        - `baudrate`: The baudrate of the serial connection.  OK to ignore for
-            USB CDC ACM.
-        - `bytesize`: The number of data bits.
-        - `parity`: The parity setting.
-        - `stopbits`: The number of stop bits.
-        - `timeout`: The read timeout.
-        - `xonxoff`: Enable software flow control.
-        - `rtscts`: Enable hardware (RTS/CTS) flow control.
-        - `write_timeout`: The write timeout.
-        - `dsrdtr`: Enable hardware (DSR/DTR) flow control.
-        - `inter_byte_timeout`: The inter-byte timeout.
-        - `exclusive`: The exclusive access timeout.
+        Args:
+            max_smp_encoded_frame_size: The maximum size of an encoded SMP
+                frame.  The SMP server needs to have a buffer large enough to
+                receive the encoded frame packets and to store the decoded frame.
+            line_length: The maximum SMP packet size.
+            line_buffers: The number of line buffers in the serial buffer.
+            baudrate: The baudrate of the serial connection.  OK to ignore for
+                USB CDC ACM.
+            bytesize: The number of data bits.
+            parity: The parity setting.
+            stopbits: The number of stop bits.
+            timeout: The read timeout.
+            xonxoff: Enable software flow control.
+            rtscts: Enable hardware (RTS/CTS) flow control.
+            write_timeout: The write timeout.
+            dsrdtr: Enable hardware (DSR/DTR) flow control.
+            inter_byte_timeout: The inter-byte timeout.
+            exclusive: The exclusive access timeout.
 
         """
         if max_smp_encoded_frame_size < line_length * line_buffers:

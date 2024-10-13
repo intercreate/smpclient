@@ -51,21 +51,23 @@ UUID_PATTERN: Final = re.compile(
 
 
 class SMPBLETransportException(SMPClientException):
-    ...
+    """Base class for SMP BLE transport exceptions."""
 
 
 class SMPBLETransportDeviceNotFound(SMPBLETransportException):
-    ...
+    """Raised when a BLE device is not found."""
 
 
 class SMPBLETransportNotSMPServer(SMPBLETransportException):
-    ...
+    """Raised when the SMP characteristic UUID is not found."""
 
 
 logger = logging.getLogger(__name__)
 
 
 class SMPBLETransport(SMPTransport):
+    """A Bluetooth Low Energy (BLE) SMPTransport."""
+
     def __init__(self) -> None:
         self._buffer = bytearray()
         self._notify_condition = asyncio.Condition()
