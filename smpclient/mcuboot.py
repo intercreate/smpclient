@@ -1,4 +1,4 @@
-"""Tools for inspecting firmware images.
+"""Tools for inspecting MCUBoot compatible firmware images.
 
 Specification: https://docs.mcuboot.com/design.html
 """
@@ -101,6 +101,7 @@ class ImageVersion:
 
     @staticmethod
     def loads(data: bytes) -> 'ImageVersion':
+        """Load an `ImageVersion` from `bytes`."""
         return ImageVersion(*IMAGE_VERSION_STRUCT.unpack(data))
 
     def __str__(self) -> str:
@@ -148,10 +149,12 @@ class ImageHeader:
 
     @staticmethod
     def load_from(file: BytesIO | BufferedReader) -> 'ImageHeader':
+        """Load an `ImageHeader` from an open file."""
         return ImageHeader.loads(file.read(IMAGE_HEADER_STRUCT.size))
 
     @staticmethod
     def load_file(path: str) -> 'ImageHeader':
+        """Load an `ImageHeader` the file at `path`."""
         with open(path, 'rb') as f:
             return ImageHeader.load_from(f)
 
@@ -178,6 +181,7 @@ class ImageTLVInfo:
 
     @staticmethod
     def load_from(file: BytesIO | BufferedReader) -> 'ImageTLVInfo':
+        """Load an `ImageTLVInfo` from a file."""
         return ImageTLVInfo.loads(file.read(IMAGE_TLV_INFO_STRUCT.size))
 
 
@@ -191,6 +195,7 @@ class ImageTLV:
 
     @staticmethod
     def load_from(file: BytesIO | BufferedReader) -> 'ImageTLV':
+        """Load an `ImageTLV` from a file."""
         return ImageTLV(*IMAGE_TLV_STRUCT.unpack_from(file.read(IMAGE_TLV_STRUCT.size)))
 
 
@@ -225,6 +230,7 @@ class ImageInfo:
 
     @staticmethod
     def load_file(path: str) -> 'ImageInfo':
+        """Load MCUBoot `ImageInfo` from the .bin or .hex file at `path`."""
         file_path = pathlib.Path(path)
         if file_path.suffix not in {".bin", ".hex"}:
             raise MCUBootImageError(
@@ -279,7 +285,7 @@ def mcuimg() -> int:
         prog="mcuimg",
         description=(
             "Inspect an MCUBoot compatible firmware update image."
-            "\nCopyright (C) 2023 Intercreate, Inc. | github.com/intercreate/smpclient"
+            "\nCopyright (C) 2023-2024 Intercreate, Inc. | github.com/intercreate/smpclient"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

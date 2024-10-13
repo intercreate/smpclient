@@ -9,6 +9,7 @@ nav:
   - Serial (USB): transport/serial.md
   - BLE: transport/ble.md
   - UDP (Network): transport/udp.md
+  - MCUBoot: mcuboot.md
   - Request/Response: requests.md
   - File Management: file_management.md
   - Image Management: image_management.md

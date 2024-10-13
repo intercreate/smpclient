@@ -1,0 +1,3 @@
+# MCUBoot
+
+::: smpclient.mcuboot
