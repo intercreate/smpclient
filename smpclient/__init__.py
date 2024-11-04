@@ -29,11 +29,12 @@ import asyncio
 import logging
 from hashlib import sha256
 from types import TracebackType
-from typing import AsyncIterator, Final, NoReturn, Tuple, Type
+from typing import AsyncIterator, Final, Tuple, Type
 
 from pydantic import ValidationError
 from smp import header as smpheader
 from smp import message as smpmsg
+from typing_extensions import assert_never
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError
 from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
@@ -130,9 +131,11 @@ class SMPClient:
             print(f"Response: {response=}")
         elif error(response):
             print(f"Error: {response=}")
+        else:
+            assert_never(response)
         ```
 
-        Type Safety with Generic Typing:
+        Type Safety and Exhaustiveness with Generic Typing:
 
         ```python
         response = await client.request(EchoWrite(d="Hello, World!"))
@@ -147,9 +150,13 @@ class SMPClient:
             if error_v1(response):
                 reveal_type(response)
                 # Revealed type is 'EchoWriteErrorV1'
-            else:
+            elif error_v2(response):
                 reveal_type(response)
                 # Revealed type is 'EchoWriteErrorV2'
+            else:
+                assert_never(response)
+        else:
+            assert_never(response)
         ```
 
         """
@@ -244,8 +251,8 @@ class SMPClient:
             if response.off is None:
                 raise SMPUploadError(f"No offset received: {response=}")
             yield response.off
-        else:  # pragma: no cover
-            _unreachable()
+        else:
+            assert_never(response)  # pragma: no cover
 
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
@@ -268,8 +275,8 @@ class SMPClient:
                 if response.off is None:
                     raise SMPUploadError(f"No offset received: {response=}")
                 yield response.off
-            else:  # pragma: no cover
-                _unreachable()
+            else:
+                assert_never(response)  # pragma: no cover
 
         logger.info("Upload complete")
 
@@ -313,8 +320,8 @@ class SMPClient:
             if response.off is None:
                 raise SMPUploadError(f"No offset received: {response=}")
             yield response.off
-        else:  # pragma: no cover
-            _unreachable()
+        else:
+            assert_never(response)  # pragma: no cover
 
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(file_data):
@@ -328,8 +335,8 @@ class SMPClient:
                 raise SMPUploadError(response)
             elif success(response):
                 yield response.off
-            else:  # pragma: no cover
-                _unreachable()
+            else:
+                assert_never(response)  # pragma: no cover
 
         logger.info("Upload complete")
 
@@ -359,8 +366,8 @@ class SMPClient:
             if response.len is None:
                 raise SMPUploadError(f"No length received: {response=}")
             file_length = response.len
-        else:  # pragma: no cover
-            _unreachable()
+        else:
+            assert_never(response)  # pragma: no cover
 
         file_data = response.data
 
@@ -374,8 +381,8 @@ class SMPClient:
                 raise SMPUploadError(response)
             elif success(response):
                 file_data += response.data
-            else:  # pragma: no cover
-                _unreachable()
+            else:
+                assert_never(response)  # pragma: no cover
 
         logger.info("Download complete")
         return file_data
@@ -494,10 +501,6 @@ class SMPClient:
                 elif error(mcumgr_parameters):
                     logger.warning(f"Error reading MCUMgr parameters: {mcumgr_parameters}")
                 else:
-                    _unreachable()
+                    assert_never(mcumgr_parameters)
         except asyncio.TimeoutError:
             logger.warning("Timeout waiting for MCUMgr parameters")
-
-
-def _unreachable() -> NoReturn:
-    raise Exception("Unreachable")
