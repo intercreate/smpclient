@@ -45,7 +45,7 @@ mike = "^2.1.3"
 mkdocs-material = "^9.5.38"
 griffe-inherited-docstrings = "^1.0.1"
 griffe = "^1.3.1"
-pydantic = "^2.9.2"
+smp = "^3.1.1"
 
 [tool.black]
 line-length = 100
