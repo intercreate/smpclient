@@ -64,7 +64,7 @@ quam, a volutpat purus. Etiam sollicitudin arcu vel elit bibendum et imperdiet r
 Etiam elit velit, posuere ut pulvinar ac, condimentum eget justo. Fusce a erat velit. Vivamus
 imperdiet ultrices orci in hendrerit.
 """
-    async with SMPClient(SMPSerialTransport(), port) as client:
+    async with SMPClient(SMPSerialTransport(port)) as client:
         start_s = time.time()
         async for offset in client.upload_file(file_data=file_data, file_path=file_path):
             print(

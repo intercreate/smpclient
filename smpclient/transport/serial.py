@@ -71,6 +71,7 @@ class SMPSerialTransport(SMPTransport):
 
     def __init__(  # noqa: DOC301
         self,
+        port: str,
         max_smp_encoded_frame_size: int = 256,
         line_length: int = 128,
         line_buffers: int = 2,
@@ -89,6 +90,7 @@ class SMPSerialTransport(SMPTransport):
         """Initialize the serial transport.
 
         Args:
+            port: The serial port (e.g. "/dev/ttyACM0" or "COM2").
             max_smp_encoded_frame_size: The maximum size of an encoded SMP
                 frame.  The SMP server needs to have a buffer large enough to
                 receive the encoded frame packets and to store the decoded frame.
@@ -108,6 +110,8 @@ class SMPSerialTransport(SMPTransport):
             exclusive: The exclusive access timeout.
 
         """
+        self._port: Final = port
+
         if max_smp_encoded_frame_size < line_length * line_buffers:
             logger.error(
                 f"{max_smp_encoded_frame_size=} is less than {line_length=} * {line_buffers=}!"
@@ -137,8 +141,8 @@ class SMPSerialTransport(SMPTransport):
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
-        self._conn.port = address
+    async def connect(self, timeout_s: float) -> None:
+        self._conn.port = self._port
         logger.debug(f"Connecting to {self._conn.port=}")
         start_time: Final = time.time()
         while time.time() - start_time <= timeout_s:
@@ -153,7 +157,7 @@ class SMPSerialTransport(SMPTransport):
                 )
                 await asyncio.sleep(SMPSerialTransport._CONNECTION_RETRY_INTERVAL_S)
 
-        raise TimeoutError(f"Failed to connect to {address=}")
+        raise TimeoutError(f"Failed to connect to {self._port=}")
 
     @override
     async def disconnect(self) -> None:
