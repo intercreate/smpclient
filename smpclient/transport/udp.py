@@ -99,4 +99,9 @@ class SMPUDPTransport(SMPTransport):
     @override
     @property
     def mtu(self) -> int:
-        return self._smp_server_transport_buffer_size or self._mtu
+        return self._mtu
+
+    @override
+    @property
+    def max_unencoded_size(self) -> int:
+        return self._mtu
