@@ -108,11 +108,11 @@ async def main() -> None:
     print("Connecting to SMP DUT...", end="", flush=True)
     async with SMPClient(
         SMPSerialTransport(
+            port_a.device,
             max_smp_encoded_frame_size=max_smp_encoded_frame_size,
             line_length=line_length,
             line_buffers=line_buffers,
-        ),
-        port_a.device,
+        )
     ) as client:
         print("OK")
 
@@ -187,11 +187,11 @@ async def main() -> None:
     print("Connecting to B SMP DUT...", end="", flush=True)
     async with SMPClient(
         SMPSerialTransport(
+            port_b.device,
             max_smp_encoded_frame_size=max_smp_encoded_frame_size,
             line_length=line_length,
             line_buffers=line_buffers,
-        ),
-        port_b.device,
+        )
     ) as client:
         print("OK")
 

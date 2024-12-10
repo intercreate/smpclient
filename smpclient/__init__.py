@@ -63,7 +63,6 @@ class SMPClient:
 
     Args:
         transport: the `SMPTransport` to use
-        address: the address of the SMP server, see `smpclient.transport` for details
 
     Example:
 
@@ -74,7 +73,7 @@ class SMPClient:
     from smpclient.transport.ble import SMPBLETransport
 
     async def main():
-        async with SMPClient(SMPBLETransport(), "00:11:22:33:44:55") as client:
+        async with SMPClient(SMPBLETransport("00:11:22:33:44:55")) as client:
             response = await client.request(EchoWrite(d="Hello, World!"))
 
             if success(response):
@@ -87,9 +86,8 @@ class SMPClient:
     ```
     """
 
-    def __init__(self, transport: SMPTransport, address: str):  # noqa: DOC301
+    def __init__(self, transport: SMPTransport):  # noqa: DOC301
         self._transport: Final = transport
-        self._address: Final = address
 
     async def connect(self, timeout_s: float = 5.0) -> None:
         """Connect to the SMP server.
@@ -97,7 +95,7 @@ class SMPClient:
         Args:
             timeout_s: the timeout for the connection attempt in seconds
         """
-        await self._transport.connect(self._address, timeout_s)
+        await self._transport.connect(timeout_s)
         await self._initialize()
 
     async def disconnect(self) -> None:
@@ -386,12 +384,6 @@ class SMPClient:
 
         logger.info("Download complete")
         return file_data
-
-    @property
-    def address(self) -> str:
-        """The SMP server address."""
-
-        return self._address
 
     async def __aenter__(self) -> "SMPClient":
         await self.connect()

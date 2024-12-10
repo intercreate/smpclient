@@ -14,10 +14,11 @@ from smpclient.transport.serial import SMPSerialTransport
 
 
 def test_constructor() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("COM1")
     assert isinstance(t._conn, Serial)
+    assert t._port == "COM1"
 
-    t = SMPSerialTransport(max_smp_encoded_frame_size=512, line_length=128, line_buffers=4)
+    t = SMPSerialTransport("COM1", max_smp_encoded_frame_size=512, line_length=128, line_buffers=4)
     assert isinstance(t._conn, Serial)
     assert t.mtu == 512
     assert t.max_unencoded_size < 512
@@ -26,18 +27,18 @@ def test_constructor() -> None:
 @patch("smpclient.transport.serial.Serial")
 @pytest.mark.asyncio
 async def test_connect(_: MagicMock) -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("COM2")
 
-    await t.connect("COM2", 1.0)
+    await t.connect(1.0)
     assert t._conn.port == "COM2"
 
     t._conn.open.assert_called_once()  # type: ignore
 
     t._conn.reset_mock()  # type: ignore
 
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("/dev/ttyACM0")
 
-    await t.connect("/dev/ttyACM0", 1.0)
+    await t.connect(1.0)
     assert t._conn.port == "/dev/ttyACM0"
 
     t._conn.open.assert_called_once()  # type: ignore
@@ -46,14 +47,14 @@ async def test_connect(_: MagicMock) -> None:
 @patch("smpclient.transport.serial.Serial")
 @pytest.mark.asyncio
 async def test_disconnect(_: MagicMock) -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("port")
     await t.disconnect()
     t._conn.close.assert_called_once()  # type: ignore
 
 
 @pytest.mark.asyncio
 async def test_send() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("port")
     t._conn.write = MagicMock()  # type: ignore
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
@@ -74,7 +75,7 @@ async def test_send() -> None:
 
 @pytest.mark.asyncio
 async def test_receive() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("port")
     m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
     p = [p for p in smppacket.encode(m.BYTES, t.max_unencoded_size)]
     t._readuntil = AsyncMock(side_effect=p)  # type: ignore
@@ -93,7 +94,7 @@ async def test_receive() -> None:
 
 @pytest.mark.asyncio
 async def test_readuntil() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("port")
     m1 = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
     m2 = EchoWrite._Response.get_default()(sequence=1, r="Hello computer!")  # type: ignore
     p1 = [p for p in smppacket.encode(m1.BYTES, 8)]
@@ -127,7 +128,7 @@ async def test_readuntil() -> None:
 
 @pytest.mark.asyncio
 async def test_readuntil_with_smp_server_logging(caplog: pytest.LogCaptureFixture) -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("port")
     m1 = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
     m2 = EchoWrite._Response.get_default()(sequence=1, r="Hello computer!")  # type: ignore
     p1 = [p for p in smppacket.encode(m1.BYTES, 8)]
@@ -166,7 +167,7 @@ async def test_readuntil_with_smp_server_logging(caplog: pytest.LogCaptureFixtur
 
 @pytest.mark.asyncio
 async def test_send_and_receive() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport("port")
     t.send = AsyncMock()  # type: ignore
     t.receive = AsyncMock()  # type: ignore
 

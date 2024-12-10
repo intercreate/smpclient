@@ -13,28 +13,31 @@ from smpclient.transport.udp import SMPUDPTransport
 
 
 def test_init() -> None:
-    t = SMPUDPTransport()
+    t = SMPUDPTransport("IP address")
+    assert t._address == "IP address"
+    assert t._port == 1337
     assert t.mtu == 1500
     assert isinstance(t._client, UDPClient)
 
-    t = SMPUDPTransport(mtu=512)
+    t = SMPUDPTransport("IP address", port=999, mtu=512)
+    assert t._port == 999
     assert t.mtu == 512
 
 
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_connect(_: MagicMock) -> None:
-    t = SMPUDPTransport()
+    t = SMPUDPTransport("192.168.0.1")
     t._client = cast(MagicMock, t._client)  # type: ignore
 
-    await t.connect("192.168.0.1", 0.001)
+    await t.connect(0.001)
     t._client.connect.assert_awaited_once_with(Addr(host="192.168.0.1", port=1337))
 
 
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_disconnect(_: MagicMock) -> None:
-    t = SMPUDPTransport()
+    t = SMPUDPTransport("IP Address")
     t._client = cast(MagicMock, t._client)  # type: ignore
     t._client._protocol = MagicMock()
 
@@ -55,7 +58,7 @@ async def test_disconnect(_: MagicMock) -> None:
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_send(_: MagicMock) -> None:
-    t = SMPUDPTransport()
+    t = SMPUDPTransport("IP Address")
     t._client.send = cast(MagicMock, t._client.send)  # type: ignore
 
     await t.send(b"hello")
@@ -75,7 +78,7 @@ async def test_send(_: MagicMock) -> None:
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_receive(_: MagicMock) -> None:
-    t = SMPUDPTransport()
+    t = SMPUDPTransport("IP Address")
     t._client.receive = AsyncMock()  # type: ignore
 
     message = bytes(EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!"))  # type: ignore # noqa
@@ -105,7 +108,7 @@ async def test_send_and_receive() -> None:
     with patch("smpclient.transport.udp.SMPUDPTransport.send") as send_mock, patch(
         "smpclient.transport.udp.SMPUDPTransport.receive"
     ) as receive_mock:
-        t = SMPUDPTransport()
+        t = SMPUDPTransport("IP Address")
         message: Final = b"hello"
         await t.send_and_receive(message)
         send_mock.assert_awaited_once_with(message)

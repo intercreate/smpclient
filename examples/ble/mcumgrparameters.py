@@ -16,7 +16,7 @@ async def main() -> None:
     print(f"Found {len(smp_servers)} SMP servers: {smp_servers}")
 
     print("Connecting to the first SMP server...", end="", flush=True)
-    async with SMPClient(SMPBLETransport(), smp_servers[0].address) as client:
+    async with SMPClient(SMPBLETransport(smp_servers[0].address)) as client:
         print("OK")
         print(f"Client MTU is {client._transport.mtu}B")
         print(f"Client max unencoded size is {client._transport.max_unencoded_size}B")

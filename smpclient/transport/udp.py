@@ -15,21 +15,27 @@ logger = logging.getLogger(__name__)
 
 
 class SMPUDPTransport(SMPTransport):
-    def __init__(self, mtu: int = 1500) -> None:
+    def __init__(self, address: str, port: int = 1337, mtu: int = 1500) -> None:
         """Initialize the SMP UDP transport.
 
         Args:
+            address: The destination IP address.
+            port: The destination port.
             mtu: The Maximum Transmission Unit (MTU) in 8-bit bytes.
         """
-        self._mtu = mtu
+        self._address: Final = address
+        self._port: Final = port
+        self._mtu: Final = mtu
 
         self._client: Final = UDPClient()
 
     @override
-    async def connect(self, address: str, timeout_s: float, port: int = 1337) -> None:
-        logger.debug(f"Connecting to {address=} {port=}")
-        await asyncio.wait_for(self._client.connect(Addr(host=address, port=port)), timeout_s)
-        logger.info(f"Connected to {address=} {port=}")
+    async def connect(self, timeout_s: float) -> None:
+        logger.debug(f"Connecting to {self._address=} {self._port=}")
+        await asyncio.wait_for(
+            self._client.connect(Addr(host=self._address, port=self._port)), timeout_s
+        )
+        logger.info(f"Connected to {self._address=} {self._port=}")
 
     @override
     async def disconnect(self) -> None:
