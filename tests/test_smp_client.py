@@ -518,6 +518,38 @@ async def test_file_upload_test_txt(
     assert accumulated_data == data
 
 
+@patch("tests.test_smp_client.SMPMockTransport.mtu", new_callable=PropertyMock)
+@patch("tests.test_smp_client.SMPMockTransport.max_unencoded_size", new_callable=PropertyMock)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mtu", [124, 127, 251, 498, 512, 1024, 2048, 4096, 8192])
+async def test_file_upload_test_255_bytes_file(
+    mock_mtu: PropertyMock, mock_max_unencoded_size: PropertyMock, mtu: int
+) -> None:
+    mock_mtu.return_value = mtu
+    mock_max_unencoded_size.return_value = mtu
+    with open(
+        str(Path("tests", "fixtures", "file_system", "255_bytes.txt")),
+        "rb",
+    ) as f:
+        data = f.read()
+
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    accumulated_data = bytearray([])
+
+    async def mock_request(request: FileUpload, timeout_s: float = 120.000) -> FileUploadResponse:
+        accumulated_data.extend(request.data)
+        return FileUpload._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+
+    s.request = mock_request  # type: ignore
+
+    async for _ in s.upload_file(data, file_path="255_bytes.txt"):
+        pass
+
+    assert accumulated_data == data
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("max_smp_encoded_frame_size", [128, 256, 512, 1024, 2048, 4096, 8192])
 @pytest.mark.parametrize("line_buffers", [1, 2, 3, 4, 8])
