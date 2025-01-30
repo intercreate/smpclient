@@ -17,7 +17,7 @@ jobs:
 
       - run: git fetch --prune --unshallow --tags
 
-      - run: pipx install poetry
+      - run: pipx install poetry==1.8.5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -107,7 +107,7 @@ jobs:
 
       - run: git fetch --prune --unshallow --tags
 
-      - run: pipx install poetry
+      - run: pipx install poetry==1.8.5
 
       - name: Set up Python
         uses: actions/setup-python@v5
