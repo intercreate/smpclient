@@ -30,9 +30,7 @@ async def main() -> None:
     print(f"Found {len(smp_servers)} SMP servers: {smp_servers}")
 
     print("Connecting to the first SMP server...", end="", flush=True)
-    async with SMPClient(
-        SMPBLETransport(), smp_servers[0].name or smp_servers[0].address
-    ) as client:
+    async with SMPClient(SMPBLETransport(smp_servers[0].name or smp_servers[0].address)) as client:
         print("OK")
 
         print("Sending request...", end="", flush=True)

@@ -80,26 +80,25 @@ class SMPMockTransport:
 
 def test_constructor() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
     assert s._transport is m
-    assert s._address == "address"
 
 
 @pytest.mark.asyncio
 async def test_connect() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
     s._initialize = AsyncMock()  # type: ignore
     await s.connect()
 
-    m.connect.assert_awaited_once_with("address", 5.0)
+    m.connect.assert_awaited_once_with(5.0)
     s._initialize.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
 async def test_request() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     req = ResetWrite()
     m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence).BYTES
@@ -178,7 +177,7 @@ async def test_request() -> None:
 @pytest.mark.asyncio
 async def test_upload() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -299,7 +298,7 @@ async def test_upload_hello_world_bin(
         image = f.read()
 
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     accumulated_image = bytearray([])
 
@@ -334,11 +333,12 @@ async def test_upload_hello_world_bin_encoded(
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
+        "address",
         max_smp_encoded_frame_size=max_smp_encoded_frame_size,
         line_length=line_length,
         line_buffers=line_buffers,
     )
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
     assert s._transport.mtu == max_smp_encoded_frame_size
 
     packets: List[bytes] = []
@@ -389,7 +389,7 @@ async def test_upload_hello_world_bin_encoded(
 @pytest.mark.asyncio
 async def test_upload_file() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -502,7 +502,7 @@ async def test_file_upload_test_txt(
         data = f.read()
 
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     accumulated_data = bytearray([])
 
@@ -565,11 +565,12 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
+        "address",
         max_smp_encoded_frame_size=max_smp_encoded_frame_size,
         line_length=line_length,
         line_buffers=line_buffers,
     )
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
     assert s._transport.mtu == max_smp_encoded_frame_size
 
     packets: List[bytes] = []
@@ -620,7 +621,7 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
 @pytest.mark.asyncio
 async def test_download_file() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -802,7 +803,7 @@ async def test_download_file() -> None:
 @pytest.mark.asyncio
 async def test_download_file_error_first() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -835,7 +836,7 @@ async def test_download_file_error_first() -> None:
 @pytest.mark.asyncio
 async def test_download_file_no_len_first() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -868,7 +869,7 @@ async def test_download_file_no_len_first() -> None:
 @pytest.mark.asyncio
 async def test_download_file_error_not_first() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
