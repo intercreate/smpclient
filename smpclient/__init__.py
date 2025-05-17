@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from hashlib import sha256
 from types import TracebackType
 from typing import AsyncIterator, Final, Tuple, Type
@@ -401,10 +402,10 @@ class SMPClient:
         self,
         exc_type: Type[BaseException] | None,
         exc_value: BaseException | None,
-        traceback: TracebackType | None,
+        tb: TracebackType | None,
     ) -> None:
         if exc_value is not None:
-            logger.error(f"Exception in SMPClient: {exc_type=}, {exc_value=}, {traceback=}")
+            logger.error(f"Exception in SMPClient:\n{traceback.format_exc()}")
         await self.disconnect()
 
     @staticmethod
