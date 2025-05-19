@@ -68,7 +68,14 @@ logger = logging.getLogger(__name__)
 class SMPBLETransport(SMPTransport):
     """A Bluetooth Low Energy (BLE) SMPTransport."""
 
-    def __init__(self) -> None:
+    def __init__(self, name_or_address: str) -> None:
+        """Initialize the SMP BLE transport.
+
+        Args:
+            name_or_address: The device name or address (MAC or UUID) to connect to.
+        """
+        self._name_or_address: Final = name_or_address
+
         self._buffer = bytearray()
         self._notify_condition = asyncio.Condition()
         self._disconnected_event = asyncio.Event()
@@ -80,12 +87,13 @@ class SMPBLETransport(SMPTransport):
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
-        logger.debug(f"Scanning for {address=}")
+    async def connect(self, timeout_s: float) -> None:
+        logger.debug(f"Scanning for {self._name_or_address=}")
         device: BLEDevice | None = (
-            await BleakScanner.find_device_by_address(address, timeout=timeout_s)
-            if MAC_ADDRESS_PATTERN.match(address) or UUID_PATTERN.match(address)
-            else await BleakScanner.find_device_by_name(address)
+            await BleakScanner.find_device_by_address(self._name_or_address, timeout=timeout_s)
+            if MAC_ADDRESS_PATTERN.match(self._name_or_address)
+            or UUID_PATTERN.match(self._name_or_address)
+            else await BleakScanner.find_device_by_name(self._name_or_address)
         )
 
         if type(device) is BLEDevice:
@@ -95,7 +103,7 @@ class SMPBLETransport(SMPTransport):
                 disconnected_callback=self._set_disconnected_event,
             )
         else:
-            raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
+            raise SMPBLETransportDeviceNotFound(f"Device '{self._name_or_address}' not found")
 
         logger.debug(f"Found device: {device=}, connecting...")
         await self._client.connect()
