@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+
+:root {
+    --md-default-bg-color: #f6e8d9;
+    --md-primary-fg-color: #80A69C;
+    --md-accent-fg-color: #80A69C;
+    --ic-dark-teal: #80A69C;
+    --ic-dark-lime: #BAC452;
+    --ic-light-lime: #b8c440;
+    --ic-extra-dark-lime: #939C04;
+    --ic-light-teal: #80A69C;
+    --ic-beige: #F6E8D9;
+    --cream: #f6e8d9;
+    --black: black;
+    --white: white;
+    --grey: grey;
+    --marin: #93bcb3;
+    --blue: #9bbdd5;
+    --purple: #c2aebe;
+    --yelow: #b8c440;
+    --pink: #d9b6a3;
+}
+
+.md-header {
+    color: #000000;
+    background-color: var(--marin);
+    font-family: 'Montserrat', sans-serif;
+}
+
+.md-header .md-header__topic {
+    color: #000000;
+    font-weight: 700;
+}
+
+.md-typeset h1 {
+    color: var(--ic-extra-dark-lime);
+    font-family: 'DM Serif Display', serif;
+    font-weight: 400;
+    font-size: 42px;
+}
+
+.md-nav__title {
+    color: #000000;
+}
