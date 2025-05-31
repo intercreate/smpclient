@@ -49,7 +49,7 @@ An online version is generated and available [here](https://intercreate.github.i
 
 ### Install Dependencies
 
-- poetry==1.8.5: https://python-poetry.org/docs/#installation
+- poetry: https://python-poetry.org/docs/#installation
 
 ### Create the venv
 
