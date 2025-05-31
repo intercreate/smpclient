@@ -33,6 +33,9 @@ jobs:
       - name: Show pyproject.toml diff
         run: git diff pyproject.toml
 
+      - name: Undo any pyproject.toml changes
+        run: git restore pyproject.toml
+
       - run: poetry build
 
       - name: Store the distribution packages
