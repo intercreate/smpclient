@@ -30,6 +30,9 @@ jobs:
       - name: Check for dirty state
         run: git status --porcelain
 
+      - name: Show pyproject.toml diff
+        run: git diff pyproject.toml
+
       - run: poetry build
 
       - name: Store the distribution packages
