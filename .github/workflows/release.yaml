@@ -14,9 +14,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          clean: true
 
       - run: pipx install poetry
 
@@ -28,9 +25,7 @@ jobs:
 
       - run: pipx inject poetry poetry-dynamic-versioning # https://github.com/python-poetry/poetry/issues/10028
 
-      - run: poetry install
-
-      - run: git clean -xdf # avoid erroneous changes caused by workflow environment  
+      - run: poetry install 
 
       - run: poetry build
 
