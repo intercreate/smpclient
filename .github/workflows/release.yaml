@@ -30,6 +30,8 @@ jobs:
 
       - run: poetry install
 
+      - run: git clean -xdf # avoid erroneous changes caused by workflow environment  
+
       - run: poetry build
 
       - name: Store the distribution packages
