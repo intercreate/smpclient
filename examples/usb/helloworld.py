@@ -15,7 +15,7 @@ async def main() -> None:
     parser.add_argument("port", help="The serial port to connect to")
     port = parser.parse_args().port
 
-    async with SMPClient(SMPSerialTransport(), port) as client:
+    async with SMPClient(SMPSerialTransport(port)) as client:
         print("OK")
 
         print("Sending request...", end="", flush=True)

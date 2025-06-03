@@ -33,7 +33,7 @@ class MockBleakClient:
 
 
 def test_constructor() -> None:
-    t = SMPBLETransport()
+    t = SMPBLETransport("my_device")
     assert t._buffer == bytearray()
     assert isinstance(t._notify_condition, asyncio.Condition)
 
@@ -86,17 +86,17 @@ async def test_connect(
     mock_find_device_by_address: MagicMock,
 ) -> None:
     # assert that it searches by name if MAC or UUID is not provided
-    await SMPBLETransport().connect("device name", 1.0)
+    await SMPBLETransport("device name").connect(1.0)
     mock_find_device_by_name.assert_called_once_with("device name")
     mock_find_device_by_name.reset_mock()
 
     # assert that it searches by MAC if MAC is provided
-    await SMPBLETransport().connect("00:00:00:00:00:00", 1.0)
+    await SMPBLETransport("00:00:00:00:00:00").connect(1.0)
     mock_find_device_by_address.assert_called_once_with("00:00:00:00:00:00", timeout=1.0)
     mock_find_device_by_address.reset_mock()
 
     # assert that it searches by UUID if UUID is provided
-    await SMPBLETransport().connect(UUID("00000000-0000-4000-8000-000000000000").hex, 1.0)
+    await SMPBLETransport(UUID("00000000-0000-4000-8000-000000000000").hex).connect(1.0)
     mock_find_device_by_address.assert_called_once_with(
         "00000000000040008000000000000000", timeout=1.0
     )
@@ -105,15 +105,15 @@ async def test_connect(
     # assert that it raises an exception if the device is not found
     mock_find_device_by_address.return_value = None
     with pytest.raises(SMPBLETransportDeviceNotFound):
-        await SMPBLETransport().connect("00:00:00:00:00:00", 1.0)
+        await SMPBLETransport("00:00:00:00:00:00").connect(1.0)
     mock_find_device_by_address.reset_mock()
 
     # assert that connect is awaited
-    t = SMPBLETransport()
-    await t.connect("name", 1.0)
+    t = SMPBLETransport("name")
+    await t.connect(1.0)
     t._client = cast(MagicMock, t._client)
     t._client.reset_mock()
-    await t.connect("name", 1.0)
+    await t.connect(1.0)
     t._client.connect.assert_awaited_once_with()
 
     # these are hard to mock now because the _client is created in the connect method
@@ -141,7 +141,7 @@ async def test_connect(
 
 @pytest.mark.asyncio
 async def test_disconnect() -> None:
-    t = SMPBLETransport()
+    t = SMPBLETransport("name_or_address")
     t._client = MagicMock(spec=BleakClient)
     await t.disconnect()
     t._client.disconnect.assert_awaited_once_with()
@@ -149,7 +149,7 @@ async def test_disconnect() -> None:
 
 @pytest.mark.asyncio
 async def test_send() -> None:
-    t = SMPBLETransport()
+    t = SMPBLETransport("name_or_address")
     t._client = MagicMock(spec=BleakClient)
     t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
     t._smp_characteristic.max_write_without_response_size = 20
@@ -161,7 +161,7 @@ async def test_send() -> None:
 
 @pytest.mark.asyncio
 async def test_receive() -> None:
-    t = SMPBLETransport()
+    t = SMPBLETransport("name_or_address")
     t._client = MagicMock(spec=BleakClient)
     t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
     t._smp_characteristic.uuid = str(SMP_CHARACTERISTIC_UUID)
@@ -192,7 +192,7 @@ async def test_receive() -> None:
 
 @pytest.mark.asyncio
 async def test_send_and_receive() -> None:
-    t = SMPBLETransport()
+    t = SMPBLETransport("name_or_address")
     t.send = AsyncMock()  # type: ignore
     t.receive = AsyncMock()  # type: ignore
     await t.send_and_receive(b"Hello pytest!")
@@ -201,14 +201,14 @@ async def test_send_and_receive() -> None:
 
 
 def test_max_unencoded_size() -> None:
-    t = SMPBLETransport()
+    t = SMPBLETransport("name_or_address")
     t._client = MagicMock(spec=BleakClient)
     t._max_write_without_response_size = 42
     assert t.max_unencoded_size == 42
 
 
 def test_max_unencoded_size_mcumgr_param() -> None:
-    t = SMPBLETransport()
+    t = SMPBLETransport("name_or_address")
     t._client = MagicMock(spec=BleakClient)
     t._smp_server_transport_buffer_size = 9001
     assert t.max_unencoded_size == 9001
