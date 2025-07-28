@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Tuple, Type
 
 import pytest
+from smp import enumeration_management as smpem
 from smp import error as smperr
 from smp import file_management as smpfs
 from smp import header as smphdr
@@ -18,6 +19,12 @@ from smp import zephyr_management as smpz
 from smp.user import intercreate as smpic
 
 from smpclient.generics import SMPRequest, TEr1, TEr2, TRep
+from smpclient.requests.enumeration_management import (
+    CountSupportedGroups,
+    GroupDetails,
+    GroupId,
+    ListSupportedGroups,
+)
 from smpclient.requests.file_management import (
     FileClose,
     FileDownload,
@@ -55,6 +62,34 @@ from smpclient.requests.zephyr_management import EraseStorage
 @pytest.mark.parametrize(
     "test_tuple",
     (
+        (
+            smpem.GroupCountRequest(),
+            CountSupportedGroups(),
+            smpem.GroupCountResponse,
+            smpem.EnumManagementErrorV1,
+            smpem.EnumManagementErrorV2,
+        ),
+        (
+            smpem.ListOfGroupsRequest(),
+            ListSupportedGroups(),
+            smpem.ListOfGroupsResponse,
+            smpem.EnumManagementErrorV1,
+            smpem.EnumManagementErrorV2,
+        ),
+        (
+            smpem.GroupIdRequest(),
+            GroupId(),
+            smpem.GroupIdResponse,
+            smpem.EnumManagementErrorV1,
+            smpem.EnumManagementErrorV2,
+        ),
+        (
+            smpem.GroupDetailsRequest(),
+            GroupDetails(),
+            smpem.GroupDetailsResponse,
+            smpem.EnumManagementErrorV1,
+            smpem.EnumManagementErrorV2,
+        ),
         (
             smpimg.ImageStatesReadRequest(),
             ImageStatesRead(),
