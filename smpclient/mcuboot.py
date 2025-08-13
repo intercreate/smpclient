@@ -230,7 +230,12 @@ class ImageInfo:
 
     @staticmethod
     def load_file(path: str) -> 'ImageInfo':
-        """Load MCUBoot `ImageInfo` from the .bin or .hex file at `path`."""
+        """
+        Load MCUBoot `ImageInfo` from the file at `path`.
+
+        Files with the `.hex` extension are treated as Intel HEX format.
+        All other file extensions are treated as binary.
+        """
         file_path = pathlib.Path(path)
 
         if file_path.suffix != ".hex":
