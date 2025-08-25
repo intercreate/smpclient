@@ -230,14 +230,15 @@ class ImageInfo:
 
     @staticmethod
     def load_file(path: str) -> 'ImageInfo':
-        """Load MCUBoot `ImageInfo` from the .bin or .hex file at `path`."""
-        file_path = pathlib.Path(path)
-        if file_path.suffix not in {".bin", ".hex"}:
-            raise MCUBootImageError(
-                f"Ambiguous file extension, '{file_path.suffix}', use '.bin' or '.hex'"
-            )
+        """
+        Load MCUBoot `ImageInfo` from the file at `path`.
 
-        if file_path.suffix == ".bin":
+        Files with the `.hex` extension are treated as Intel HEX format.
+        All other file extensions are treated as binary.
+        """
+        file_path = pathlib.Path(path)
+
+        if file_path.suffix != ".hex":
             with open(file_path, 'rb') as _f:
                 f = BytesIO(_f.read())
         else:
