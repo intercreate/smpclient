@@ -53,7 +53,7 @@ format-jinja = "{% if distance == 0 %}{{ base }}{% if dirty %}+dirty{% endif %}{
 pyserial = "^3.5"
 smp = "^3.1.1"
 intelhex = "^2.3.0"
-bleak = "^0.22.1"
+bleak = "^1.1.1"
 async-timeout = { version = "^4.0.3", python = "<3.11" }
 
 [tool.poetry.group.dev.dependencies]
