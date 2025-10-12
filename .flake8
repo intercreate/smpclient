@@ -4,6 +4,7 @@ exclude =
     .venv
     .tox
     dutfirmware
+    .poetry
 extend-ignore =
     E203
     DOC301
