@@ -85,7 +85,7 @@ class SMPBLETransport(SMPTransport):
         device: BLEDevice | None = (
             await BleakScanner.find_device_by_address(address, timeout=timeout_s)
             if MAC_ADDRESS_PATTERN.match(address) or UUID_PATTERN.match(address)
-            else await BleakScanner.find_device_by_name(address)
+            else await BleakScanner.find_device_by_name(address, timeout=timeout_s)
         )
 
         if type(device) is BLEDevice:
