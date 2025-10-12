@@ -73,11 +73,11 @@ def test_SMP_gatt_consts() -> None:
 
 @patch(
     "smpclient.transport.ble.BleakScanner.find_device_by_address",
-    return_value=BLEDevice("address", "name", None, -60),
+    return_value=BLEDevice("address", "name", None),
 )
 @patch(
     "smpclient.transport.ble.BleakScanner.find_device_by_name",
-    return_value=BLEDevice("address", "name", None, -60),
+    return_value=BLEDevice("address", "name", None),
 )
 @patch("smpclient.transport.ble.BleakClient", new=MockBleakClient)
 @pytest.mark.asyncio
