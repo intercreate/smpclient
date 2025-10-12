@@ -47,7 +47,7 @@ tagged-metadata = true
 dirty = true
 fix-shallow-repository = true
 pattern = '(?P<base>\d+\.\d+\.\d+)'
-format-jinja = "{% if distance == 0 %}{{ base }}{% else %}{{ base }}-dev{{ distance }}+g{{ commit }}{% endif %}{% if dirty %}.dirty{% endif %}"
+format-jinja = "{% if distance == 0 %}{{ base }}{% if dirty %}+dirty{% endif %}{% else %}{{ base }}-dev{{ distance }}+g{{ commit }}{% if dirty %}.dirty{% endif %}{% endif %}"
 
 [tool.poetry.dependencies]
 pyserial = "^3.5"
