@@ -87,7 +87,7 @@ async def test_connect(
 ) -> None:
     # assert that it searches by name if MAC or UUID is not provided
     await SMPBLETransport().connect("device name", 1.0)
-    mock_find_device_by_name.assert_called_once_with("device name")
+    mock_find_device_by_name.assert_called_once_with("device name", timeout=1.0)
     mock_find_device_by_name.reset_mock()
 
     # assert that it searches by MAC if MAC is provided
