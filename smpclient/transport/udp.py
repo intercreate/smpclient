@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from socket import AF_INET6
 from typing import Final
 
 from smp import header as smphdr
@@ -13,15 +14,39 @@ from smpclient.transport._udp_client import Addr, UDPClient
 
 logger = logging.getLogger(__name__)
 
+IPV4_HEADER_SIZE: Final = 20
+"""Minimum IPv4 header size in bytes."""
+
+IPV6_HEADER_SIZE: Final = 40
+"""IPv6 header size in bytes."""
+
+UDP_HEADER_SIZE: Final = 8
+"""UDP header size in bytes."""
+
+IPV4_UDP_OVERHEAD: Final = IPV4_HEADER_SIZE + UDP_HEADER_SIZE
+"""Total overhead (28 bytes) to subtract from MTU to get maximum UDP payload (MSS) for IPv4.
+
+Per RFC 8085 section 3.2, applications must subtract IP and UDP header sizes from the
+PMTU to avoid fragmentation."""
+
+IPV6_UDP_OVERHEAD: Final = IPV6_HEADER_SIZE + UDP_HEADER_SIZE
+"""Total overhead (48 bytes) to subtract from MTU to get maximum UDP payload (MSS) for IPv6.
+
+Per RFC 8085 section 3.2, applications must subtract IP and UDP header sizes from the
+PMTU to avoid fragmentation."""
+
 
 class SMPUDPTransport(SMPTransport):
     def __init__(self, mtu: int = 1500) -> None:
         """Initialize the SMP UDP transport.
 
         Args:
-            mtu: The Maximum Transmission Unit (MTU) in 8-bit bytes.
+            mtu: The Maximum Transmission Unit (MTU) of the link layer in bytes.
+                IP and UDP header overhead will be subtracted to calculate the maximum
+                UDP payload size (MSS) to avoid fragmentation per RFC 8085 section 3.2.
         """
         self._mtu = mtu
+        self._is_ipv6 = False
 
         self._client: Final = UDPClient()
 
@@ -29,6 +54,11 @@ class SMPUDPTransport(SMPTransport):
     async def connect(self, address: str, timeout_s: float, port: int = 1337) -> None:
         logger.debug(f"Connecting to {address=} {port=}")
         await asyncio.wait_for(self._client.connect(Addr(host=address, port=port)), timeout_s)
+
+        if sock := self._client._transport.get_extra_info('socket'):
+            self._is_ipv6 = sock.family == AF_INET6
+            logger.debug(f"Detected {'IPv6' if self._is_ipv6 else 'IPv4'} connection")
+
         logger.info(f"Connected to {address=} {port=}")
 
     @override
@@ -104,4 +134,10 @@ class SMPUDPTransport(SMPTransport):
     @override
     @property
     def max_unencoded_size(self) -> int:
-        return self._mtu
+        """Maximum UDP payload size (MSS) to avoid fragmentation.
+
+        Subtracts IPv4/IPv6 and UDP header overhead from MTU per RFC 8085 section 3.2.
+        The IP version is auto-detected after connection.
+        """
+        overhead = IPV6_UDP_OVERHEAD if self._is_ipv6 else IPV4_UDP_OVERHEAD
+        return self._mtu - overhead
