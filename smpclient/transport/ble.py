@@ -159,13 +159,9 @@ class SMPBLETransport(SMPTransport):
         #       self._notify_condition is used to synchronize access to self._buffer.
 
         async with self._notify_condition:  # wait for the header
-            logger.debug(f"Waiting for notify on {SMP_CHARACTERISTIC_UUID=}")
-            await self._notify_or_disconnect()
-
-            if len(self._buffer) < smphdr.Header.SIZE:  # pragma: no cover
-                raise SMPBLETransportException(
-                    f"Buffer contents not big enough for SMP header: {self._buffer=}"
-                )
+            while len(self._buffer) < smphdr.Header.SIZE:
+                logger.debug(f"Waiting for notify on {SMP_CHARACTERISTIC_UUID=}")
+                await self._notify_or_disconnect()
 
             header: Final = smphdr.Header.loads(self._buffer[: smphdr.Header.SIZE])
             logger.debug(f"Received {header=}")
