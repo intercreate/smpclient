@@ -14,12 +14,23 @@ from smpclient.transport.serial import SMPSerialTransport
 
 
 def test_constructor() -> None:
+    # Test with Auto() (default)
     t = SMPSerialTransport()
     assert isinstance(t._conn, Serial)
+    assert t.mtu == 127  # Default for Auto without initialize
+    assert t._line_length == 127
+    assert t._line_buffers == 1
+    assert t._max_smp_encoded_frame_size == 127
 
-    t = SMPSerialTransport(max_smp_encoded_frame_size=512, line_length=128, line_buffers=4)
+    # Test with BufferParams
+    t = SMPSerialTransport(
+        fragmentation_strategy=SMPSerialTransport.BufferParams(line_length=128, line_buffers=4)
+    )
     assert isinstance(t._conn, Serial)
-    assert t.mtu == 512
+    assert t.mtu == 512  # 128 * 4
+    assert t._line_length == 128
+    assert t._line_buffers == 4
+    assert t._max_smp_encoded_frame_size == 512
     assert t.max_unencoded_size < 512
 
 
@@ -174,3 +185,53 @@ async def test_send_and_receive() -> None:
 
     t.send.assert_awaited_once_with(b"some data")
     t.receive.assert_awaited_once_with()
+
+
+def test_initialize_with_auto() -> None:
+    """Test that Auto mode updates parameters based on server's buffer size."""
+    t = SMPSerialTransport()  # Uses Auto() by default
+
+    # Before initialize, uses conservative defaults
+    assert t._line_length == 127
+    assert t._line_buffers == 1
+    assert t._max_smp_encoded_frame_size == 127
+
+    # After initialize with server buffer size
+    t.initialize(512)
+    assert t._line_length == 127
+    assert t._line_buffers == 512 // 127  # 4
+    assert t._max_smp_encoded_frame_size == 512
+    assert t.mtu == 512
+
+
+def test_initialize_with_buffer_params() -> None:
+    """Test that BufferParams mode doesn't change user-specified parameters."""
+    t = SMPSerialTransport(
+        fragmentation_strategy=SMPSerialTransport.BufferParams(line_length=128, line_buffers=2)
+    )
+
+    # Before initialize
+    assert t._line_length == 128
+    assert t._line_buffers == 2
+    assert t._max_smp_encoded_frame_size == 256  # 128 * 2
+
+    # After initialize - parameters should NOT change
+    t.initialize(512)
+    assert t._line_length == 128
+    assert t._line_buffers == 2
+    assert t._max_smp_encoded_frame_size == 256
+    assert t.mtu == 256
+
+
+def test_initialize_with_buffer_params_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """Test that a warning is logged when user's params exceed server buffer size."""
+    t = SMPSerialTransport(
+        fragmentation_strategy=SMPSerialTransport.BufferParams(
+            line_length=128, line_buffers=4  # 128 * 4 = 512
+        )
+    )
+
+    with caplog.at_level(logging.WARNING):
+        t.initialize(256)  # Server buffer (256) is smaller than calculated size (512)
+
+    assert any("exceeds server buffer size" in record.message for record in caplog.records)
