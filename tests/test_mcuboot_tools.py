@@ -14,7 +14,11 @@ from smpclient.mcuboot import (
     IMAGE_TLV_INFO_MAGIC,
     ImageHeader,
     ImageInfo,
+    ImageTLV,
+    ImageTLVType,
+    ImageTLVValue,
     ImageVersion,
+    VendorTLV,
 )
 
 
@@ -113,3 +117,118 @@ def test_ImageVersion() -> None:
     assert v.revision == 0xFFFF
     assert v.build_num == 0xFFFFFFFF
     assert str(v) == "1.255.65535-build4294967295"
+
+
+def test_pubkey_tlv_exists() -> None:
+    """Test that PUBKEY (0x02) TLV type exists.
+
+    https://github.com/intercreate/smpclient/issues/83
+    """
+    assert IMAGE_TLV.PUBKEY == 0x02
+    assert IMAGE_TLV.PUBKEY.name == "PUBKEY"
+
+
+def test_standard_tlv_coercion() -> None:
+    """Test that standard TLV values are coerced to IMAGE_TLV enum."""
+    # PUBKEY (the bug fix!)
+    tlv = ImageTLV(type=0x02, len=256)
+    assert isinstance(tlv.type, IMAGE_TLV)
+    assert tlv.type == IMAGE_TLV.PUBKEY
+    assert tlv.type.name == "PUBKEY"
+
+    # SHA256
+    tlv = ImageTLV(type=0x10, len=32)
+    assert isinstance(tlv.type, IMAGE_TLV)
+    assert tlv.type == IMAGE_TLV.SHA256
+
+    # SHA384
+    tlv = ImageTLV(type=0x11, len=48)
+    assert isinstance(tlv.type, IMAGE_TLV)
+    assert tlv.type == IMAGE_TLV.SHA384
+
+
+def test_vendor_tlv_validation() -> None:
+    """Test that vendor TLV ranges are validated correctly."""
+    # Lower byte 0xA0-0xFE should be valid vendor TLVs
+    tlv = ImageTLV(type=0xA0, len=16)
+    assert isinstance(tlv.type, VendorTLV)
+    assert tlv.type == 0xA0
+
+    tlv = ImageTLV(type=0xFE, len=8)
+    assert isinstance(tlv.type, VendorTLV)
+    assert tlv.type == 0xFE
+
+    # Multi-byte vendor TLVs
+    tlv = ImageTLV(type=0x01A0, len=16)
+    assert isinstance(tlv.type, VendorTLV)
+    assert tlv.type == 0x01A0
+
+    tlv = ImageTLV(type=0xFFFE, len=4)
+    assert isinstance(tlv.type, VendorTLV)
+    assert tlv.type == 0xFFFE
+
+
+def test_unknown_tlv_fallback() -> None:
+    """Test that unknown TLV types fall back to int without error."""
+    # This should not raise a validation error
+    tlv = ImageTLV(type=0x99, len=8)
+    assert isinstance(tlv.type, int)
+    assert tlv.type == 0x99
+
+    # Another unknown type
+    tlv = ImageTLV(type=0x05, len=4)
+    assert isinstance(tlv.type, int)
+    assert tlv.type == 0x05
+
+
+def test_tlv_type_union_order() -> None:
+    """Test that union resolution follows left-to-right order."""
+    from pydantic import TypeAdapter
+
+    adapter: TypeAdapter[ImageTLVType] = TypeAdapter(ImageTLVType)
+
+    # Standard TLV should match IMAGE_TLV first
+    result = adapter.validate_python(0x02)
+    assert isinstance(result, IMAGE_TLV)
+    assert result == IMAGE_TLV.PUBKEY
+
+    # Vendor TLV should validate
+    result = adapter.validate_python(0xA0)
+    assert isinstance(result, int)
+    assert result == 0xA0
+
+    # Unknown TLV should fallback to int
+    result = adapter.validate_python(0x99)
+    assert isinstance(result, int)
+    assert result == 0x99
+
+
+def test_tlv_value_str_standard() -> None:
+    """Test __str__ with standard IMAGE_TLV enum types."""
+    # PUBKEY
+    tlv_header = ImageTLV(type=0x02, len=4)
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\x00\x01\x02\x03")
+    assert str(tlv_value) == "PUBKEY=00010203"
+
+    # SHA256
+    tlv_header = ImageTLV(type=0x10, len=4)
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xAA\xBB\xCC\xDD")
+    assert str(tlv_value) == "SHA256=aabbccdd"
+
+
+def test_tlv_value_str_vendor() -> None:
+    """Test __str__ with vendor TLV types (should show hex)."""
+    tlv_header = ImageTLV(type=0xA0, len=4)
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xFF\xFF\xFF\xFF")
+    assert str(tlv_value) == "0xa0=ffffffff"
+
+    tlv_header = ImageTLV(type=0xFE, len=2)
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\x12\x34")
+    assert str(tlv_value) == "0xfe=1234"
+
+
+def test_tlv_value_str_unknown() -> None:
+    """Test __str__ with unknown TLV types (should show hex)."""
+    tlv_header = ImageTLV(type=0x99, len=4)
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xDE\xAD\xBE\xEF")
+    assert str(tlv_value) == "0x99=deadbeef"
