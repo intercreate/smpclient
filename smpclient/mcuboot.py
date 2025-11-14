@@ -11,7 +11,7 @@ import struct
 from enum import IntEnum, IntFlag, unique
 from functools import cached_property
 from io import BufferedReader, BytesIO
-from typing import Annotated, Any, Dict, Final, List
+from typing import Annotated, Any, Dict, Final, List, Union
 
 from intelhex import hex2bin  # type: ignore
 from pydantic import Field, GetCoreSchemaHandler
@@ -150,7 +150,7 @@ class VendorTLV(int):
         )
 
 
-ImageTLVType = Annotated[IMAGE_TLV | VendorTLV | int, Field(union_mode="left_to_right")]
+ImageTLVType = Annotated[Union[IMAGE_TLV, VendorTLV, int], Field(union_mode="left_to_right")]
 """TLV type that accepts standard IMAGE_TLV enums, vendor-defined TLVs, or any integer.
 
 This uses Pydantic's "left to right" union mode to:
