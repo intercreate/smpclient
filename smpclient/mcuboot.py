@@ -11,7 +11,7 @@ import struct
 from enum import IntEnum, IntFlag, unique
 from functools import cached_property
 from io import BufferedReader, BytesIO
-from typing import Annotated, Any, Dict, Final, Union
+from typing import Annotated, Any, Final, Union
 
 from intelhex import hex2bin  # type: ignore
 from pydantic import Field, GetCoreSchemaHandler
@@ -340,7 +340,7 @@ class ImageInfo:
         return ImageInfo(file=path, header=image_header, tlv_info=tlv_info, tlvs=tlvs)
 
     @cached_property
-    def _map_tlv_type_to_value(self) -> Dict[int, ImageTLVValue]:
+    def _map_tlv_type_to_value(self) -> dict[int, ImageTLVValue]:
         return {tlv.header.type: tlv for tlv in self.tlvs}
 
     def __str__(self) -> str:
