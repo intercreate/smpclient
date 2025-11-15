@@ -10,8 +10,7 @@ import logging
 import math
 import time
 from enum import IntEnum, unique
-from functools import cached_property
-from typing import Final
+from typing import Final, NamedTuple
 
 from serial import Serial, SerialException
 from smp import packet as smppacket
@@ -69,11 +68,29 @@ class SMPSerialTransport(SMPTransport):
             self.state = SMPSerialTransport._ReadBuffer.State.SER
             """The state of the read buffer."""
 
+    class Auto(NamedTuple):
+        """Automatically determine buffer parameters from the SMP server.
+
+        On connect, queries the server's MCUMGR_PARAM for `buf_size`
+        (CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE) and calculates:
+        - line_length: 127 (standard MTU for uart/usb/shell)
+        - line_buffers: buf_size / line_length
+
+        Falls back to BufferParams() if server doesn't support MCUMGR_PARAM.
+        """
+
+    class BufferParams(NamedTuple):
+        """Buffer parameters for the serial transport."""
+
+        line_length: int = 127
+        """The maximum SMP packet size."""
+
+        line_buffers: int = 1
+        """The number of line buffers in the serial buffer."""
+
     def __init__(  # noqa: DOC301
         self,
-        max_smp_encoded_frame_size: int = 256,
-        line_length: int = 128,
-        line_buffers: int = 2,
+        fragmentation_strategy: Auto | BufferParams = Auto(),
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
@@ -89,11 +106,10 @@ class SMPSerialTransport(SMPTransport):
         """Initialize the serial transport.
 
         Args:
-            max_smp_encoded_frame_size: The maximum size of an encoded SMP
-                frame.  The SMP server needs to have a buffer large enough to
-                receive the encoded frame packets and to store the decoded frame.
-            line_length: The maximum SMP packet size.
-            line_buffers: The number of line buffers in the serial buffer.
+            fragmentation_strategy: The fragmentation strategy to use.  Either
+                `SMPSerialTransport.Auto()` to automatically determine buffer
+                parameters from the SMP server, or `SMPSerialTransport.BufferParams`
+                to manually specify buffer parameters.
             baudrate: The baudrate of the serial connection.  OK to ignore for
                 USB CDC ACM.
             bytesize: The number of data bits.
@@ -108,18 +124,7 @@ class SMPSerialTransport(SMPTransport):
             exclusive: The exclusive access timeout.
 
         """
-        if max_smp_encoded_frame_size < line_length * line_buffers:
-            logger.error(
-                f"{max_smp_encoded_frame_size=} is less than {line_length=} * {line_buffers=}!"
-            )
-        elif max_smp_encoded_frame_size != line_length * line_buffers:
-            logger.warning(
-                f"{max_smp_encoded_frame_size=} is not equal to {line_length=} * {line_buffers=}!"
-            )
-
-        self._max_smp_encoded_frame_size: Final = max_smp_encoded_frame_size
-        self._line_length: Final = line_length
-        self._line_buffers: Final = line_buffers
+        self._fragmentation_strategy: Final = fragmentation_strategy
         self._conn: Final = Serial(
             baudrate=baudrate,
             bytesize=bytesize,
@@ -135,6 +140,62 @@ class SMPSerialTransport(SMPTransport):
         )
         self._buffer = SMPSerialTransport._ReadBuffer()
         logger.debug(f"Initialized {self.__class__.__name__}")
+
+    @property
+    def _line_length(self) -> int:
+        """The maximum SMP packet size."""
+        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
+            return self.BufferParams().line_length
+        else:
+            return self._fragmentation_strategy.line_length
+
+    @property
+    def _line_buffers(self) -> int:
+        """The number of line buffers."""
+        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
+            if self._smp_server_transport_buffer_size is not None:
+                return self._smp_server_transport_buffer_size // self.BufferParams().line_length
+            return self.BufferParams().line_buffers
+        else:
+            return self._fragmentation_strategy.line_buffers
+
+    @property
+    def _max_smp_encoded_frame_size(self) -> int:
+        """The maximum encoded frame size (line_length * line_buffers)."""
+        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
+            if self._smp_server_transport_buffer_size is not None:
+                return self._smp_server_transport_buffer_size
+            return self._line_length * self._line_buffers
+        else:
+            return (
+                self._fragmentation_strategy.line_length * self._fragmentation_strategy.line_buffers
+            )
+
+    @override
+    def initialize(self, smp_server_transport_buffer_size: int) -> None:
+        """Initialize with the server's buffer size from MCUMGR_PARAM.
+
+        Args:
+            smp_server_transport_buffer_size: The server's CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE
+        """
+        super().initialize(smp_server_transport_buffer_size)
+
+        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
+            logger.info(
+                f"Auto-configured from server: {self._line_length=}, "
+                f"{self._line_buffers=}, mtu={self._max_smp_encoded_frame_size}"
+            )
+        else:
+            # Validate user's BufferParams against server capabilities
+            calculated_size = (
+                self._fragmentation_strategy.line_length * self._fragmentation_strategy.line_buffers
+            )
+            if calculated_size > smp_server_transport_buffer_size:
+                logger.warning(
+                    f"BufferParams (line_length={self._fragmentation_strategy.line_length} * "
+                    f"line_buffers={self._fragmentation_strategy.line_buffers} = {calculated_size}) "  # noqa: E501
+                    f"exceeds server buffer size ({smp_server_transport_buffer_size})"
+                )
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
@@ -309,7 +370,7 @@ class SMPSerialTransport(SMPTransport):
         return self._max_smp_encoded_frame_size
 
     @override
-    @cached_property
+    @property
     def max_unencoded_size(self) -> int:
         """The serial transport encodes each packet instead of sending SMP messages as raw bytes."""
 

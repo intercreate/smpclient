@@ -62,13 +62,14 @@ if sys.version_info < (3, 10):
 class SMPMockTransport:
     """Satisfies the `SMPTransport` `Protocol`."""
 
+    mtu = PropertyMock()
+    max_unencoded_size = PropertyMock()
+
     def __init__(self) -> None:
         self.connect = AsyncMock()
         self.disconnect = AsyncMock()
         self.send = AsyncMock()
         self.receive = AsyncMock()
-        self.mtu = PropertyMock()
-        self.max_unencoded_size = PropertyMock()
         self._smp_server_transport_buffer_size: int | None = None
         self.initialize = AsyncMock()
 
@@ -333,12 +334,16 @@ async def test_upload_hello_world_bin_encoded(
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
-        max_smp_encoded_frame_size=max_smp_encoded_frame_size,
-        line_length=line_length,
-        line_buffers=line_buffers,
+        fragmentation_strategy=SMPSerialTransport.BufferParams(
+            line_length=line_length,
+            line_buffers=line_buffers,
+        )
     )
     s = SMPClient(m, "address")
-    assert s._transport.mtu == max_smp_encoded_frame_size
+    # MTU is line_length * line_buffers, which may be <= max_smp_encoded_frame_size
+    # due to integer division
+    assert s._transport.mtu == line_length * line_buffers
+    assert s._transport.mtu <= max_smp_encoded_frame_size
 
     packets: list[bytes] = []
 
@@ -564,12 +569,16 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
-        max_smp_encoded_frame_size=max_smp_encoded_frame_size,
-        line_length=line_length,
-        line_buffers=line_buffers,
+        fragmentation_strategy=SMPSerialTransport.BufferParams(
+            line_length=line_length,
+            line_buffers=line_buffers,
+        )
     )
     s = SMPClient(m, "address")
-    assert s._transport.mtu == max_smp_encoded_frame_size
+    # MTU is line_length * line_buffers, which may be <= max_smp_encoded_frame_size
+    # due to integer division
+    assert s._transport.mtu == line_length * line_buffers
+    assert s._transport.mtu <= max_smp_encoded_frame_size
 
     packets: list[bytes] = []
 
