@@ -13,7 +13,7 @@ import ast
 import importlib.util
 import inspect
 import os
-from typing import Any, List, Optional, Type
+from typing import Any, Optional, Type
 
 from pydantic import BaseModel
 
@@ -71,11 +71,11 @@ def format_type(annotation: Type[Any] | None) -> str:
     if annotation is None:
         raise ValueError("Annotation cannot be None")
     if hasattr(annotation, '__name__'):  # Handles regular types like `int`, `str`, etc.
-        # get the annotations like List[str] for example
+        # get the annotations like list[str] for example
         if hasattr(annotation, '__args__'):
             return f"{annotation.__name__}[{format_type(annotation.__args__[0])}]"
         return f"{annotation.__name__}"
-    elif hasattr(annotation, '__origin__'):  # Handles generic types like List[str], Optional[int]
+    elif hasattr(annotation, '__origin__'):  # Handles generic types like list[str], Optional[int]
         return f"{annotation.__origin__.__module__}.{annotation.__origin__.__name__}"
     return str(annotation)  # Fallback for other types
 
@@ -108,7 +108,7 @@ def get_pydantic_fields(cls: Type[BaseModel]) -> str:
     return args
 
 
-def parse_file(file_path: str) -> List[ClassInfo]:
+def parse_file(file_path: str) -> list[ClassInfo]:
     """Parse the file and extract class definitions."""
     with open(file_path, 'r') as file:
         lines = file.readlines()

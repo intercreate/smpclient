@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from hashlib import sha256
 from pathlib import Path
-from typing import List
 from unittest.mock import AsyncMock, PropertyMock, call, patch
 
 import pytest
@@ -341,7 +340,7 @@ async def test_upload_hello_world_bin_encoded(
     s = SMPClient(m, "address")
     assert s._transport.mtu == max_smp_encoded_frame_size
 
-    packets: List[bytes] = []
+    packets: list[bytes] = []
 
     def mock_write(data: bytes) -> int:
         """Accumulate the raw packets in the global `packets`."""
@@ -572,7 +571,7 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
     s = SMPClient(m, "address")
     assert s._transport.mtu == max_smp_encoded_frame_size
 
-    packets: List[bytes] = []
+    packets: list[bytes] = []
 
     def mock_write(data: bytes) -> int:
         """Accumulate the raw packets in the global `packets`."""

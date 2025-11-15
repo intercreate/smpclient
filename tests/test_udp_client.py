@@ -1,7 +1,7 @@
 """Test the generic UDP client implementation."""
 
 import asyncio
-from typing import List, Tuple, cast
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -82,14 +82,14 @@ class _ServerProtocol(asyncio.DatagramProtocol):
     """A mock SMP server protocol for unit testing."""
 
     def __init__(self) -> None:
-        self.datagrams_recieved: List[bytes] = []
+        self.datagrams_recieved: list[bytes] = []
 
-    def datagram_received(self, data: bytes, addr: Tuple[str, int]) -> None:
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         self.datagrams_recieved.append(data)
 
 
 @pytest_asyncio.fixture
-async def udp_server() -> AsyncGenerator[Tuple[asyncio.DatagramTransport, _ServerProtocol], None]:
+async def udp_server() -> AsyncGenerator[tuple[asyncio.DatagramTransport, _ServerProtocol], None]:
     transport, protocol = await asyncio.get_running_loop().create_datagram_endpoint(
         lambda: _ServerProtocol(), local_addr=("127.0.0.1", 1337)
     )
@@ -100,7 +100,7 @@ async def udp_server() -> AsyncGenerator[Tuple[asyncio.DatagramTransport, _Serve
 
 
 @pytest.mark.asyncio
-async def test_send(udp_server: Tuple[asyncio.DatagramTransport, _ServerProtocol]) -> None:
+async def test_send(udp_server: tuple[asyncio.DatagramTransport, _ServerProtocol]) -> None:
     _, p = udp_server
 
     c = UDPClient()
@@ -113,7 +113,7 @@ async def test_send(udp_server: Tuple[asyncio.DatagramTransport, _ServerProtocol
 
 
 @pytest.mark.asyncio
-async def test_receive(udp_server: Tuple[asyncio.DatagramTransport, _ServerProtocol]) -> None:
+async def test_receive(udp_server: tuple[asyncio.DatagramTransport, _ServerProtocol]) -> None:
     t, _ = udp_server
 
     CLIENT_ADDR = Addr("127.0.0.1", 1338)

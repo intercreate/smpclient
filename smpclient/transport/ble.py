@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import sys
-from typing import Final, List, Protocol
+from typing import Final, Protocol
 from uuid import UUID
 
 from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
@@ -198,7 +198,7 @@ class SMPBLETransport(SMPTransport):
         return self._max_write_without_response_size
 
     @staticmethod
-    async def scan(timeout: int = 5) -> List[BLEDevice]:
+    async def scan(timeout: int = 5) -> list[BLEDevice]:
         """Scan for BLE devices."""
         logger.debug(f"Scanning for BLE devices for {timeout} seconds")
         devices: Final = await BleakScanner(service_uuids=[str(SMP_SERVICE_UUID)]).discover(
