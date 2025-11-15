@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Tuple, Type
+from typing import Type
 
 import pytest
 from smp import enumeration_management as smpem
@@ -296,7 +296,7 @@ from smpclient.requests.zephyr_management import EraseStorage
     ),
 )
 def test_requests(
-    test_tuple: Tuple[
+    test_tuple: tuple[
         smpmsg.Request,
         SMPRequest[TRep, TEr1, TEr2],
         Type[smpmsg.Response],

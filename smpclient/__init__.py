@@ -30,7 +30,7 @@ import logging
 import traceback
 from hashlib import sha256
 from types import TracebackType
-from typing import AsyncIterator, Final, Tuple, Type
+from typing import AsyncIterator, Final, Type
 
 from pydantic import ValidationError
 from smp import header as smpheader
@@ -417,7 +417,7 @@ class SMPClient:
         # https://datatracker.ietf.org/doc/html/rfc8949#name-core-deterministic-encoding
         return 0 if integer < 24 else 1 if integer <= 0xFF else 2 if integer <= 0xFFFF else 4
 
-    def _get_max_cbor_and_data_size(self, request: smpmsg.WriteRequest) -> Tuple[int, int]:
+    def _get_max_cbor_and_data_size(self, request: smpmsg.WriteRequest) -> tuple[int, int]:
         """Given an `ImageUploadWrite`, return the maximum CBOR size and data size."""
 
         # given empty data in the request, how many bytes are available for the data?

@@ -1,7 +1,6 @@
 """Test the Intercreate extensions."""
 
 from pathlib import Path
-from typing import List
 from unittest.mock import PropertyMock, patch
 
 import pytest
@@ -29,7 +28,7 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
     assert s._transport.mtu == 127
     assert s._transport.max_unencoded_size < 127
 
-    packets: List[bytes] = []
+    packets: list[bytes] = []
 
     def mock_write(data: bytes) -> int:
         """Accumulate the raw packets in the global `packets`."""

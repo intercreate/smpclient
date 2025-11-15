@@ -7,7 +7,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from typing import Final, Tuple
+from typing import Final
 
 from serial.tools.list_ports import comports
 from smp import error as smperr
@@ -215,7 +215,7 @@ async def main() -> None:
             raise SystemExit(f"Unknown response: {images}")
 
 
-def get_runner_command(board: str, hex_path: Path) -> Tuple[str, ...]:
+def get_runner_command(board: str, hex_path: Path) -> tuple[str, ...]:
     if "nrf" in board:
         print("Using the nrfjprog runner")
         return ("nrfjprog", "--recover", "--reset", "--verify", "--program", str(hex_path))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Final, NamedTuple, Tuple
+from typing import Any, Final, NamedTuple
 
 from typing_extensions import override
 
@@ -79,7 +79,7 @@ class _UDPProtocol(asyncio.DatagramProtocol):
         logger.debug(f"Connection made, {transport=}")
 
     @override
-    def datagram_received(self, data: bytes, addr: Tuple[str | Any, int]) -> None:
+    def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
         logger.debug(f"{len(data)} B datagram received from {addr}")
         self._receive_queue.put_nowait(data)
 
