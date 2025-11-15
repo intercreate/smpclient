@@ -1,7 +1,7 @@
 """Test the generic UDP client implementation."""
 
 import asyncio
-from typing import List, Tuple, cast
+from typing import Tuple, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -82,7 +82,7 @@ class _ServerProtocol(asyncio.DatagramProtocol):
     """A mock SMP server protocol for unit testing."""
 
     def __init__(self) -> None:
-        self.datagrams_recieved: List[bytes] = []
+        self.datagrams_recieved: list[bytes] = []
 
     def datagram_received(self, data: bytes, addr: Tuple[str, int]) -> None:
         self.datagrams_recieved.append(data)
