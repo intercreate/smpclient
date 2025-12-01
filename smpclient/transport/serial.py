@@ -275,6 +275,9 @@ class SMPSerialTransport(SMPTransport):
         """Handle non-SMP data and transition to SMP state when finding SMP frame-start delimiters.
         Return True if further data remains to process in the buffer; return False otherwise."""
 
+        if len(self._buffer) == 1 and self._could_be_smp_packet_start(self._buffer[0]):
+            return False  # Not enough information to process
+
         smp_packet_start: int = self._find_smp_packet_start(self._buffer)
         if smp_packet_start >= 0:
             serial_data, remaining_data = (
@@ -326,6 +329,11 @@ class SMPSerialTransport(SMPTransport):
             if i != -1
         ]
         return min(indices) if indices else -1
+
+    def _could_be_smp_packet_start(self, byte: int) -> bool:
+        """Return True if the given byte value matches the start of any SMP packet delimiter."""
+
+        return byte == smppacket.START_DELIMITER[0] or byte == smppacket.CONTINUE_DELIMITER[0]
 
     @override
     async def send_and_receive(self, data: bytes) -> bytes:
