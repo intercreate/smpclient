@@ -69,13 +69,14 @@ async def test_send() -> None:
 
 @pytest.mark.asyncio
 async def test_receive() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport(timeout=0.1)
     m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
     p = [p for p in smppacket.encode(m.BYTES, t.max_unencoded_size)]
     t._read_one_smp_packet = AsyncMock(side_effect=p)  # type: ignore
 
     b = await t.receive()
-    t._read_one_smp_packet.assert_awaited_once_with()
+    t._read_one_smp_packet.assert_awaited_once_with(timeout_s=0.1)
+
     assert b == m.BYTES
 
     p = [p for p in smppacket.encode(m.BYTES, 8)]  # test packet fragmentation
@@ -99,7 +100,7 @@ async def test_read_one_smp_packet() -> None:
     t._conn.read_all = MagicMock(side_effect=packets)  # type: ignore
 
     for p in packets:
-        assert p == await t._read_one_smp_packet()
+        assert p == await t._read_one_smp_packet(timeout_s=0.1)
 
     # do again, but manually fragment the buffers
     packets = [p for p in smppacket.encode(m1.BYTES, 512)] + [
@@ -119,7 +120,7 @@ async def test_read_one_smp_packet() -> None:
     t._conn.read_all = MagicMock(side_effect=buffers)  # type: ignore
 
     for p in packets:
-        assert p == await t._read_one_smp_packet()
+        assert p == await t._read_one_smp_packet(timeout_s=0.1)
 
     await t.disconnect()
 
@@ -134,6 +135,15 @@ async def test_send_and_receive() -> None:
 
     t.send.assert_awaited_once_with(b"some data")
     t.receive.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_receive_timeout() -> None:
+    t = SMPSerialTransport(timeout=0.1)
+    t._read_one_smp_packet = AsyncMock(side_effect=TimeoutError)  # type: ignore
+
+    with pytest.raises(TimeoutError):
+        await t.receive()
 
 
 @pytest.mark.asyncio

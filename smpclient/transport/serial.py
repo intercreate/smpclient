@@ -107,6 +107,7 @@ class SMPSerialTransport(SMPTransport):
         self._max_smp_encoded_frame_size: Final = max_smp_encoded_frame_size
         self._line_length: Final = line_length
         self._line_buffers: Final = line_buffers
+        self._read_timeout: float = timeout or 120
         self._conn: Final = Serial(
             baudrate=baudrate,
             bytesize=bytesize,
@@ -122,12 +123,12 @@ class SMPSerialTransport(SMPTransport):
         )
 
         self._smp_packet_queue: asyncio.Queue[bytes] = asyncio.Queue()
-        """Contains full SMP packets; filled by reader loop and read by .receive()."""
+        """Contains full SMP packets."""
         self._serial_buffer = bytearray()
         """Contains any non-SMP serial data."""
         self._buffer: bytearray = bytearray([])
-        """Buffer for all incoming data (serial + SMP intertwined)."""
-        self._buffer_read_state = SMPSerialTransport.BufferState.SERIAL
+        """Contains all incoming data (serial + SMP intertwined, may be incomplete)."""
+        self._buffer_state = SMPSerialTransport.BufferState.SERIAL
         """The state of the read buffer."""
 
         logger.debug(f"Initialized {self.__class__.__name__}")
@@ -138,7 +139,7 @@ class SMPSerialTransport(SMPTransport):
         self._smp_packet_queue = asyncio.Queue()
         self._serial_buffer.clear()
         self._buffer = bytearray([])
-        self._buffer_read_state = SMPSerialTransport.BufferState.SERIAL
+        self._buffer_state = SMPSerialTransport.BufferState.SERIAL
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
@@ -196,65 +197,73 @@ class SMPSerialTransport(SMPTransport):
 
         logger.debug("Waiting for response")
         while True:
-            b = await self._read_one_smp_packet()
+            b = await self._read_one_smp_packet(timeout_s=self._read_timeout)
             try:
                 decoder.send(b)
             except StopIteration as e:
                 logger.debug(f"Finished receiving {len(e.value)} byte response")
                 return e.value
 
-    async def _read_one_smp_packet(self) -> bytes:
-        """Returns one received SMP packet from the queue, or raises exception if disconnected."""
-        await self._read_and_process(read_until_one_smp_packet=True)
-        return await self._smp_packet_queue.get()
+    async def _read_one_smp_packet(self, timeout_s: float) -> bytes:
+        """Returns one received SMP packet from the queue.
+        Raises `SMPTransportDisconnected` if disconnected.
+        Raises `TimeoutError` if timeout is reached."""
+        if not self._smp_packet_queue.empty():
+            # There may already be a response in the queue, if for some reason we've received
+            # multiple responses and haven't read them in-between. This is not standard but
+            # it is possible, and easier to implement this way.
+            return self._smp_packet_queue.get_nowait()
+
+        await self._read_and_process(read_until_one_smp_packet=True, timeout_s=timeout_s)
+        if not self._smp_packet_queue.empty():
+            return self._smp_packet_queue.get_nowait()
+        else:
+            raise TimeoutError("No packet received.")
 
     async def read_serial(self, delimiter: bytes | None = None) -> bytes:
-        """Reads regular serial traffic (non-SMP bytes) until given delimiter.
+        """Drain regular serial traffic (non-SMP bytes) until given delimiter.
         Returns all available bytes if no delimiter is given.
-        May return empty bytes if nothing is available."""
-        await self._read_and_process(read_until_one_smp_packet=False)
+        May return empty bytes if nothing has been received."""
+        await self._read_and_process(read_until_one_smp_packet=False, timeout_s=0)
         if delimiter is None:
             res = bytes(self._serial_buffer)
             self._serial_buffer.clear()
             return res
         else:
             try:
-                first_line, remaining_data = self._serial_buffer.split(delimiter, 1)
+                first_match, remaining_data = self._serial_buffer.split(delimiter, 1)
             except ValueError:
                 return bytes()
             self._serial_buffer = remaining_data
-            return bytes(first_line)
+            return bytes(first_match)
 
-    async def _read_and_process(self, read_until_one_smp_packet: bool) -> None:
-        """Reads raw data from serial and processes it into raw serial data and SMP packets."""
-        try:
-            while True:
-                try:
-                    data = self._conn.read_all() or b""
-                except StopIteration:
-                    data = b""
-                except SerialException as exc:
-                    raise SMPTransportDisconnected(f"Failed to read from {self._conn.port}: {exc}")
+    async def _read_and_process(self, read_until_one_smp_packet: bool, timeout_s: float) -> None:
+        """Reads raw data from serial and processes it into SMP packets and regular serial data."""
+        start_s = time.time()
+        while True:
+            try:
+                data = self._conn.read_all() or b""
+            except StopIteration:
+                data = b""
+            except SerialException as exc:
+                raise SMPTransportDisconnected(f"Failed to read from {self._conn.port}: {exc}")
 
-                if data:
-                    self._buffer.extend(data)
-                    await self._process_buffer()
-                else:
-                    await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
+            if data:
+                self._buffer.extend(data)
+                await self._process_buffer()
+            else:
+                await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
 
-                if read_until_one_smp_packet and self._smp_packet_queue.empty():
-                    continue
-                else:
-                    break
-
-        except asyncio.CancelledError:
-            raise
+            if read_until_one_smp_packet and self._smp_packet_queue.qsize():
+                break  # Packet found; exit early
+            if time.time() - start_s > timeout_s:
+                break  # Timeout
 
     async def _process_buffer(self) -> None:
         """Process buffered data until more bytes are needed."""
 
         while True:
-            if self._buffer_read_state == SMPSerialTransport.BufferState.SERIAL:
+            if self._buffer_state == SMPSerialTransport.BufferState.SERIAL:
                 should_continue = await self._process_buffer_as_serial_data()
             else:
                 should_continue = await self._process_buffer_as_smp_data()
@@ -275,7 +284,7 @@ class SMPSerialTransport(SMPTransport):
             self._serial_buffer.extend(serial_data)
 
             self._buffer = remaining_data
-            self._buffer_read_state = SMPSerialTransport.BufferState.SMP
+            self._buffer_state = SMPSerialTransport.BufferState.SMP
             return True
 
         # Everything is serial data:
@@ -301,7 +310,7 @@ class SMPSerialTransport(SMPTransport):
         self._buffer = remaining_data
         # Even if the remaining data is actually SMP data, then the next serial parse
         # will simply put us right back into SMP state - no need to check here.
-        self._buffer_read_state = SMPSerialTransport.BufferState.SERIAL
+        self._buffer_state = SMPSerialTransport.BufferState.SERIAL
 
         return bool(self._buffer)
 
