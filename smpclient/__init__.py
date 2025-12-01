@@ -37,7 +37,7 @@ from smp import header as smpheader
 from smp import message as smpmsg
 from typing_extensions import assert_never
 
-from smpclient.exceptions import SMPBadSequence, SMPUploadError
+from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
 from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
 from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
@@ -50,6 +50,46 @@ except ImportError:  # backport for Python3.10 and below
     from async_timeout import timeout  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+def _hexdump_ascii(data: bytes) -> str:
+    """Python 3.12+ has builtint hexdump, prior to that we need to reinvent the wheel."""
+    lines = []
+    for i in range(0, len(data), 16):
+        chunk = data[i : i + 16]
+        hexpart = " ".join(f"{b:02x}" for b in chunk)
+        ascpart = "".join(chr(b) if 32 <= b <= 126 else "." for b in chunk)
+        lines.append(f"\t{i:04x}  {hexpart:<47}  {ascpart}")
+    return "\n".join(lines)
+
+
+def _prettify_validation_error(exc: ValidationError) -> str:
+    lines: list[str] = []
+    for err in exc.errors():
+        err_type = err["type"]
+        msg = err["msg"]
+        loc = ".".join(str(x) for x in err["loc"])
+        lines.append(f"\t\t[{err_type}] {msg}: {loc}; input: {err['input']})")
+    return "\n".join(lines)
+
+
+def _create_smp_validation_exception(
+    header: smpheader.Header,
+    frame: bytes,
+    errs: dict[type[smpmsg.Response], ValidationError],
+) -> SMPValidationException:
+    msg: str = (
+        f"\nFrame could not be parsed as any of:\n\t{[str(t.__name__) for t in errs.keys()]}\n"
+    )
+
+    details = ""
+    details += f"Header:\n\t{header}\n"
+    details += f"Frame:\n{_hexdump_ascii(frame)}\n"
+    details += "Errors:\n"
+    for cls, exc in errs.items():
+        details += f"\tCould not be parsed as {cls.__name__} because {len(exc.errors())} errors:\n{_prettify_validation_error(exc)}\n"
+
+    return SMPValidationException(msg=msg, details=details)
 
 
 class SMPClient:
@@ -120,7 +160,7 @@ class SMPClient:
         Raises:
             TimeoutError: if the request times out
             SMPBadSequence: if the response sequence does not match the request sequence
-            ValidationError: if the response cannot be parsed as a Response or Error
+            SMPValidationException: if the response cannot be parsed as a Response or Error
 
         Examples:
 
@@ -177,23 +217,22 @@ class SMPClient:
                 f"Bad sequence {header.sequence}, expected {request.header.sequence}"
             )
 
+        errs: dict[Type, ValidationError] = {}
         try:
             return request._Response.loads(frame)  # type: ignore
-        except ValidationError:
-            pass
+        except ValidationError as e:
+            errs[request._Response] = e
         try:
             return request._ErrorV1.loads(frame)
-        except ValidationError:
-            pass
+        except ValidationError as e:
+            errs[request._ErrorV1] = e
         try:
             return request._ErrorV2.loads(frame)
-        except ValidationError:
-            error_message = (
-                f"Response could not by parsed as one of {request._Response}, "
-                f"{request._ErrorV1}, or {request._ErrorV2}. {header=} {frame=}"
-            )
-            logger.error(error_message)
-            raise ValidationError(error_message)
+        except ValidationError as e:
+            errs[request._ErrorV2] = e
+            exc = _create_smp_validation_exception(header, frame, errs)
+            logger.error(exc.msg + exc.details)
+            raise exc from None
 
     async def upload(
         self,
