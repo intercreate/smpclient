@@ -1,6 +1,7 @@
 """Intercreate extensions of the `SMPClient`."""
 
-from typing import AsyncIterator, Final
+from collections.abc import AsyncIterator
+from typing import Final
 
 from smp import header as smpheader
 

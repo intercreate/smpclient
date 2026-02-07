@@ -107,7 +107,7 @@ def main():
     print('Initial image bytes:')
     start = img_header.hdr_size
     end = start + min(20, img_header.img_size)
-    print('\t' + ' '.join('{:02x}'.format(b) for b in contents[start:end]))
+    print('\t' + ' '.join(f'{b:02x}' for b in contents[start:end]))
 
     tlv_info_offset = img_header.hdr_size + img_header.img_size
     tlv_info = TLVInfo(*struct.unpack_from(TLV_INFO_FMT, contents, offset=tlv_info_offset))
@@ -117,11 +117,11 @@ def main():
     tlv_num = 0
     while tlv_off < tlv_end:
         tlv_hdr = TLVHeader(*struct.unpack_from(TLV_HDR_FMT, contents, offset=tlv_off))
-        print('TLV {}:'.format(tlv_num), tlv_hdr)
+        print(f'TLV {tlv_num}:', tlv_hdr)
         if tlv_hdr.len <= 32:
             start = tlv_off + TLV_HDR_SIZE
             end = start + tlv_hdr.len
-            print('\t' + ' '.join('{:02x}'.format(b) for b in contents[start:end]))
+            print('\t' + ' '.join(f'{b:02x}' for b in contents[start:end]))
         tlv_off += TLV_HDR_SIZE + tlv_hdr.len
         tlv_num += 1
 

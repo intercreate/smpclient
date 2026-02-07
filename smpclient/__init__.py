@@ -26,9 +26,10 @@ or in your local clone at `examples/`.
 import asyncio
 import logging
 import traceback
+from collections.abc import AsyncIterator
 from hashlib import sha256
 from types import TracebackType
-from typing import AsyncIterator, Final, Type
+from typing import Final
 
 from pydantic import ValidationError
 from smp import header as smpheader
@@ -414,7 +415,7 @@ class SMPClient:
 
     async def __aexit__(
         self,
-        exc_type: Type[BaseException] | None,
+        exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
         tb: TracebackType | None,
     ) -> None:

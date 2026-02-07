@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 import sys
-from typing import Final, Protocol
+from typing import Final, Protocol, TypeGuard
 from uuid import UUID
 
 from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
@@ -12,7 +12,7 @@ from bleak.args.winrt import WinRTClientArgs
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 from smp import header as smphdr
-from typing_extensions import TypeGuard, override
+from typing_extensions import override
 
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import SMPTransport, SMPTransportDisconnected

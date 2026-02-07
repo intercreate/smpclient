@@ -21,7 +21,7 @@ async def main() -> None:
         file_data = await client.download_file(file_location)
         end_s = time.time()
         duration = end_s - start_s
-        speed = round(len(file_data) / ((duration)) / 1000, 2)
+        speed = round(len(file_data) / duration / 1000, 2)
 
         print(f"Speed {speed} KB/s")
 
