@@ -12,7 +12,7 @@ import ast
 import importlib.util
 import inspect
 import os
-from typing import Any, Optional, Type
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -23,7 +23,7 @@ class ClassInfo:
         self.lineno = lineno
         self.col_offset = col_offset
         self.original_text = original_text
-        self.docstring: Optional[str] = None
+        self.docstring: str | None = None
 
     def add_docstring(self, docstring: str) -> None:
         """Add a docstring to the class."""
@@ -49,7 +49,7 @@ def format_docstring(docstring: str, indent: str) -> str:
     return '\n'.join(indented_lines)
 
 
-def get_docstring_from_parent(cls: type) -> Optional[str]:
+def get_docstring_from_parent(cls: type) -> str | None:
     """Get the docstring from the parent class."""
     for base in cls.__bases__:
         if base.__doc__:
@@ -57,7 +57,7 @@ def get_docstring_from_parent(cls: type) -> Optional[str]:
     return None
 
 
-def get_field_docstring(cls: Type[BaseModel], field_name: str) -> str:
+def get_field_docstring(cls: type[BaseModel], field_name: str) -> str:
     """Get the docstring of a field from the class."""
     for name, obj in inspect.getmembers(cls):
         if name == field_name:
@@ -65,7 +65,7 @@ def get_field_docstring(cls: Type[BaseModel], field_name: str) -> str:
     return "No docstring found."
 
 
-def format_type(annotation: Type[Any] | None) -> str:
+def format_type(annotation: type[Any] | None) -> str:
     """Format the type to show module and class name."""
     if annotation is None:
         raise ValueError("Annotation cannot be None")
@@ -79,7 +79,7 @@ def format_type(annotation: Type[Any] | None) -> str:
     return str(annotation)  # Fallback for other types
 
 
-def get_pydantic_fields(cls: Type[BaseModel]) -> str:
+def get_pydantic_fields(cls: type[BaseModel]) -> str:
     """Get the fields of a Pydantic model and format them as Google-style Args."""
     if not issubclass(cls, BaseModel):
         return ""

@@ -1,6 +1,6 @@
 """Generics and Type Narrowing for SMP Requests and Responses."""
 
-from typing import Protocol, Type, TypeVar, Union
+from typing import Protocol, TypeVar, Union
 
 from smp import error as smperror
 from smp import header as smphdr
@@ -32,9 +32,9 @@ class SMPRequest(Protocol[TRep, TEr1, TEr2]):
     ```
     """
 
-    _Response: Type[TRep]
-    _ErrorV1: Type[TEr1]
-    _ErrorV2: Type[TEr2]
+    _Response: type[TRep]
+    _ErrorV1: type[TEr1]
+    _ErrorV2: type[TEr2]
 
     @property
     def BYTES(self) -> bytes:  # pragma: no cover

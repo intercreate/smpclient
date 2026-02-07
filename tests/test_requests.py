@@ -1,7 +1,5 @@
 """Test the `SMPRequest` `Protocol` implementations."""
 
-from typing import Type
-
 import pytest
 from smp import enumeration_management as smpem
 from smp import error as smperr
@@ -297,9 +295,9 @@ def test_requests(
     test_tuple: tuple[
         smpmsg.Request,
         SMPRequest[TRep, TEr1, TEr2],
-        Type[smpmsg.Response],
-        Type[smperr.ErrorV1],
-        Type[smperr.ErrorV2],
+        type[smpmsg.Response],
+        type[smperr.ErrorV1],
+        type[smperr.ErrorV2],
     ],
 ) -> None:
     a, b, Response, ErrorV1, ErrorV2 = test_tuple
