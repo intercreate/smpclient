@@ -109,7 +109,7 @@ def get_pydantic_fields(cls: type[BaseModel]) -> str:
 
 def parse_file(file_path: str) -> list[ClassInfo]:
     """Parse the file and extract class definitions."""
-    with open(file_path, 'r') as file:
+    with open(file_path) as file:
         lines = file.readlines()
         tree = ast.parse(''.join(lines))
 
@@ -146,7 +146,7 @@ def update_class_docstrings(file_path: str) -> None:
                 full_docstring = parent_docstring + args_section
                 class_info.add_docstring(full_docstring)
 
-    with open(file_path, 'r', encoding="utf-8") as file:
+    with open(file_path, encoding="utf-8") as file:
         lines = file.readlines()
 
     updated_lines = []

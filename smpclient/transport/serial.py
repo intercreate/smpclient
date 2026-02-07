@@ -227,7 +227,7 @@ class SMPSerialTransport(SMPTransport):
             try:
                 first_match, remaining_data = self._serial_buffer.split(delimiter, 1)
             except ValueError:
-                return bytes()
+                return b''
             self._serial_buffer = remaining_data
             return bytes(first_match)
 

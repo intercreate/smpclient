@@ -1,6 +1,5 @@
 """Tests for `SMPClient`."""
 
-import sys
 from hashlib import sha256
 from pathlib import Path
 from unittest.mock import AsyncMock, PropertyMock, call, patch
@@ -38,23 +37,6 @@ from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import SMPSerialTransport
-
-if sys.version_info < (3, 10):
-    from typing import Any
-
-    async def anext(iterator: Any, default: Any = None) -> Any:
-        try:
-            return await iterator.__anext__()
-        except StopAsyncIteration:
-            if default is None:
-                raise
-            return default
-
-    def aiter(iterable: Any) -> Any:
-        if hasattr(iterable, '__aiter__'):
-            return iterable.__aiter__()
-        else:
-            raise TypeError(f"{iterable} is not async iterable")
 
 
 class SMPMockTransport:
