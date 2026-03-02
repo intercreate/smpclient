@@ -9,7 +9,7 @@ meet the specific needs of the product.
 
 ### Operating Systems
 
-|   | Windows 11 | Ubuntu | macOS (Arm/x86) |
+|   | Windows 11 (x86) | Ubuntu (Arm/x86) | macOS (Arm/x86) |
 |---|------------|-------|-------|
 | Serial (UART, USB, CAN, ...) | ✅ | ✅ | ✅ |
 | Bluetooth Low Energy (BLE)  | ✅ | ✅ | ✅ |
