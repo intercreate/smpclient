@@ -25,14 +25,12 @@ class UDPClient:
             _local_addr: For unit tests only!  The local address to connect from.
 
         Example:
-
         ```python
 
         c = UDPClient()
         await c.connect(Addr("192.168.55.55", 1337))
         ```
         """
-
         self._transport, self._protocol = await asyncio.get_running_loop().create_datagram_endpoint(
             lambda: _UDPProtocol(),
             remote_addr=remote_addr,
@@ -48,7 +46,6 @@ class UDPClient:
         Args:
             data: The data to send.
         """
-
         self._transport.sendto(data)
 
     async def receive(self) -> bytes:
@@ -57,7 +54,6 @@ class UDPClient:
         Returns:
             bytes: The data received
         """
-
         return await self._protocol.receive_queue.get()
 
     def disconnect(self) -> None:

@@ -21,8 +21,7 @@ from smpclient.transport.ble import (
 
 
 class MockBleakClient:
-    class Backend:
-        ...
+    class Backend: ...
 
     def __new__(cls, *args, **kwargs) -> "MockBleakClient":  # type: ignore
         client = MagicMock(spec=BleakClient, name="MockBleakClient")

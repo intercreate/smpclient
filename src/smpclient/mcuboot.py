@@ -35,12 +35,10 @@ IMAGE_TLV_STRUCT: Final = struct.Struct("<BxH")
 assert IMAGE_TLV_STRUCT.size == 4
 
 
-class MCUBootImageError(Exception):
-    ...
+class MCUBootImageError(Exception): ...
 
 
-class TLVNotFound(MCUBootImageError):
-    ...
+class TLVNotFound(MCUBootImageError): ...
 
 
 @unique
@@ -305,8 +303,7 @@ class ImageInfo:
 
     @staticmethod
     def load_file(path: str) -> 'ImageInfo':
-        """
-        Load MCUBoot `ImageInfo` from the file at `path`.
+        """Load MCUBoot `ImageInfo` from the file at `path`.
 
         Files with the `.hex` extension are treated as Intel HEX format.
         All other file extensions are treated as binary.
@@ -356,7 +353,6 @@ class ImageInfo:
 
 def mcuimg() -> int:
     """A minimal CLI for getting info about an MCUBoot compatible FW image."""
-
     parser = argparse.ArgumentParser(
         prog="mcuimg",
         description=(

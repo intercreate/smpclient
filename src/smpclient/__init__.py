@@ -67,7 +67,6 @@ class SMPClient:
         timeout_s: the default timeout in seconds for SMP requests
 
     Example:
-
     ```python
     import asyncio
     from smpclient import SMPClient
@@ -88,9 +87,7 @@ class SMPClient:
     ```
     """
 
-    def __init__(
-        self, transport: SMPTransport, address: str, timeout_s: float = 2.5
-    ):  # noqa: DOC301
+    def __init__(self, transport: SMPTransport, address: str, timeout_s: float = 2.5):  # noqa: DOC301
         self._transport: Final = transport
         self._address: Final = address
         self._timeout_s = timeout_s
@@ -128,7 +125,6 @@ class SMPClient:
             ValidationError: if the response cannot be parsed as a Response or Error
 
         Examples:
-
         Usage:
 
         ```python
@@ -406,7 +402,6 @@ class SMPClient:
     @property
     def address(self) -> str:
         """The SMP server address."""
-
         return self._address
 
     async def __aenter__(self) -> "SMPClient":
@@ -426,7 +421,6 @@ class SMPClient:
     @staticmethod
     def _cbor_integer_size(integer: int) -> int:
         """CBOR integers are packed as small as possible."""
-
         # If the integer is less than 24, then the size is encoded in the same
         # byte as the value.
         # https://datatracker.ietf.org/doc/html/rfc8949#name-core-deterministic-encoding
@@ -446,7 +440,6 @@ class SMPClient:
                 max_data_bytes: maximum amount of raw payload that can be stuffed into the
                     currently-empty data field.
         """
-
         # given empty data in the request, how many bytes are available for the data?
         unencoded_bytes_available: Final = self._transport.max_unencoded_size - len(bytes(request))
 
@@ -468,7 +461,6 @@ class SMPClient:
         self, request: ImageUploadWrite, image: bytes
     ) -> ImageUploadWrite:
         """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
-
         h: Final = request.header
         cbor_size, data_size = self.get_max_cbor_and_data_size(request)
 

@@ -16,7 +16,6 @@ class ICUploadClient(SMPClient):
 
     async def ic_upload(self, data: bytes, image: int = 0) -> AsyncIterator[int]:
         """Iteratively upload `data` to the SMP server, yielding the offset."""
-
         response = await self.request(
             ic.ImageUploadWrite(off=0, data=b'', image=image, len=len(data))
         )
@@ -42,7 +41,6 @@ class ICUploadClient(SMPClient):
 
     def _ic_maximize_packet(self, request: ic.ImageUploadWrite, data: bytes) -> ic.ImageUploadWrite:
         """Given an `ic.ImageUploadWrite` with empty `data`, return the largest packet possible."""
-
         h: Final = request.header
         cbor_size, data_size = self.get_max_cbor_and_data_size(request)
 

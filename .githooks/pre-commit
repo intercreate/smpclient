@@ -2,8 +2,4 @@
 
 set -eo pipefail
 
-# lint
-poetry run black --check .
-poetry run isort --check-only .
-poetry run flake8 .
-poetry run mypy .
+uv run task fix

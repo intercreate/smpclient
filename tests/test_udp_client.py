@@ -133,8 +133,7 @@ async def test_error_received() -> None:
     c = UDPClient()
     await c.connect(Addr("127.0.0.1", 1337))
 
-    class MockError(OSError):
-        ...
+    class MockError(OSError): ...
 
     c._protocol.error_received(MockError())
     async with timeout(0.050):
@@ -158,8 +157,7 @@ async def test_connection_lost() -> None:
     c = UDPClient()
     await c.connect(Addr("127.0.0.1", 1337))
 
-    class MockError(OSError):
-        ...
+    class MockError(OSError): ...
 
     c._protocol.connection_lost(MockError())
     async with timeout(0.050):

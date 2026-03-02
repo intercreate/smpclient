@@ -16,7 +16,8 @@ class SMPTransport(Protocol):
 
         Args:
             address: The SMP server address.
-            timeout_s: The connection timeout in seconds."""
+            timeout_s: The connection timeout in seconds.
+        """
 
     async def disconnect(self) -> None:  # pragma: no cover
         """Disconnect the `SMPTransport`."""
@@ -60,7 +61,6 @@ class SMPTransport(Protocol):
     @property
     def max_unencoded_size(self) -> int:  # pragma: no cover
         """The maximum size of an unencoded message that can be sent, in 8-bit bytes."""
-
         # There is a potential speedup in the future by taking advantage of the
         # multiple buffers that are provided by the SMP server implementation.
         # Generally, the idea is to send as many as buf_count messages BEFORE

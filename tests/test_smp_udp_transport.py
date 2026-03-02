@@ -106,9 +106,10 @@ async def test_receive(_: MagicMock) -> None:
 
 @pytest.mark.asyncio
 async def test_send_and_receive() -> None:
-    with patch("smpclient.transport.udp.SMPUDPTransport.send") as send_mock, patch(
-        "smpclient.transport.udp.SMPUDPTransport.receive"
-    ) as receive_mock:
+    with (
+        patch("smpclient.transport.udp.SMPUDPTransport.send") as send_mock,
+        patch("smpclient.transport.udp.SMPUDPTransport.receive") as receive_mock,
+    ):
         t = SMPUDPTransport()
         message: Final = b"hello"
         await t.send_and_receive(message)

@@ -1,42 +1,45 @@
-name: Test
+name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  tests:
+  lint-and-test:
     strategy:
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest, ubuntu-24.04-arm]
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv run --python ${{ matrix.python-version }} task lint
+
+      - run: uv run --python ${{ matrix.python-version }} task typecheck
+
+      - run: uv run --python ${{ matrix.python-version }} task test
+
+      - run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}-${{ matrix.python-version }}
+          path: |
+            dist/*.tar.gz
+            dist/*.whl
+
+  coverage:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - run: pipx install poetry
+      - uses: astral-sh/setup-uv@v6
 
-      - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: "poetry"
-
-      - run: pipx inject poetry poetry-dynamic-versioning # https://github.com/python-poetry/poetry/issues/10028
-
-      - run: poetry install
-
-      - name: Test (Linux or MacOS)
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
-        run: |
-          shopt -s expand_aliases
-          . ./envr.ps1
-          test
-
-      - name: Test (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          . ./envr.ps1
-          test
+      - run: uv run task coverage

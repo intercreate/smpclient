@@ -1,4 +1,4 @@
-"""Upload a file to an smp server"""
+"""Upload a file to an smp server."""
 
 import argparse
 import asyncio

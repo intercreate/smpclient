@@ -47,9 +47,9 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
 
     s.request = mock_request  # type: ignore
 
-    assert (
-        s._transport.max_unencoded_size < s._transport.mtu
-    ), "The serial transport has encoding overhead"
+    assert s._transport.max_unencoded_size < s._transport.mtu, (
+        "The serial transport has encoding overhead"
+    )
 
     async for _ in s.ic_upload(image):
         pass
