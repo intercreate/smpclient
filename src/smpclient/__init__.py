@@ -7,6 +7,18 @@ updates, file management, configuration, and statistics retrieval.
 Additionally, SMP is extensible, allowing for custom commands to be defined to
 meet the specific needs of the product.
 
+### Transports
+
+Transports are optional extras.  Install only the transports you need, or all:
+
+```
+smpclient[serial]
+smpclient[ble]
+smpclient[all]
+```
+
+The UDP transport has no additional dependencies and is always available.
+
 ### Operating Systems
 
 |   | Windows 11 (x86) | Ubuntu (Arm/x86) | macOS (Arm/x86) |

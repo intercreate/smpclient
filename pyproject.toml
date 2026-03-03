@@ -21,12 +21,16 @@ classifiers = [
 "Operating System :: MacOS :: MacOS X",
 ]
 dependencies = [
-"pyserial>=3.5",
 "smp>=4.0.2",
 "intelhex>=2.3.0",
-"bleak>=2.0.0",
 "async-timeout>=4.0.3; python_version < '3.11'",
 ]
+
+[project.optional-dependencies]
+serial = ["pyserial>=3.5"]
+ble = ["bleak>=2.0.0"]
+udp = []
+all = ["smpclient[serial,ble,udp]"]
 
 [project.urls]
 Homepage = "https://www.intercreate.io"
@@ -46,6 +50,7 @@ source = "vcs"
 
 [dependency-groups]
 dev = [
+"smpclient[all]",
 "hatch>=1.14.1",
 "mypy>=1.7.0",
 "mypy-extensions>=1.0.0",

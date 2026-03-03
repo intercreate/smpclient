@@ -7,10 +7,15 @@ import sys
 from typing import Final, Protocol, TypeGuard
 from uuid import UUID
 
-from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
-from bleak.args.winrt import WinRTClientArgs
-from bleak.backends.client import BaseBleakClient
-from bleak.backends.device import BLEDevice
+try:
+    from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
+    from bleak.args.winrt import WinRTClientArgs
+    from bleak.backends.client import BaseBleakClient
+    from bleak.backends.device import BLEDevice
+except ImportError as _e:
+    raise ImportError(
+        "BLE transport requires the 'ble' extra. Install with: pip install smpclient[ble]"
+    ) from _e
 from smp import header as smphdr
 from typing_extensions import override
 

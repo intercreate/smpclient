@@ -11,7 +11,12 @@ from enum import IntEnum, unique
 from functools import cached_property
 from typing import Final
 
-from serial import Serial, SerialException
+try:
+    from serial import Serial, SerialException
+except ImportError as _e:
+    raise ImportError(
+        "Serial transport requires the 'serial' extra. Install with: pip install smpclient[serial]"
+    ) from _e
 from smp import packet as smppacket
 from typing_extensions import override
 

@@ -1977,10 +1977,20 @@ name = "smpclient"
 source = { editable = "." }
 dependencies = [
     { name = "async-timeout", marker = "python_full_version < '3.11'" },
-    { name = "bleak" },
     { name = "intelhex" },
-    { name = "pyserial" },
     { name = "smp" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "bleak" },
+    { name = "pyserial" },
+]
+ble = [
+    { name = "bleak" },
+]
+serial = [
+    { name = "pyserial" },
 ]
 
 [package.dev-dependencies]
@@ -1993,6 +2003,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "smpclient", extra = ["all"] },
     { name = "taskipy" },
     { name = "types-pyserial" },
 ]
@@ -2008,11 +2019,14 @@ doc = [
 [package.metadata]
 requires-dist = [
     { name = "async-timeout", marker = "python_full_version < '3.11'", specifier = ">=4.0.3" },
-    { name = "bleak", specifier = ">=2.0.0" },
+    { name = "bleak", marker = "extra == 'all'", specifier = ">=2.0.0" },
+    { name = "bleak", marker = "extra == 'ble'", specifier = ">=2.0.0" },
     { name = "intelhex", specifier = ">=2.3.0" },
-    { name = "pyserial", specifier = ">=3.5" },
+    { name = "pyserial", marker = "extra == 'all'", specifier = ">=3.5" },
+    { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
     { name = "smp", specifier = ">=4.0.2" },
 ]
+provides-extras = ["all", "ble", "serial", "udp"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2024,6 +2038,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.23.2" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "ruff", specifier = ">=0.12.0" },
+    { name = "smpclient", extras = ["all"] },
     { name = "taskipy", specifier = ">=1" },
     { name = "types-pyserial", specifier = ">=3.5.0.11" },
 ]
