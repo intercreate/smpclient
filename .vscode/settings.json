@@ -1,18 +1,16 @@
 {
-    "flake8.args": ["--config=.flake8"],
     "[python]": {
-        "diffEditor.ignoreTrimWhitespace": false,
-        "editor.formatOnType": true,
-        "editor.wordBasedSuggestions": "off",
-        "editor.defaultFormatter": "ms-python.black-formatter",
         "editor.formatOnSave": true,
+        "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.codeActionsOnSave": {
-            "source.organizeImports.isort": "explicit"
-        },
+            "source.organizeImports": "always"
+        }
     },
-    "python.testing.pytestArgs": [
-        "tests"
-    ],
+    "flake8.enabled": false,
+    "ruff.enable": true,
+    "ruff.lint.enable": true,
+    "mypy-type-checker.importStrategy": "fromEnvironment",
+    "python.testing.pytestArgs": ["tests"],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true,
+    "python.testing.pytestEnabled": true
 }

@@ -340,9 +340,9 @@ async def test_upload_hello_world_bin_encoded(
 
     s.request = mock_request  # type: ignore
 
-    assert (
-        s._transport.max_unencoded_size < s._transport.mtu
-    ), "The serial transport has encoding overhead"
+    assert s._transport.max_unencoded_size < s._transport.mtu, (
+        "The serial transport has encoding overhead"
+    )
 
     async for _ in s.upload(image):
         pass
@@ -571,9 +571,9 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
 
     s.request = mock_request  # type: ignore
 
-    assert (
-        s._transport.max_unencoded_size < s._transport.mtu
-    ), "The serial transport has encoding overhead"
+    assert s._transport.max_unencoded_size < s._transport.mtu, (
+        "The serial transport has encoding overhead"
+    )
 
     async for _ in s.upload(file_data):
         pass

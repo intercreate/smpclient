@@ -10,18 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install poetry
-        run: pipx install poetry
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
-          cache: "poetry"
+          fetch-depth: 0
 
-      - run: poetry install --only doc
+      - uses: astral-sh/setup-uv@v6
 
       - name: Build docs
         run: |
-          poetry run python docs/_generate_requests_docstrings.py
-          poetry run mkdocs build
+          uv run --group doc python docs/_generate_requests_docstrings.py
+          uv run --group doc mkdocs build

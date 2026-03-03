@@ -1,4 +1,6 @@
-"""This file iterates through all of the python files in the smpclient/requests
+"""Iterate through smpclient/requests and add inherited docstrings.
+
+This file iterates through all of the python files in the smpclient/requests
 directory and changes them. It will import the classes and check if they have
 a docstring or not. If they do not have a docstring, it will get the docstring
 from the parent class, add it to the class, and rewrite the file.

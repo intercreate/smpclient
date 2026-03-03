@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 def _base64_cost(size: int) -> int:
     """The worst case size required to encode `size` `bytes`."""
-
     if size == 0:
         return 0
 
@@ -31,7 +30,6 @@ def _base64_cost(size: int) -> int:
 
 def _base64_max(size: int) -> int:
     """Given a max `size`, return how many bytes can be encoded."""
-
     if size < 4:
         return 0
 
@@ -132,7 +130,6 @@ class SMPSerialTransport(SMPTransport):
 
     def _reset_state(self) -> None:
         """Reset internal state and queues for a fresh connection."""
-
         self._smp_packet_queue = asyncio.Queue()
         self._serial_buffer.clear()
         self._buffer = bytearray([])
@@ -203,8 +200,10 @@ class SMPSerialTransport(SMPTransport):
                 return e.value
 
     async def _read_one_smp_packet(self) -> bytes:
-        """Returns one received SMP packet from the queue.
-        Raises `SMPTransportDisconnected` if disconnected"""
+        """Return one received SMP packet from the queue.
+
+        Raises `SMPTransportDisconnected` if disconnected.
+        """
         if not self._smp_packet_queue.empty():
             # There may already be a response in the queue, if for some reason we've received
             # multiple responses and haven't read them in-between. This is not standard but
@@ -216,8 +215,10 @@ class SMPSerialTransport(SMPTransport):
 
     async def read_serial(self, delimiter: bytes | None = None) -> bytes:
         """Drain regular serial traffic (non-SMP bytes) until given delimiter.
+
         Returns all available bytes if no delimiter is given.
-        May return empty bytes if nothing has been received."""
+        May return empty bytes if nothing has been received.
+        """
         await self._read_and_process(read_until_one_smp_packet=False)
         if delimiter is None:
             res = bytes(self._serial_buffer)
@@ -256,7 +257,6 @@ class SMPSerialTransport(SMPTransport):
 
     async def _process_buffer(self) -> None:
         """Process buffered data until more bytes are needed."""
-
         while True:
             if self._buffer_state == SMPSerialTransport.BufferState.SERIAL:
                 should_continue = await self._process_buffer_as_serial_data()
@@ -268,8 +268,9 @@ class SMPSerialTransport(SMPTransport):
 
     async def _process_buffer_as_serial_data(self) -> bool:
         """Handle non-SMP data and transition to SMP state when finding SMP frame-start delimiters.
-        Return True if further data remains to process in the buffer; return False otherwise."""
 
+        Return True if further data remains to process in the buffer; return False otherwise.
+        """
         if not self._buffer:
             return False
 
@@ -297,8 +298,9 @@ class SMPSerialTransport(SMPTransport):
 
     async def _process_buffer_as_smp_data(self) -> bool:
         """Handle SMP data and transition to SERIAL state when finding SMP frame-end delimiter.
-        Return True if further data remains to process in the buffer; return False otherwise."""
 
+        Return True if further data remains to process in the buffer; return False otherwise.
+        """
         smp_packet_end: int = self._buffer.find(smppacket.END_DELIMITER)
         if smp_packet_end == -1:
             return False
@@ -319,7 +321,6 @@ class SMPSerialTransport(SMPTransport):
 
     def _find_smp_packet_start(self, buf: bytearray) -> int:
         """Return index of the earliest SMP frame-start delimiter, if any; -1 if none found."""
-
         indices = [
             i
             for i in (
@@ -332,7 +333,6 @@ class SMPSerialTransport(SMPTransport):
 
     def _could_be_smp_packet_start(self, byte: int) -> bool:
         """Return True if the given byte value matches the start of any SMP packet delimiter."""
-
         return byte == smppacket.START_DELIMITER[0] or byte == smppacket.CONTINUE_DELIMITER[0]
 
     @override
@@ -349,7 +349,6 @@ class SMPSerialTransport(SMPTransport):
     @cached_property
     def max_unencoded_size(self) -> int:
         """The serial transport encodes each packet instead of sending SMP messages as raw bytes."""
-
         # For each packet, AKA line_buffer, include the cost of the base64
         # encoded frame_length and CRC16 and the start/continue delimiter.
         # Add to that the cost of the stop delimiter.

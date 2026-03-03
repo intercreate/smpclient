@@ -210,14 +210,14 @@ def test_tlv_value_str_standard() -> None:
 
     # SHA256
     tlv_header = ImageTLV(type=0x10, len=4)
-    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xAA\xBB\xCC\xDD")
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xaa\xbb\xcc\xdd")
     assert str(tlv_value) == "SHA256=aabbccdd"
 
 
 def test_tlv_value_str_vendor() -> None:
     """Test __str__ with vendor TLV types (should show hex)."""
     tlv_header = ImageTLV(type=0xA0, len=4)
-    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xFF\xFF\xFF\xFF")
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xff\xff\xff\xff")
     assert str(tlv_value) == "0xa0=ffffffff"
 
     tlv_header = ImageTLV(type=0xFE, len=2)
@@ -228,5 +228,5 @@ def test_tlv_value_str_vendor() -> None:
 def test_tlv_value_str_unknown() -> None:
     """Test __str__ with unknown TLV types (should show hex)."""
     tlv_header = ImageTLV(type=0x99, len=4)
-    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xDE\xAD\xBE\xEF")
+    tlv_value = ImageTLVValue(header=tlv_header, value=b"\xde\xad\xbe\xef")
     assert str(tlv_value) == "0x99=deadbeef"

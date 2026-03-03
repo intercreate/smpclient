@@ -22,8 +22,7 @@ if sys.platform == "linux":
 else:  # stub for mypy
 
     class BleakClientBlueZDBus(Protocol):
-        async def _acquire_mtu(self) -> None:
-            ...
+        async def _acquire_mtu(self) -> None: ...
 
 
 if sys.platform == "win32":
@@ -35,8 +34,7 @@ else:  # stub for mypy
 
     class BleakClientWinRT(Protocol):
         @property
-        def _session(self) -> GattSession:
-            ...
+        def _session(self) -> GattSession: ...
 
 
 SMP_SERVICE_UUID: Final = UUID("8D53DC1D-1DB7-4CD3-868B-8A527460AA84")

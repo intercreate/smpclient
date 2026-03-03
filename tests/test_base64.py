@@ -17,7 +17,6 @@ if not hasattr(random, 'randbytes'):
 
 def test_base64_sizing() -> None:
     """Assert that `_base64_max` is always within 4 of encoded size."""
-
     random.seed(1)
 
     for size in range(1, 0xFFFF):

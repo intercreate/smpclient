@@ -1,4 +1,4 @@
-# Simple Management Protocol (SMP) Client 
+# Simple Management Protocol (SMP) Client
 
 `smpclient` implements the transport layer of the Simple Management Protocol.  This library can be
 used as a dependency in applications that use SMP over **serial (UART or USB)**, **Bluetooth (BLE)**,
@@ -14,7 +14,7 @@ If you'd like an SMP CLI application instead of a library, then you should try
 
 ## Install
 
-`smpclient` is [distributed by PyPI](https://pypi.org/project/smpclient/) and can be installed with `poetry`, `pip`, and other dependency managers.
+`smpclient` is [distributed by PyPI](https://pypi.org/project/smpclient/) and can be installed with `uv`, `pip`, and other dependency managers.
 
 ## User Documentation
 
@@ -25,60 +25,41 @@ An online version is generated and available [here](https://intercreate.github.i
 
 > Assumes that you've already [setup your development environment](#development-environment-setup).
 
-1. activate [envr](https://github.com/JPhutchins/envr), the environment manager for **bash**, **zsh**, and **PS**:
+1. run `uv sync` when pulling in new changes
+2. run `uv run task fix` after making changes (fast)
+3. run `uv run task all` after making changes (thorough)
+4. add library dependencies with `uv`:
    ```
-   . ./envr.ps1
+   uv add <my_new_dependency>
    ```
-2. run `poetry install` when pulling in new changes
-3. run `lint` after making changes
-4. run `test` after making changes
-5. add library dependencies with `poetry`:
+5. add test or other development dependencies:
    ```
-   poetry add <my_new_dependency>
+   uv add --group dev <my_dev_dependency>
    ```
-6. add test or other development dependencies using [poetry groups](https://python-poetry.org/docs/managing-dependencies#dependency-groups):
+6. run tests for all supported python versions:
    ```
-   poetry add -G dev <my_dev_dependency>
-   ```
-7. run tests for all supported python versions:
-   ```
-   tox
+   uv run task matrix
    ```
 
 ## Development Environment Setup
 
 ### Install Dependencies
 
-- poetry: https://python-poetry.org/docs/#installation
+- uv: https://docs.astral.sh/uv/getting-started/installation/
 
 ### Create the venv
 
 ```
-poetry install
-```
-
-The `venv` should be installed to `.venv`.
-
-### Activate envr
-
-> [envr](https://github.com/JPhutchins/envr) supports **bash**, **zsh**, and **PS** in Linux, MacOS, and Windows.  If you are using an unsupported shell, you can activate the `.venv` environment manually, use `poetry run` and `poetry shell`, and refer to `envr-default` for useful aliases.
-
-```
-. ./envr.ps1
+uv sync
 ```
 
 ### Verify Your Setup
 
-To verify the installation, make sure that all of the tests are passing using these envr aliases:
-
 ```
-lint
-test
+uv run task all
 ```
 
 ### Enable the githooks
-
-> The pre-commit hook will run the linters but not the unit tests.
 
 ```
 git config core.hooksPath .githooks

@@ -1,9 +1,8 @@
-.venv
+.venv*
 __pycache__
 .coverage
 .mypy_cache
 .pytest_cache
 dist
-.tox
 site
-.poetry
+coverage.xml
