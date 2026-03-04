@@ -35,6 +35,56 @@ jobs:
             dist/*.tar.gz
             dist/*.whl
 
+  transport-extras:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: no-extras
+            extras: ""
+            expect-serial: fail
+            expect-ble: fail
+          - name: serial-only
+            extras: "[serial]"
+            expect-serial: pass
+            expect-ble: fail
+          - name: ble-only
+            extras: "[ble]"
+            expect-serial: fail
+            expect-ble: pass
+          - name: all
+            extras: "[all]"
+            expect-serial: pass
+            expect-ble: pass
+    name: transport-extras (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv venv && uv pip install .${{ matrix.extras }}
+
+      - name: serial transport should ${{ matrix.expect-serial }}
+        run: |
+          if [ "${{ matrix.expect-serial }}" = "pass" ]; then
+            .venv/bin/python -c "from smpclient.transport.serial import SMPSerialTransport"
+          else
+            ! .venv/bin/python -c "from smpclient.transport.serial import SMPSerialTransport" 2>/dev/null
+          fi
+
+      - name: ble transport should ${{ matrix.expect-ble }}
+        run: |
+          if [ "${{ matrix.expect-ble }}" = "pass" ]; then
+            .venv/bin/python -c "from smpclient.transport.ble import SMPBLETransport"
+          else
+            ! .venv/bin/python -c "from smpclient.transport.ble import SMPBLETransport" 2>/dev/null
+          fi
+
+      - name: udp transport should pass
+        run: .venv/bin/python -c "from smpclient.transport.udp import SMPUDPTransport"
+
   coverage:
     runs-on: ubuntu-latest
     steps:

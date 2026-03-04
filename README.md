@@ -16,6 +16,28 @@ If you'd like an SMP CLI application instead of a library, then you should try
 
 `smpclient` is [distributed by PyPI](https://pypi.org/project/smpclient/) and can be installed with `uv`, `pip`, and other dependency managers.
 
+Build with all transports:
+
+```
+smpclient[all]
+```
+
+Or none (UDP transport only):
+
+```
+smpclient
+```
+
+Or build with only the transports you need:
+
+```
+smpclient[serial] # Serial (UART, USB, CAN)
+smpclient[ble] # Bluetooth Low Energy
+smpclient[serial,ble] # Serial + BLE
+```
+
+The UDP transport has no additional dependencies and is always available.
+
 ## User Documentation
 
 Documentation is in the source code so that it is available to your editor.

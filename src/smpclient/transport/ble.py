@@ -7,10 +7,15 @@ import sys
 from typing import Final, Protocol, TypeGuard
 from uuid import UUID
 
-from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
-from bleak.args.winrt import WinRTClientArgs
-from bleak.backends.client import BaseBleakClient
-from bleak.backends.device import BLEDevice
+try:
+    from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
+    from bleak.args.winrt import WinRTClientArgs
+    from bleak.backends.client import BaseBleakClient
+    from bleak.backends.device import BLEDevice
+except ModuleNotFoundError as e:
+    if e.name == "bleak":
+        raise ImportError("BLE transport requires the 'ble' extra. Use smpclient[ble]") from e
+    raise
 from smp import header as smphdr
 from typing_extensions import override
 
