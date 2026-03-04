@@ -13,10 +13,12 @@ from typing import Final
 
 try:
     from serial import Serial, SerialException
-except ImportError as _e:
-    raise ImportError(
-        "Serial transport requires the 'serial' extra. Install with: pip install smpclient[serial]"
-    ) from _e
+except ModuleNotFoundError as e:
+    if e.name == "serial":
+        raise ImportError(
+            "Serial transport requires the 'serial' extra. Use smpclient[serial]"
+        ) from e
+    raise
 from smp import packet as smppacket
 from typing_extensions import override
 
