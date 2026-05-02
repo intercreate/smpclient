@@ -103,22 +103,14 @@ class SMPBLETransport(SMPTransport):
                 disconnected_callback=self._set_disconnected_event,
             )
         elif sys.platform == "win32" and MAC_ADDRESS_PATTERN.match(address):
-            # Bonded devices on Windows may not be actively advertising so
-            # find_device_by_address() returns None.  BleakClientWinRT skips its
-            # internal scan and calls from_bluetooth_address_async() directly when
-            # _device_info (mac int) is pre-set before connect().
-            logger.warning(
-                f"Device '{address}' not found via BLE scan; "
-                "trying Windows bonded-device connection"
-            )
+            logger.warning(f"WinBLE : Device '{address}' not found via BLE scan; trying MAC address connection")
             self._client = BleakClient(
                 address,
                 services=(str(SMP_SERVICE_UUID),),
                 winrt=self._winrt,
                 disconnected_callback=self._set_disconnected_event,
             )
-            if self._winrt_backend(self._client._backend):
-                self._client._backend._device_info = int(address.replace(":", ""), 16)
+            # IMPORTANT: Do not set self._client._backend._device_info here, it will cancel any service discovery
             self._using_windows_bonded_fallback = True
         else:
             raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
@@ -130,28 +122,20 @@ class SMPBLETransport(SMPTransport):
 
         # Windows bonded devices need service discovery; wait for it to complete
         if self._using_windows_bonded_fallback:
-            logger.debug("Waiting for service discovery on Windows bonded device")
-            max_retries = 50  # Increase to 5 seconds
+            logger.debug("WinBLE : Waiting for services to populate")
+            max_retries = 50
             for attempt in range(max_retries):
-                logger.debug(f"Attempt {attempt + 1}: services={self._client.services}")
-                if self._client.services is not None:
-                    logger.debug(f"Services found: {list(self._client.services.services.keys())}")
-                    smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
-                    if smp_characteristic is not None:
-                        logger.debug(f"Service discovery completed on attempt {attempt + 1}")
-                        break
-                    else:
-                        logger.debug(f"SMP characteristic not found yet, available characteristics: {[c.uuid for s in self._client.services for c in s.characteristics]}")
+                if self._client.services.services:
+                    logger.debug(f"WinBLE : Services populated on attempt {attempt + 1}: {list(self._client.services.services.keys())}")
+                    break
                 await asyncio.sleep(0.1)
             else:
-                logger.error(f"Service discovery failed. Final services state: {self._client.services}")
-                if self._client.services is not None:
-                    logger.error(f"Available services: {list(self._client.services.services.keys())}")
-                raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
-        else:
-            smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
-            if smp_characteristic is None:
-                raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
+                logger.error(f"WinBLE : Service discovery failed. Services still empty after {max_retries} attempts")
+                raise SMPBLETransportNotSMPServer("WinBLE : Service discovery failed - no services found.")
+
+        smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
+        if smp_characteristic is None:
+            raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
 
         logger.debug(f"Found SMP characteristic: {smp_characteristic=}")
         logger.info(f"{smp_characteristic.max_write_without_response_size=}")
