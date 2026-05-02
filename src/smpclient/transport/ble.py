@@ -80,10 +80,14 @@ class SMPBLETransport(SMPTransport):
         self._max_write_without_response_size = 20
         """Initially set to BLE minimum; may be mutated by the `connect()` method."""
 
+        self._using_windows_bonded_fallback = False
+        """Tracks if we're using Windows bonded device fallback (MAC address connection)."""
+
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
+        self._using_windows_bonded_fallback = False
         logger.debug(f"Scanning for {address=}")
         device: BLEDevice | None = (
             await BleakScanner.find_device_by_address(address, timeout=timeout_s)
@@ -98,6 +102,16 @@ class SMPBLETransport(SMPTransport):
                 winrt=self._winrt,
                 disconnected_callback=self._set_disconnected_event,
             )
+        elif sys.platform == "win32" and MAC_ADDRESS_PATTERN.match(address):
+            logger.warning(f"WinBLE : Device '{address}' not found via BLE scan; trying MAC address connection")
+            self._client = BleakClient(
+                address,
+                services=(str(SMP_SERVICE_UUID),),
+                winrt=self._winrt,
+                disconnected_callback=self._set_disconnected_event,
+            )
+            # IMPORTANT: Do not set self._client._backend._device_info here, it will cancel any service discovery
+            self._using_windows_bonded_fallback = True
         else:
             raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
 
@@ -105,6 +119,19 @@ class SMPBLETransport(SMPTransport):
         await self._client.connect()
         self._disconnected_event.clear()
         logger.debug(f"Connected to {device=}")
+
+        # Windows bonded devices need service discovery; wait for it to complete
+        if self._using_windows_bonded_fallback:
+            logger.debug("WinBLE : Waiting for services to populate")
+            max_retries = 50
+            for attempt in range(max_retries):
+                if self._client.services.services:
+                    logger.debug(f"WinBLE : Services populated on attempt {attempt + 1}: {list(self._client.services.services.keys())}")
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                logger.error(f"WinBLE : Service discovery failed. Services still empty after {max_retries} attempts")
+                raise SMPBLETransportNotSMPServer("WinBLE : Service discovery failed - no services found.")
 
         smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
         if smp_characteristic is None:

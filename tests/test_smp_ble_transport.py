@@ -1,6 +1,7 @@
 """Tests for `SMPBLETransport`."""
 
 import asyncio
+import sys
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
@@ -99,10 +100,24 @@ async def test_connect(
     )
     mock_find_device_by_address.reset_mock()
 
-    # assert that it raises an exception if the device is not found
+    # assert that it raises an exception if the device is not found (non-MAC or non-Windows)
     mock_find_device_by_address.return_value = None
+    mock_find_device_by_name.return_value = None
     with pytest.raises(SMPBLETransportDeviceNotFound):
-        await SMPBLETransport().connect("00:00:00:00:00:00", 1.0)
+        await SMPBLETransport().connect("device name", 1.0)
+    mock_find_device_by_name.reset_mock()
+
+    # restore mock return values for next tests
+    mock_find_device_by_address.return_value = BLEDevice("address", "name", None)
+    mock_find_device_by_name.return_value = BLEDevice("address", "name", None)
+
+    # assert that on Windows with MAC, the bonded-device fallback is attempted
+    with patch("sys.platform", "win32"):
+        mock_find_device_by_address.return_value = None
+        t = SMPBLETransport()
+        await t.connect("00:00:00:00:00:00", 1.0)
+        # Verify that BleakClient was called with the MAC address (fallback attempt)
+        assert t._client is not None
     mock_find_device_by_address.reset_mock()
 
     # assert that connect is awaited
