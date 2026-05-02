@@ -80,10 +80,14 @@ class SMPBLETransport(SMPTransport):
         self._max_write_without_response_size = 20
         """Initially set to BLE minimum; may be mutated by the `connect()` method."""
 
+        self._using_windows_bonded_fallback = False
+        """Tracks if we're using Windows bonded device fallback (MAC address connection)."""
+
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
+        self._using_windows_bonded_fallback = False
         logger.debug(f"Scanning for {address=}")
         device: BLEDevice | None = (
             await BleakScanner.find_device_by_address(address, timeout=timeout_s)
@@ -115,6 +119,7 @@ class SMPBLETransport(SMPTransport):
             )
             if self._winrt_backend(self._client._backend):
                 self._client._backend._device_info = int(address.replace(":", ""), 16)
+            self._using_windows_bonded_fallback = True
         else:
             raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
 
@@ -123,9 +128,22 @@ class SMPBLETransport(SMPTransport):
         self._disconnected_event.clear()
         logger.debug(f"Connected to {device=}")
 
-        smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
-        if smp_characteristic is None:
-            raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
+        # Windows bonded devices need service discovery; wait for it to complete
+        if self._using_windows_bonded_fallback:
+            logger.debug("Waiting for service discovery on Windows bonded device")
+            max_retries = 10
+            for attempt in range(max_retries):
+                smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
+                if smp_characteristic is not None:
+                    logger.debug(f"Service discovery completed on attempt {attempt + 1}")
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
+        else:
+            smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
+            if smp_characteristic is None:
+                raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
 
         logger.debug(f"Found SMP characteristic: {smp_characteristic=}")
         logger.info(f"{smp_characteristic.max_write_without_response_size=}")
