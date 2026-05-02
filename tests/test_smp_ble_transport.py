@@ -107,6 +107,10 @@ async def test_connect(
         await SMPBLETransport().connect("device name", 1.0)
     mock_find_device_by_name.reset_mock()
 
+    # restore mock return values for next tests
+    mock_find_device_by_address.return_value = BLEDevice("address", "name", None)
+    mock_find_device_by_name.return_value = BLEDevice("address", "name", None)
+
     # assert that on Windows with MAC, the bonded-device fallback is attempted
     if sys.platform == "win32":
         mock_find_device_by_address.return_value = None
