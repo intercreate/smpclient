@@ -112,13 +112,13 @@ async def test_connect(
     mock_find_device_by_name.return_value = BLEDevice("address", "name", None)
 
     # assert that on Windows with MAC, the bonded-device fallback is attempted
-    if sys.platform == "win32":
+    with patch("sys.platform", "win32"):
         mock_find_device_by_address.return_value = None
         t = SMPBLETransport()
         await t.connect("00:00:00:00:00:00", 1.0)
         # Verify that BleakClient was called with the MAC address (fallback attempt)
         assert t._client is not None
-        mock_find_device_by_address.reset_mock()
+    mock_find_device_by_address.reset_mock()
 
     # assert that connect is awaited
     t = SMPBLETransport()
