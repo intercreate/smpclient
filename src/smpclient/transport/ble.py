@@ -98,6 +98,23 @@ class SMPBLETransport(SMPTransport):
                 winrt=self._winrt,
                 disconnected_callback=self._set_disconnected_event,
             )
+        elif sys.platform == "win32" and MAC_ADDRESS_PATTERN.match(address):
+            # Bonded devices on Windows may not be actively advertising so
+            # find_device_by_address() returns None.  BleakClientWinRT skips its
+            # internal scan and calls from_bluetooth_address_async() directly when
+            # _device_info (mac int) is pre-set before connect().
+            logger.warning(
+                f"Device '{address}' not found via BLE scan; "
+                "trying Windows bonded-device connection"
+            )
+            self._client = BleakClient(
+                address,
+                services=(str(SMP_SERVICE_UUID),),
+                winrt=self._winrt,
+                disconnected_callback=self._set_disconnected_event,
+            )
+            if self._winrt_backend(self._client._backend):
+                self._client._backend._device_info = int(address.replace(":", ""), 16)
         else:
             raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
 
