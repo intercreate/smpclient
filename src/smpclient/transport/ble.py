@@ -131,11 +131,20 @@ class SMPBLETransport(SMPTransport):
         # Windows bonded devices need service discovery; wait for it to complete
         if self._using_windows_bonded_fallback:
             logger.debug("Waiting for service discovery on Windows bonded device")
-            await self._client.get_services()
-            
-        smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
-        if smp_characteristic is None:
-            raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
+            max_retries = 10
+            for attempt in range(max_retries):
+                if self._client.services is not None:  # <-- Add this check
+                    smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
+                    if smp_characteristic is not None:
+                        logger.debug(f"Service discovery completed on attempt {attempt + 1}")
+                        break
+                await asyncio.sleep(0.1)
+            else:
+                raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
+        else:
+            smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
+            if smp_characteristic is None:
+                raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
 
         logger.debug(f"Found SMP characteristic: {smp_characteristic=}")
         logger.info(f"{smp_characteristic.max_write_without_response_size=}")
