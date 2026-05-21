@@ -1,4 +1,4 @@
-"""A serial `SMPTransport` for UART, USB CDC ACM, and CAN.
+"""The base64-encoded serial `SMPTransport` for UART, USB CDC ACM, and CAN.
 
 An SMP serial frame wraps the SMP message as `[uint16 length][message][uint16 CRC16]`,
 base64-encodes it, and splits it into lines (<= 128 bytes by convention) on the wire.
@@ -8,6 +8,12 @@ buffer that bounds a transaction holds the *decoded* frame: the largest message 
 many bytes once base64-encoded and line-framed, so the transport puts more than
 `buf_size` encoded bytes on the wire -- which the server decodes incrementally.
 
+This is what Zephyr calls "SMP over console" -- the framing shared by
+`CONFIG_MCUMGR_TRANSPORT_UART` and `CONFIG_MCUMGR_TRANSPORT_SHELL`, and the only
+SMP-over-UART option that existed before Zephyr 4.4.  For
+`CONFIG_MCUMGR_TRANSPORT_RAW_UART` servers, use `SMPSerialRawTransport` from
+`smpclient.transport.serial.unencoded`.
+
 The transport fills that decoded buffer for best throughput; how it learns the buffer
 size is the `fragmentation_strategy` (`FragmentationStrategy`) -- see `Auto` (the
 default), `BufferSize`, and `BufferParams`.
@@ -16,23 +22,14 @@ default), `BufferSize`, and `BufferParams`.
 import asyncio
 import logging
 import math
-import time
 import warnings
 from enum import IntEnum, unique
 from typing import Final, NamedTuple, TypeAlias
 
-try:
-    from serial import Serial, SerialException
-except ModuleNotFoundError as e:
-    if e.name == "serial":
-        raise ImportError(
-            "Serial transport requires the 'serial' extra. Use smpclient[serial]"
-        ) from e
-    raise
 from smp import packet as smppacket
 from typing_extensions import assert_never, deprecated, overload, override
 
-from smpclient.transport import SMPTransport, SMPTransportDisconnected
+from smpclient.transport.serial.common import _SerialTransportBase
 
 logger = logging.getLogger(__name__)
 
@@ -177,10 +174,7 @@ _ResolvedStrategy: TypeAlias = Auto | BufferSize | BufferParams | _LegacyParams
 """The internal strategy a constructor call resolves to (adds the deprecated `_LegacyParams`)."""
 
 
-class SMPSerialTransport(SMPTransport):
-    _POLLING_INTERVAL_S = 0.005
-    _CONNECTION_RETRY_INTERVAL_S = 0.500
-
+class SMPSerialTransport(_SerialTransportBase):
     @unique
     class BufferState(IntEnum):
         SMP = 0
@@ -303,10 +297,7 @@ class SMPSerialTransport(SMPTransport):
             exclusive: The exclusive access timeout.
 
         """
-        self._fragmentation_strategy: Final = self._resolve_fragmentation_strategy(
-            fragmentation_strategy, max_smp_encoded_frame_size, line_length, line_buffers
-        )
-        self._conn: Final = Serial(
+        super().__init__(
             baudrate=baudrate,
             bytesize=bytesize,
             parity=parity,
@@ -318,6 +309,10 @@ class SMPSerialTransport(SMPTransport):
             dsrdtr=dsrdtr,
             inter_byte_timeout=inter_byte_timeout,
             exclusive=exclusive,
+        )
+
+        self._fragmentation_strategy: Final = self._resolve_fragmentation_strategy(
+            fragmentation_strategy, max_smp_encoded_frame_size, line_length, line_buffers
         )
 
         self._smp_packet_queue: asyncio.Queue[bytes] = asyncio.Queue()
@@ -441,6 +436,7 @@ class SMPSerialTransport(SMPTransport):
                 f"cannot carry a base64 payload and would stall fragmentation"
             )
 
+    @override
     def _reset_state(self) -> None:
         """Reset internal state and queues for a fresh connection."""
         self._smp_packet_queue = asyncio.Queue()
@@ -553,52 +549,18 @@ class SMPSerialTransport(SMPTransport):
                 assert_never(unreachable)
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
-        self._reset_state()
-        self._conn.port = address
-        logger.debug(f"Connecting to {self._conn.port=}")
-        start_time: Final = time.time()
-        while time.time() - start_time <= timeout_s:
-            try:
-                self._conn.open()
-                self._conn.reset_input_buffer()
-                logger.debug(f"Connected to {self._conn.port=}")
-                return
-            except SerialException as e:
-                logger.debug(
-                    f"Failed to connect to {self._conn.port=}: {e}, "
-                    f"retrying in {SMPSerialTransport._CONNECTION_RETRY_INTERVAL_S} seconds"
-                )
-                await asyncio.sleep(SMPSerialTransport._CONNECTION_RETRY_INTERVAL_S)
-
-        raise TimeoutError(f"Failed to connect to {address=}")
-
-    @override
-    async def disconnect(self) -> None:
-        logger.debug(f"Disconnecting from {self._conn.port=}")
-        self._conn.close()
-        logger.debug(f"Disconnected from {self._conn.port=}")
-
-    @override
     async def send(self, data: bytes) -> None:
         if len(data) > self.max_unencoded_size:
             raise ValueError(
                 f"Data size {len(data)} exceeds maximum unencoded size {self.max_unencoded_size}"
             )
         logger.debug(f"Sending {len(data)} bytes")
-        try:
+        with self._serial_exception_to_disconnected():
             for packet in smppacket.encode(data, line_length=self._line_length):
                 self._conn.write(packet)
                 logger.debug(f"Writing encoded packet of size {len(packet)}B; {self._line_length=}")
 
-            # fake async until I get around to replacing pyserial
-            while self._conn.out_waiting > 0:
-                await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
-        except SerialException as e:
-            logger.error(f"Failed to send {len(data)} bytes: {e}")
-            raise SMPTransportDisconnected(
-                f"{self.__class__.__name__} disconnected from {self._conn.port}"
-            )
+            await self._drain_tx()
 
         logger.debug(f"Sent {len(data)} bytes")
 
@@ -652,18 +614,13 @@ class SMPSerialTransport(SMPTransport):
     async def _read_and_process(self, read_until_one_smp_packet: bool) -> None:
         """Reads raw data from serial and processes it into SMP packets and regular serial data."""
         while True:
-            try:
-                data = self._conn.read_all() or b""
-            except StopIteration:
-                data = b""
-            except SerialException as exc:
-                raise SMPTransportDisconnected(f"Failed to read from {self._conn.port}: {exc}")
+            data = await self._read_all()
 
             if data:
                 self._buffer.extend(data)
                 await self._process_buffer()
             else:
-                await asyncio.sleep(SMPSerialTransport._POLLING_INTERVAL_S)
+                await asyncio.sleep(self._POLLING_INTERVAL_S)
 
             if read_until_one_smp_packet:
                 if self._smp_packet_queue.qsize():
@@ -751,11 +708,6 @@ class SMPSerialTransport(SMPTransport):
     def _could_be_smp_packet_start(self, byte: int) -> bool:
         """Return True if the given byte value matches the start of any SMP packet delimiter."""
         return byte == smppacket.START_DELIMITER[0] or byte == smppacket.CONTINUE_DELIMITER[0]
-
-    @override
-    async def send_and_receive(self, data: bytes) -> bytes:
-        await self.send(data)
-        return await self.receive()
 
     @override
     @property

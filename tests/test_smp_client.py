@@ -36,7 +36,12 @@ from smpclient.generics import error, error_v1, error_v2, success
 from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
-from smpclient.transport.serial import BufferParams, BufferSize, SMPSerialTransport
+from smpclient.transport.serial import (
+    BufferParams,
+    BufferSize,
+    SMPSerialRawTransport,
+    SMPSerialTransport,
+)
 
 FRAME_OVERHEAD = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
 """The SMP serial frame's 2-byte length + 2-byte CRC16 that share the decoded buffer."""
@@ -395,6 +400,53 @@ async def test_upload_hello_world_bin_encoded(
 
             decoder = smppacket.decode()
             next(decoder)
+
+    assert reconstructed_image == image
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mtu", [128, 256, 512, 1024, 2048, 4096, 8192])
+async def test_upload_hello_world_bin_raw(mtu: int) -> None:
+    with open(
+        str(Path("tests", "fixtures", "zephyr-v3.5.0-2795-g28ff83515d", "hello_world.signed.bin")),
+        'rb',
+    ) as f:
+        image = f.read()
+
+    m = SMPSerialRawTransport(mtu=mtu)
+    s = SMPClient(m, "address")
+    assert s._transport.mtu == mtu
+    assert s._transport.max_unencoded_size == mtu, "The raw transport has no encoding overhead"
+
+    packets: list[bytes] = []
+
+    def mock_write(data: bytes) -> int:
+        """Accumulate the raw packets in the global `packets`."""
+        packets.append(data)
+        return len(data)
+
+    s._transport._conn.write = mock_write  # type: ignore
+
+    async def mock_request(
+        request: ImageUploadWrite, timeout_s: float = 120.000
+    ) -> ImageUploadWriteResponse:
+        # call the real send method (with write mocked) but don't bother with receive
+        # this provides coverage for the MTU-limited chunking done by SMPClient.upload
+        await s._transport.send(request.BYTES)
+        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+
+    s.request = mock_request  # type: ignore
+
+    # `out_waiting` is a property on the real Serial class - scope the patch so it
+    # restores cleanly when the test finishes.
+    with patch.object(type(s._transport._conn), 'out_waiting', 0):  # type: ignore
+        async for _ in s.upload(image):
+            pass
+
+    # Each captured write is one complete SMP message [header][payload], no decoding needed.
+    reconstructed_image = bytearray([])
+    for packet in packets:
+        reconstructed_image.extend(ImageUploadWriteRequest.loads(packet).data)
 
     assert reconstructed_image == image
 
