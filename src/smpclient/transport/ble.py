@@ -89,7 +89,7 @@ class SMPBLETransport(SMPTransport):
     async def connect(self, address: str, timeout_s: float) -> None:
         try:
             await asyncio.wait_for(self._connect(address, timeout_s), timeout=timeout_s)
-        except BaseException:
+        except (Exception, asyncio.CancelledError):
             await self._best_effort_disconnect()
             raise
 
@@ -269,12 +269,15 @@ class SMPBLETransport(SMPTransport):
         """
         op_task: Final = asyncio.create_task(coro)
         disconnected_task: Final = asyncio.create_task(self._disconnected_event.wait())
-        done, pending = await asyncio.wait(
-            (op_task, disconnected_task), return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        try:
+            done, _ = await asyncio.wait(
+                (op_task, disconnected_task), return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            for task in (op_task, disconnected_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(op_task, disconnected_task, return_exceptions=True)
         if disconnected_task in done:
             raise SMPTransportDisconnected(
                 f"{self.__class__.__name__} disconnected from {self._client.address}"

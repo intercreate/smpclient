@@ -285,3 +285,35 @@ async def test_connect_raises_on_timeout_during_start_notify(
     with pytest.raises(asyncio.TimeoutError):
         await t.connect("00:00:00:00:00:00", 0.05)
     t._client.disconnect.assert_awaited()  # type: ignore[attr-defined]
+
+
+@patch(
+    "smpclient.transport.ble.BleakScanner.find_device_by_address",
+    return_value=BLEDevice("00:00:00:00:00:00", "name", None),
+)
+@patch("smpclient.transport.ble.BleakClient", new=_HangingBleakClient)
+@pytest.mark.asyncio
+async def test_connect_does_not_leak_tasks_on_external_cancel(
+    _mock_find_device_by_address: MagicMock,
+) -> None:
+    """Caller-driven cancellation must not leave `_await_or_disconnect` sub-tasks running."""
+    t = SMPBLETransport()
+    tasks_before = {id(task) for task in asyncio.all_tasks()}
+
+    connect_task = asyncio.create_task(t.connect("00:00:00:00:00:00", 60.0))
+    while t._disconnected_event.is_set():
+        await asyncio.sleep(0)  # wait until BleakClient.connect() returned
+    await asyncio.sleep(0)  # let start_notify await begin
+
+    connect_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await connect_task
+
+    # Let any cancellations propagate to the spawned sub-tasks.
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    leaked = [
+        task for task in asyncio.all_tasks() if id(task) not in tasks_before and not task.done()
+    ]
+    assert not leaked, f"sub-tasks leaked after external cancel: {leaked}"
