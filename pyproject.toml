@@ -23,12 +23,12 @@ classifiers = [
 dependencies = [
 "smp>=4.0.2",
 "intelhex>=2.3.0",
-"async-timeout>=4.0.3; python_version < '3.11'",
+"async-timeout>=5.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
 serial = ["pyserial>=3.5"]
-ble = ["bleak>=2.0.0"]
+ble = ["bleak>=3.0.2,<4"]
 udp = []
 all = ["smpclient[serial,ble,udp]"]
 
