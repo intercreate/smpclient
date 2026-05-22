@@ -44,18 +44,27 @@ jobs:
             extras: ""
             expect-serial: fail
             expect-ble: fail
+            expect-bumble: fail
           - name: serial-only
             extras: "[serial]"
             expect-serial: pass
             expect-ble: fail
+            expect-bumble: fail
           - name: ble-only
             extras: "[ble]"
             expect-serial: fail
             expect-ble: pass
+            expect-bumble: fail
+          - name: bumble-only
+            extras: "[bumble]"
+            expect-serial: fail
+            expect-ble: fail
+            expect-bumble: pass
           - name: all
             extras: "[all]"
             expect-serial: pass
             expect-ble: pass
+            expect-bumble: pass
     name: transport-extras (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4
@@ -80,6 +89,14 @@ jobs:
             .venv/bin/python -c "from smpclient.transport.ble import SMPBLETransport"
           else
             ! .venv/bin/python -c "from smpclient.transport.ble import SMPBLETransport" 2>/dev/null
+          fi
+
+      - name: bumble transport should ${{ matrix.expect-bumble }}
+        run: |
+          if [ "${{ matrix.expect-bumble }}" = "pass" ]; then
+            .venv/bin/python -c "from smpclient.transport.bumble import SMPBumbleTransport"
+          else
+            ! .venv/bin/python -c "from smpclient.transport.bumble import SMPBumbleTransport" 2>/dev/null
           fi
 
       - name: udp transport should pass

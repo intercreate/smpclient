@@ -21,7 +21,7 @@ import logging
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Final, NamedTuple, TypeAlias
+from typing import AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
 from uuid import UUID
 
 try:
@@ -120,7 +120,26 @@ class Connecting:
     smp_characteristic: CharacteristicProxy[bytes] | None = None
 
 
+class ConnectedProtocol(Protocol):
+    """Structural type for any state with an established SMP channel.
+
+    Both `Connected` (owned) and `ConnectedBorrowed` (caller-owned LE link)
+    satisfy this — `send`/`receive`/`mtu` operate on it without caring which.
+    """
+
+    @property
+    def connection(self) -> Connection: ...
+    @property
+    def peer(self) -> Peer: ...
+    @property
+    def smp_characteristic(self) -> CharacteristicProxy[bytes]: ...
+    @property
+    def max_write(self) -> int: ...
+
+
 class Connected(NamedTuple):
+    """Owned connection: transport built the link and tears it all down on disconnect."""
+
     transport: Transport
     device: Device
     connection: Connection
@@ -129,7 +148,16 @@ class Connected(NamedTuple):
     max_write: int
 
 
-_State: TypeAlias = Disconnected | Connecting | Connected
+class ConnectedBorrowed(NamedTuple):
+    """Borrowed connection: caller owns transport/device and the LE link itself."""
+
+    connection: Connection
+    peer: Peer
+    smp_characteristic: CharacteristicProxy[bytes]
+    max_write: int
+
+
+_State: TypeAlias = Disconnected | Connecting | Connected | ConnectedBorrowed
 
 
 class SMPBumbleTransport(SMPTransport):
@@ -272,24 +300,21 @@ class SMPBumbleTransport(SMPTransport):
                 return
             case Connecting() | Connected() as s:
                 await _teardown(s)
-                self._state = Disconnected()
-                self._disconnected_event.set()
-                self._notifications.put_nowait(_DisconnectSentinel())
-                logger.info("Disconnected")
+            case ConnectedBorrowed() as b:
+                await _teardown_borrowed(b)
             case _:
                 assert_never(self._state)
+        self._state = Disconnected()
+        self._disconnected_event.set()
+        self._notifications.put_nowait(_DisconnectSentinel())
+        logger.info("Disconnected")
 
     @override
     async def send(self, data: bytes) -> None:
-        if not isinstance(self._state, Connected):
-            raise SMPBumbleTransportException(
-                f"send() called while in state {type(self._state).__name__}"
-            )
-        logger.debug(f"Sending {len(data)} bytes, max_write={self._state.max_write}")
-        for offset in range(0, len(data), self._state.max_write):
-            await self._state.smp_characteristic.write_value(
-                data[offset : offset + self._state.max_write]
-            )
+        state: Final = self._require_connected("send")
+        logger.debug(f"Sending {len(data)} bytes, max_write={state.max_write}")
+        for offset in range(0, len(data), state.max_write):
+            await state.smp_characteristic.write_value(data[offset : offset + state.max_write])
         logger.debug(f"Sent {len(data)} bytes")
 
     @override
@@ -354,6 +379,54 @@ class SMPBumbleTransport(SMPTransport):
                 eager=eager,
             )
 
+    async def use_connection(
+        self,
+        connection: Connection,
+        *,
+        peer: Peer | None = None,
+    ) -> None:
+        """Use an existing bumble `Connection` for SMP traffic; caller owns the LE link.
+
+        The transport does GATT discovery + subscribe on the supplied connection
+        and transitions to `Connected`.  On `disconnect()`, the transport
+        unsubscribes but does *not* tear down the connection, device, or HCI
+        transport — the caller is responsible for those.  This lets a single
+        bumble session multiplex SMP and non-SMP traffic over the same link.
+
+        Args:
+            connection: An established LE `Connection`.
+            peer: An optional pre-constructed `Peer`.  If `None`, a new one is
+                created from `connection`.
+
+        Raises:
+            SMPBumbleTransportException: if called outside `Disconnected` state.
+        """
+        if not isinstance(self._state, Disconnected):
+            raise SMPBumbleTransportException(
+                f"use_connection() called while in state {type(self._state).__name__}"
+            )
+
+        while not self._notifications.empty():
+            self._notifications.get_nowait()
+        self._disconnected_event.clear()
+
+        connection.on(Connection.EVENT_DISCONNECTION, self._on_disconnection)
+
+        p: Final = peer if peer is not None else Peer(connection)
+        if not p.services:
+            await p.discover_all()
+        smp_char: Final = _find_smp_characteristic(p)
+        await smp_char.subscribe(self._on_notification)
+        max_write: Final = await self._negotiate_mtu(p, connection)
+
+        self._state = ConnectedBorrowed(
+            connection=connection,
+            peer=p,
+            smp_characteristic=smp_char,
+            max_write=max_write,
+        )
+        logger.info(f"Borrowing connection to {connection.peer_address}, max_write={max_write}")
+
     async def bonded_devices(self) -> tuple[str, ...]:
         """Return the BD_ADDRs of peers currently in the keystore.
 
@@ -407,27 +480,43 @@ class SMPBumbleTransport(SMPTransport):
         Raises:
             SMPBumbleTransportException: if called outside the `Connected` state.
         """
-        if not isinstance(self._state, Connected):
-            raise SMPBumbleTransportException(
-                f"pair() called while in state {type(self._state).__name__}"
-            )
-        return await pair(
-            self._state.connection,
-            self._state.device,
-            delegate,
-            pair_timeout_s=timeout_s,
-            settle_s=settle_s,
-            force=force,
-        )
+        match self._state:
+            case Connected() as s:
+                return await pair(
+                    s.connection,
+                    s.device,
+                    delegate,
+                    pair_timeout_s=timeout_s,
+                    settle_s=settle_s,
+                    force=force,
+                )
+            case ConnectedBorrowed():
+                raise SMPBumbleTransportException(
+                    "pair() not supported on a borrowed connection; "
+                    "pair via the owning Device instead"
+                )
+            case Disconnected() | Connecting():
+                raise SMPBumbleTransportException(
+                    f"pair() called while in state {type(self._state).__name__}"
+                )
+            case _:
+                assert_never(self._state)
 
     @override
     @property
     def mtu(self) -> int:
-        if not isinstance(self._state, Connected):
-            raise SMPBumbleTransportException(
-                f"mtu accessed while in state {type(self._state).__name__}"
-            )
-        return self._state.max_write
+        return self._require_connected("mtu").max_write
+
+    def _require_connected(self, op: str) -> ConnectedProtocol:
+        match self._state:
+            case Connected() | ConnectedBorrowed() as s:
+                return s
+            case Disconnected() | Connecting():
+                raise SMPBumbleTransportException(
+                    f"{op} called while in state {type(self._state).__name__}"
+                )
+            case _:
+                assert_never(self._state)
 
     def _on_notification(self, data: bytes) -> None:
         # bumble's CharacteristicProxy.subscribe() wraps with a sync on_change
@@ -442,6 +531,7 @@ class SMPBumbleTransport(SMPTransport):
 
     async def _on_security_request(self, auth_req: object) -> None:
         # Auto-encrypt only when an LTK exists; never auto-initiate a fresh pair.
+        # `ConnectedBorrowed` skips this: the caller owns the Device & its keystore.
         if not isinstance(self._state, Connected):
             return
         logger.debug(f"Peer security request: {auth_req!r}")
@@ -575,6 +665,15 @@ async def pair(
             f"authenticated={connection.authenticated}"
         ),
     )
+
+
+async def _teardown_borrowed(s: ConnectedBorrowed) -> None:
+    # Borrowed: caller owns the LE link, device, and HCI transport.  We only
+    # unsubscribe and drop our listener.
+    try:
+        await s.smp_characteristic.unsubscribe()
+    except Exception as e:
+        logger.warning(f"smp_characteristic.unsubscribe failed: {e}")
 
 
 async def _teardown(s: Connecting | Connected) -> None:
