@@ -5,9 +5,8 @@ keys (LTKs, IRKs, CSRKs) should be stored.  Persistence choice is exposed as a
 sum type so callers exhaustively handle the available options.
 """
 
-import os
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Final, NamedTuple, TypeAlias
 
 from bumble.keys import JsonKeyStore, KeyStore, MemoryKeyStore
@@ -21,10 +20,13 @@ class InvalidKeystoreFilename(ValueError):
 
 
 def _check_bare_filename(filename: str) -> None:
-    # `Tempfile` and `Local` join `filename` onto a system-chosen directory.
-    # Absolute paths or path separators would let the caller escape that
-    # directory; reject them so the strategy contract holds.
-    if os.path.isabs(filename) or os.sep in filename or (os.altsep and os.altsep in filename):
+    # `Tempfile` and `Local` join `filename` onto a system-chosen directory;
+    # the value must be a true bare filename so the join can't escape that dir.
+    # Rejects: absolute paths, path separators, "."/"..", and Windows drive
+    # prefixes like "C:foo" (`os.path.join(base, "C:foo")` silently discards
+    # `base` on Windows).
+    p = PurePath(filename)
+    if not filename or p.name != filename or p.drive or p.root or filename in (".", ".."):
         raise InvalidKeystoreFilename(
             f"{filename!r} must be a bare filename — use Custom(path=...) for an arbitrary location"
         )
@@ -80,7 +82,7 @@ def resolve(strategy: KeystoreStrategy, namespace: str) -> KeyStore:
             _check_bare_filename(filename)
             return JsonKeyStore(
                 namespace=namespace,
-                filename=os.path.join(tempfile.gettempdir(), filename),
+                filename=str(Path(tempfile.gettempdir()) / filename),
             )
         case Local(filename):
             _check_bare_filename(filename)
@@ -93,8 +95,10 @@ def resolve(strategy: KeystoreStrategy, namespace: str) -> KeyStore:
             path.parent.mkdir(parents=True, exist_ok=True)
             return JsonKeyStore(namespace=namespace, filename=str(path))
         case ExistingCustom(path):
-            if not path.exists():
-                raise FileNotFoundError(f"ExistingCustom keystore not found: {path}")
+            if not path.is_file():
+                raise FileNotFoundError(
+                    f"ExistingCustom keystore must already exist as a regular file: {path}"
+                )
             return JsonKeyStore(namespace=namespace, filename=str(path))
         case InMemory():
             return MemoryKeyStore()

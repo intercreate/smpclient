@@ -4,11 +4,12 @@ import asyncio
 import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Final, NamedTuple
+from typing import AsyncIterator, Final, NamedTuple, TypeAlias
 from uuid import UUID
 
 from bumble.core import UUID as BumbleUUID
 from bumble.device import Advertisement, Device
+from typing_extensions import assert_never
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,26 @@ class ScanResult(NamedTuple):
     name: str | None
     rssi: int | None
     has_smp_service: bool
+
+
+class ScanAll(NamedTuple):
+    """Run for the full timeout and return every advertisement observed."""
+
+
+class ScanForName(NamedTuple):
+    """Filter advertisements by complete or shortened local name.
+
+    When `eager=True` (default), the scan returns at the first matching
+    advertisement.  Set `eager=False` to run for the full timeout and collect
+    every advertised device with that name — useful when multiple peers
+    legitimately share a name and the caller wants to enumerate them.
+    """
+
+    name: str
+    eager: bool = True
+
+
+ScanMode: TypeAlias = ScanAll | ScanForName
 
 
 def _extract_name(advertisement: Advertisement) -> str | None:
@@ -59,9 +80,9 @@ def _advertises_service(advertisement: Advertisement, target: BumbleUUID) -> boo
 async def scan(
     device: Device,
     timeout_s: float,
+    mode: ScanMode = ScanAll(),
+    *,
     service_uuid: UUID | None = None,
-    name: str | None = None,
-    eager: bool = False,
 ) -> tuple[ScanResult, ...]:
     """Scan for advertising devices.
 
@@ -70,20 +91,21 @@ async def scan(
     Args:
         device: A bumble `Device` already powered on.
         timeout_s: Maximum scan duration in seconds.
+        mode: A `ScanMode` sum type.  `ScanAll()` returns everything observed
+            for the full timeout.  `ScanForName(name, eager=True)` (default)
+            returns at the first advertisement matching `name`;
+            `ScanForName(name, eager=False)` runs the full timeout and returns
+            every matching device — useful for enumerating peers that share
+            a name.
         service_uuid: When set, results have `has_smp_service=True` if they
-            advertise this UUID.  This is a marker, not a filter — all
-            observed advertisements are returned regardless.
-        name: When set with `eager`, the scan returns as soon as a device
-            with this complete or shortened local name is seen, and only
-            matching results are returned.
-        eager: When True with a `name` filter, returns at the first match.
+            advertise this UUID.  Marker only — does not filter the result set.
 
     Returns:
         Observed `ScanResult`s, deduplicated by address.
     """
     target: Final = BumbleUUID(str(service_uuid)) if service_uuid is not None else None
     seen: Final[dict[str, ScanResult]] = {}
-    first_match = asyncio.Event() if eager else None
+    first_match: Final = asyncio.Event() if isinstance(mode, ScanForName) and mode.eager else None
 
     def on_advertisement(advertisement: Advertisement) -> None:
         address = str(advertisement.address)
@@ -101,7 +123,7 @@ async def scan(
             has_smp_service=(existing.has_smp_service if existing else False) or has_smp,
         )
         seen[address] = result
-        if first_match is not None and name is not None and result.name == name:
+        if first_match is not None and isinstance(mode, ScanForName) and result.name == mode.name:
             first_match.set()
 
     async with _scanning(device, on_advertisement):
@@ -113,9 +135,13 @@ async def scan(
         else:
             await asyncio.sleep(timeout_s)
 
-    if name is not None:
-        return tuple(r for r in seen.values() if r.name == name)
-    return tuple(seen.values())
+    match mode:
+        case ScanAll():
+            return tuple(seen.values())
+        case ScanForName(name, _eager):
+            return tuple(r for r in seen.values() if r.name == name)
+        case _:
+            assert_never(mode)
 
 
 @asynccontextmanager

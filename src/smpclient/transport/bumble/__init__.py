@@ -60,7 +60,7 @@ from smpclient.transport.bumble.pairing import (
     PairingSucceeded,
     PairingTimedOut,
 )
-from smpclient.transport.bumble.scan import ScanResult
+from smpclient.transport.bumble.scan import ScanAll, ScanForName, ScanMode, ScanResult
 from smpclient.transport.bumble.scan import scan as scan_for_devices
 
 logger = logging.getLogger(__name__)
@@ -237,7 +237,7 @@ class SMPBumbleTransport(SMPTransport):
                 self._state.transport.sink,
             )
             self._state.device.keystore = resolve_keystore(  # type: ignore[assignment]
-                self._keystore, namespace=str(self._state.device.public_address)
+                self._keystore, namespace=str(self._host_address)
             )
             await self._state.device.power_on()
 
@@ -349,9 +349,8 @@ class SMPBumbleTransport(SMPTransport):
         *,
         hci: str = DEFAULT_HCI_TRANSPORT,
         timeout_s: float = 5.0,
+        mode: ScanMode = ScanAll(),
         service_uuid: UUID | None = SMP_SERVICE_UUID,
-        name: str | None = None,
-        eager: bool = False,
     ) -> tuple[ScanResult, ...]:
         """Scan for advertising devices via a one-shot bumble device.
 
@@ -361,23 +360,17 @@ class SMPBumbleTransport(SMPTransport):
         Args:
             hci: bumble HCI transport spec.
             timeout_s: Maximum scan duration.
-            service_uuid: When set, results with this UUID get
+            mode: `ScanAll()` (default) returns everything observed for the
+                full timeout; `ScanForName(name)` returns at the first match
+                (or pass `ScanForName(name, eager=False)` to enumerate).
+            service_uuid: When set, results advertising this UUID get
                 `has_smp_service=True`.  Defaults to the SMP service UUID.
-            name: When set together with `eager=True`, the scan returns at
-                the first match.
-            eager: Return at first match.  Requires `name`.
 
         Returns:
             Observed `ScanResult`s.
         """
         async with bumble_device(hci=hci) as device:
-            return await scan_for_devices(
-                device,
-                timeout_s,
-                service_uuid=service_uuid,
-                name=name,
-                eager=eager,
-            )
+            return await scan_for_devices(device, timeout_s, mode, service_uuid=service_uuid)
 
     async def use_connection(
         self,
@@ -554,7 +547,7 @@ class SMPBumbleTransport(SMPTransport):
             return address
 
         logger.info(f"Scanning for device name {address!r} (eager, up to {timeout_s}s)")
-        if not (results := await scan_for_devices(device, timeout_s, name=address, eager=True)):
+        if not (results := await scan_for_devices(device, timeout_s, ScanForName(address))):
             raise SMPBumbleTransportDeviceNotFound(
                 f"No advertising device matched name {address!r} in {timeout_s}s"
             )
@@ -735,7 +728,7 @@ async def bumble_device(
     async with await open_transport(hci) as transport:
         device = Device.with_hci(host_name, host_address, transport.source, transport.sink)
         device.keystore = resolve_keystore(  # type: ignore[assignment]
-            keystore, namespace=str(device.public_address)
+            keystore, namespace=str(host_address)
         )
         if delegate is not None:
             device.pairing_config_factory = lambda _c: PairingConfig(delegate=delegate)
@@ -784,7 +777,7 @@ async def pair_device(
     async with bumble_device(hci=hci, delegate=delegate, keystore=keystore) as device:
         if MAC_ADDRESS_PATTERN.match(address):
             target = address
-        elif hits := await scan_for_devices(device, scan_timeout_s, name=address, eager=True):
+        elif hits := await scan_for_devices(device, scan_timeout_s, ScanForName(address)):
             target = hits[0].address
         else:
             return PairingFailed(
