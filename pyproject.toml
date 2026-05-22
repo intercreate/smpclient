@@ -30,7 +30,8 @@ dependencies = [
 serial = ["pyserial>=3.5"]
 ble = ["bleak>=3.0.2,<4"]
 udp = []
-all = ["smpclient[serial,ble,udp]"]
+bumble = ["bumble==0.0.228", "libusb1>=3.1,<4", "platformdirs>=4,<5"]
+all = ["smpclient[serial,ble,udp,bumble]"]
 
 [project.urls]
 Homepage = "https://www.intercreate.io"
@@ -40,6 +41,7 @@ Issues = "https://github.com/intercreate/smpclient/issues"
 
 [project.scripts]
 mcuimg = "smpclient.mcuboot:mcuimg"
+smpbumble = "smpclient.transport.bumble.__main__:smpbumble"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
