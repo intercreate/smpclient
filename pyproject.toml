@@ -91,7 +91,7 @@ matrix = """
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["dutfirmware"]
+extend-exclude = ["dutfirmware", ".claude"]
 
 [tool.ruff.lint]
 extend-select = ["I", "D"]
@@ -115,7 +115,7 @@ check-return-types = false
 check-yield-types = false
 
 [tool.pytest.ini_options]
-norecursedirs = "dutfirmware/*"
+norecursedirs = ["dutfirmware/*", ".claude/*"]
 filterwarnings = ["ignore:The --rsyncdir:DeprecationWarning"]
 
 [tool.coverage.run]

@@ -58,6 +58,7 @@ class PairingFailureReason(Enum):
     ENCRYPTION = "encryption"
     KEY_MISSING = "key_missing"
     USER_REJECTED = "user_rejected"
+    NOT_FOUND = "not_found"
     BUMBLE = "bumble"
 
 

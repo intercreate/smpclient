@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
-from typing import Final, NamedTuple
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, Final, NamedTuple
 from uuid import UUID
 
 from bumble.core import UUID as BumbleUUID
@@ -102,17 +104,31 @@ async def scan(
         if first_match is not None and name is not None and result.name == name:
             first_match.set()
 
-    device.on("advertisement", on_advertisement)
+    async with _scanning(device, on_advertisement):
+        if first_match is not None:
+            try:
+                await asyncio.wait_for(first_match.wait(), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                pass
+        else:
+            await asyncio.sleep(timeout_s)
+
+    if name is not None:
+        return tuple(r for r in seen.values() if r.name == name)
+    return tuple(seen.values())
+
+
+@asynccontextmanager
+async def _scanning(
+    device: Device,
+    listener: Callable[[Advertisement], None],
+) -> AsyncIterator[None]:
+    """Attach `listener` and run `start_scanning`; tear down on exit."""
+    device.on("advertisement", listener)
     try:
         await device.start_scanning()
         try:
-            if first_match is not None:
-                try:
-                    await asyncio.wait_for(first_match.wait(), timeout=timeout_s)
-                except asyncio.TimeoutError:
-                    pass
-            else:
-                await asyncio.sleep(timeout_s)
+            yield
         finally:
             try:
                 await asyncio.wait_for(device.stop_scanning(), timeout=2.0)
@@ -120,10 +136,6 @@ async def scan(
                 logger.warning(f"stop_scanning failed: {e}")
     finally:
         try:
-            device.remove_listener("advertisement", on_advertisement)
+            device.remove_listener("advertisement", listener)
         except Exception as e:
             logger.warning(f"remove_listener('advertisement') failed: {e}")
-
-    if name is not None:
-        return tuple(r for r in seen.values() if r.name == name)
-    return tuple(seen.values())

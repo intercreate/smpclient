@@ -7,21 +7,14 @@ import argparse
 import asyncio
 import logging
 import sys
-from typing import assert_never
+from typing import Final, NamedTuple
 
-from bumble.device import Device
-from bumble.transport import open_transport
+from typing_extensions import assert_never
 
 from smpclient import SMPClient
 from smpclient.generics import error, success
 from smpclient.requests.os_management import EchoWrite
-from smpclient.transport.bumble import (
-    DEFAULT_HOST_ADDRESS,
-    DEFAULT_HOST_NAME,
-    SMP_SERVICE_UUID,
-    SMPBumbleTransport,
-    pair_device,
-)
+from smpclient.transport.bumble import SMPBumbleTransport, pair_device
 from smpclient.transport.bumble.pairing import (
     KeyboardOnly,
     PairingAlreadyBonded,
@@ -29,40 +22,40 @@ from smpclient.transport.bumble.pairing import (
     PairingSucceeded,
     PairingTimedOut,
 )
-from smpclient.transport.bumble.scan import scan
+
+
+class _ScanArgs(NamedTuple):
+    hci: str
+    timeout: float
+
+
+class _PairArgs(NamedTuple):
+    hci: str
+    address: str
+    timeout: float
+    force: bool
+
+
+class _EchoArgs(NamedTuple):
+    hci: str
+    address: str
+    message: str
+    timeout: float
 
 
 async def _prompt_pin() -> int | None:
-    raw = (await asyncio.to_thread(input, "Enter the 6-digit PIN shown on the device: ")).strip()
-    if not raw.isdigit():
-        print(f"Invalid PIN {raw!r}; expected digits only", file=sys.stderr)
+    raw: Final = (
+        await asyncio.to_thread(input, "Enter the 6-digit PIN shown on the device: ")
+    ).strip()
+    if not (raw.isdigit() and len(raw) == 6):
+        print(f"Invalid PIN {raw!r}; expected exactly 6 digits", file=sys.stderr)
         return None
     return int(raw)
 
 
-async def _scan(args: argparse.Namespace) -> int:
-    print(f"Opening HCI transport {args.hci!r}...", file=sys.stderr)
-    async with await open_transport(args.hci) as hci:
-        print("HCI transport opened", file=sys.stderr)
-        device = Device.with_hci(DEFAULT_HOST_NAME, DEFAULT_HOST_ADDRESS, hci.source, hci.sink)
-        print("Powering on...", file=sys.stderr)
-        try:
-            await asyncio.wait_for(device.power_on(), timeout=5.0)
-        except asyncio.TimeoutError:
-            print("Warning: power_on timed out after 5s; continuing", file=sys.stderr)
-        except Exception as e:
-            print(f"Warning: power_on failed: {e}; continuing", file=sys.stderr)
-
-        print(f"Scanning for {args.timeout}s...", file=sys.stderr)
-        try:
-            results = await scan(device, args.timeout, service_uuid=SMP_SERVICE_UUID)
-        finally:
-            try:
-                print("Powering off bumble device...", file=sys.stderr)
-                await asyncio.wait_for(device.power_off(), timeout=2.0)
-            except Exception as e:
-                print(f"Warning: power_off failed: {e}", file=sys.stderr)
-
+async def _scan(args: _ScanArgs) -> int:
+    print(f"Scanning on {args.hci!r} for {args.timeout}s...", file=sys.stderr)
+    results: Final = await SMPBumbleTransport.scan(hci=args.hci, timeout_s=args.timeout)
     if not results:
         print("No devices found", file=sys.stderr)
         return 1
@@ -73,8 +66,8 @@ async def _scan(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _pair(args: argparse.Namespace) -> int:
-    result = await pair_device(
+async def _pair(args: _PairArgs) -> int:
+    result: Final = await pair_device(
         args.address,
         KeyboardOnly(_prompt_pin),
         hci=args.hci,
@@ -99,7 +92,7 @@ async def _pair(args: argparse.Namespace) -> int:
             assert_never(result)
 
 
-async def _echo(args: argparse.Namespace) -> int:
+async def _echo(args: _EchoArgs) -> int:
     async with SMPClient(
         SMPBumbleTransport(hci=args.hci), args.address, timeout_s=args.timeout
     ) as client:
@@ -110,7 +103,7 @@ async def _echo(args: argparse.Namespace) -> int:
         if error(response):
             print(f"SMP error: {response}", file=sys.stderr)
             return 1
-        return 2
+        assert_never(response)
 
 
 def smpbumble() -> int:
@@ -145,14 +138,40 @@ def smpbumble() -> int:
     p_echo.add_argument("--hci", default="usb:0")
     p_echo.add_argument("--timeout", type=float, default=5.0)
 
-    args = parser.parse_args()
+    args: Final = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    dispatch = {"scan": _scan, "pair": _pair, "echo": _echo}
-    return asyncio.run(dispatch[args.cmd](args))
+    match args.cmd:
+        case "scan":
+            return asyncio.run(_scan(_ScanArgs(hci=args.hci, timeout=args.timeout)))
+        case "pair":
+            return asyncio.run(
+                _pair(
+                    _PairArgs(
+                        hci=args.hci,
+                        address=args.address,
+                        timeout=args.timeout,
+                        force=args.force,
+                    )
+                )
+            )
+        case "echo":
+            return asyncio.run(
+                _echo(
+                    _EchoArgs(
+                        hci=args.hci,
+                        address=args.address,
+                        message=args.message,
+                        timeout=args.timeout,
+                    )
+                )
+            )
+        case _:
+            # argparse(required=True) already rejects unknown commands.
+            raise SystemExit(2)
 
 
 if __name__ == "__main__":
