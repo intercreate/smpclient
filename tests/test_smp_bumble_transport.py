@@ -258,14 +258,14 @@ def test_pairing_result_variants_are_distinguishable() -> None:
 
 def test_keystore_resolve_tempfile_uses_temp_dir() -> None:
     ks = resolve(Tempfile("custom_bonds.json"), namespace="aa:bb:cc:dd:ee:ff")
-    expected = Path(tempfile.gettempdir()) / "custom_bonds.json"
-    assert Path(ks.filename) == expected  # type: ignore[attr-defined]
+    expected = (Path(tempfile.gettempdir()) / "custom_bonds.json").resolve()
+    assert Path(ks.filename).resolve() == expected  # type: ignore[attr-defined]
 
 
 def test_keystore_resolve_local_under_user_data_dir(tmp_path: Path) -> None:
     with patch("platformdirs.user_data_dir", return_value=str(tmp_path)):
         ks = resolve(Local("bonds.json"), namespace="aa:bb:cc:dd:ee:ff")
-    assert Path(ks.filename) == tmp_path / "bonds.json"  # type: ignore[attr-defined]
+    assert Path(ks.filename).resolve() == (tmp_path / "bonds.json").resolve()  # type: ignore[attr-defined]
 
 
 def test_keystore_resolve_custom_creates_parent(tmp_path: Path) -> None:
@@ -283,7 +283,7 @@ def test_keystore_resolve_existing_custom_when_present(tmp_path: Path) -> None:
     target = tmp_path / "have.json"
     target.write_text("{}")
     ks = resolve(ExistingCustom(target), namespace="aa:bb:cc:dd:ee:ff")
-    assert Path(ks.filename) == target  # type: ignore[attr-defined]
+    assert Path(ks.filename).resolve() == target.resolve()  # type: ignore[attr-defined]
 
 
 def test_keystore_resolve_in_memory() -> None:

@@ -57,7 +57,9 @@ jobs:
             expect-bumble: fail
           - name: bumble-only
             extras: "[bumble]"
-            expect-serial: fail
+            # bumble depends on pyserial-asyncio, which transitively installs
+            # pyserial — so the serial transport import happens to succeed too.
+            expect-serial: pass
             expect-ble: fail
             expect-bumble: pass
           - name: all
