@@ -4,7 +4,8 @@ import asyncio
 import logging
 import re
 import sys
-from typing import Final, Protocol, TypeGuard
+from collections.abc import Coroutine
+from typing import Any, Final, Protocol, TypeGuard, TypeVar
 from uuid import UUID
 
 try:
@@ -66,6 +67,8 @@ class SMPBLETransportNotSMPServer(SMPBLETransportException):
 
 logger = logging.getLogger(__name__)
 
+_T = TypeVar("_T")
+
 
 class SMPBLETransport(SMPTransport):
     """A Bluetooth Low Energy (BLE) SMPTransport."""
@@ -84,6 +87,13 @@ class SMPBLETransport(SMPTransport):
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
+        try:
+            await asyncio.wait_for(self._connect(address, timeout_s), timeout=timeout_s)
+        except BaseException:
+            await self._best_effort_disconnect()
+            raise
+
+    async def _connect(self, address: str, timeout_s: float) -> None:
         logger.debug(f"Scanning for {address=}")
         device: BLEDevice | None = (
             await BleakScanner.find_device_by_address(address, timeout=timeout_s)
@@ -96,6 +106,7 @@ class SMPBLETransport(SMPTransport):
                 device,
                 services=(str(SMP_SERVICE_UUID),),
                 winrt=self._winrt,
+                timeout=timeout_s,
                 disconnected_callback=self._set_disconnected_event,
             )
         else:
@@ -139,7 +150,9 @@ class SMPBLETransport(SMPTransport):
         self._smp_characteristic = smp_characteristic
 
         logger.debug(f"Starting notify on {SMP_CHARACTERISTIC_UUID=}")
-        await self._client.start_notify(SMP_CHARACTERISTIC_UUID, self._notify_callback)
+        await self._await_or_disconnect(
+            self._client.start_notify(SMP_CHARACTERISTIC_UUID, self._notify_callback)
+        )
         logger.debug(f"Started notify on {SMP_CHARACTERISTIC_UUID=}")
 
     @override
@@ -246,3 +259,34 @@ class SMPBLETransport(SMPTransport):
             raise SMPTransportDisconnected(
                 f"{self.__class__.__name__} disconnected from {self._client.address}"
             )
+
+    async def _await_or_disconnect(self, coro: Coroutine[Any, Any, _T]) -> _T:
+        """Await `coro`; raise `SMPTransportDisconnected` if the peer disconnects first.
+
+        Guards GATT operations that can hang indefinitely when the peer
+        disconnects mid-flow (e.g. failed pairing) — see
+        https://github.com/intercreate/smpmgr/issues/97.
+        """
+        op_task: Final = asyncio.create_task(coro)
+        disconnected_task: Final = asyncio.create_task(self._disconnected_event.wait())
+        done, pending = await asyncio.wait(
+            (op_task, disconnected_task), return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        if disconnected_task in done:
+            raise SMPTransportDisconnected(
+                f"{self.__class__.__name__} disconnected from {self._client.address}"
+            )
+        return op_task.result()
+
+    async def _best_effort_disconnect(self) -> None:
+        """Best-effort cleanup after a failed `connect()`; never raises."""
+        client: Final = getattr(self, "_client", None)
+        if client is None:
+            return
+        try:
+            await client.disconnect()
+        except Exception:
+            logger.warning("Best-effort disconnect after failed connect raised", exc_info=True)

@@ -10,6 +10,7 @@ from bleak import BleakClient, BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 
 from smpclient.requests.os_management import EchoWrite
+from smpclient.transport import SMPTransportDisconnected
 from smpclient.transport.ble import (
     MAC_ADDRESS_PATTERN,
     SMP_CHARACTERISTIC_UUID,
@@ -209,3 +210,78 @@ def test_max_unencoded_size_mcumgr_param() -> None:
     t._client = MagicMock(spec=BleakClient)
     t._smp_server_transport_buffer_size = 9001
     assert t.max_unencoded_size == 9001
+
+
+class _HangingBleakClient:
+    """A `BleakClient` stand-in whose `start_notify` never returns.
+
+    Reproduces the failure mode reported in intercreate/smpmgr#97: the BlueZ
+    `StartNotify` D-Bus call hangs indefinitely when the peer disconnects
+    mid-pairing.
+    """
+
+    def __new__(cls, *args: object, **kwargs: object) -> "_HangingBleakClient":  # type: ignore[misc] # noqa: E501
+        captured_callback = kwargs.get("disconnected_callback")
+        client = MagicMock(spec=BleakClient, name="HangingBleakClient")
+        client._backend = type("Backend", (), {})()
+        client.connect = AsyncMock(name="connect")
+
+        async def _hang(*_a: object, **_kw: object) -> None:
+            await asyncio.Event().wait()  # never fires
+
+        client.start_notify = AsyncMock(side_effect=_hang)
+        client.disconnect = AsyncMock(name="disconnect")
+        client.address = "00:00:00:00:00:00"
+        client._captured_disconnected_callback = captured_callback  # type: ignore[attr-defined]
+        return client
+
+
+@patch(
+    "smpclient.transport.ble.BleakScanner.find_device_by_address",
+    return_value=BLEDevice("00:00:00:00:00:00", "name", None),
+)
+@patch("smpclient.transport.ble.BleakClient", new=_HangingBleakClient)
+@pytest.mark.asyncio
+async def test_connect_raises_on_peer_disconnect_during_start_notify(
+    _mock_find_device_by_address: MagicMock,
+) -> None:
+    """Regression test for intercreate/smpmgr#97.
+
+    When the peer disconnects mid-`start_notify` (e.g. failed pairing), `connect()`
+    must surface `SMPTransportDisconnected` rather than hang.
+    """
+    t = SMPBLETransport()
+
+    async def _trip_disconnect_callback() -> None:
+        # Wait until the transport reaches start_notify and clears the event,
+        # then simulate the bleak `disconnected_callback` firing.
+        while t._disconnected_event.is_set():
+            await asyncio.sleep(0)
+        await asyncio.sleep(0)  # let start_notify await begin
+        t._set_disconnected_event(t._client)
+
+    connect_task = asyncio.create_task(t.connect("00:00:00:00:00:00", 5.0))
+    trip_task = asyncio.create_task(_trip_disconnect_callback())
+
+    with pytest.raises(SMPTransportDisconnected):
+        await connect_task
+    await trip_task
+
+    # `_best_effort_disconnect` should have been called to release the client.
+    t._client.disconnect.assert_awaited()  # type: ignore[attr-defined]
+
+
+@patch(
+    "smpclient.transport.ble.BleakScanner.find_device_by_address",
+    return_value=BLEDevice("00:00:00:00:00:00", "name", None),
+)
+@patch("smpclient.transport.ble.BleakClient", new=_HangingBleakClient)
+@pytest.mark.asyncio
+async def test_connect_raises_on_timeout_during_start_notify(
+    _mock_find_device_by_address: MagicMock,
+) -> None:
+    """`connect()` must honor `timeout_s` even when `start_notify` hangs."""
+    t = SMPBLETransport()
+    with pytest.raises(asyncio.TimeoutError):
+        await t.connect("00:00:00:00:00:00", 0.05)
+    t._client.disconnect.assert_awaited()  # type: ignore[attr-defined]
