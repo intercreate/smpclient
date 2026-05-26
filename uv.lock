@@ -2788,6 +2788,7 @@ all = [
     { name = "libusb1" },
     { name = "platformdirs" },
     { name = "pyserial" },
+    { name = "zephyr-4-4-0-hci" },
 ]
 ble = [
     { name = "bleak" },
@@ -2796,6 +2797,9 @@ bumble = [
     { name = "bumble" },
     { name = "libusb1" },
     { name = "platformdirs" },
+]
+hci-firmware = [
+    { name = "zephyr-4-4-0-hci" },
 ]
 serial = [
     { name = "pyserial" },
@@ -2839,8 +2843,10 @@ requires-dist = [
     { name = "pyserial", marker = "extra == 'all'", specifier = ">=3.5" },
     { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
     { name = "smp", specifier = ">=4.0.2" },
+    { name = "zephyr-4-4-0-hci", marker = "extra == 'all'", specifier = ">=0.1.3,<1" },
+    { name = "zephyr-4-4-0-hci", marker = "extra == 'hci-firmware'", specifier = ">=0.1.3,<1" },
 ]
-provides-extras = ["all", "ble", "bumble", "serial", "udp"]
+provides-extras = ["all", "ble", "bumble", "hci-firmware", "serial", "udp"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3521,6 +3527,67 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/be/f9f7594e23b5b93affff0318e4593c1920331bcaefda326cabcad94296a1/yarl-1.24.2-cp314-cp314t-win_amd64.whl", hash = "sha256:a7624b1ca46ca5d7b864ef0d2f8efe3091454085ee1855b4e992314529972215", size = 102980, upload-time = "2026-05-19T21:30:59.735Z" },
     { url = "https://files.pythonhosted.org/packages/65/a4/ba80dccd3593ff1f01051a818694d07b58cb8232677ee9a22a5a1f93a9fc/yarl-1.24.2-cp314-cp314t-win_arm64.whl", hash = "sha256:e434a45ce2e7a947f951fc5a8944c8cc080b7e59f9c50ae80fd39107cf88126d", size = 91219, upload-time = "2026-05-19T21:31:01.934Z" },
     { url = "https://files.pythonhosted.org/packages/fd/4d/4b880086bd0d3e034d25647be1d830afc3e3f610e98c4ab3490af6b1b6d5/yarl-1.24.2-py3-none-any.whl", hash = "sha256:2783d9226db8797636cd6896e4de81feed252d1db72265686c9558d97a4d94b9", size = 53576, upload-time = "2026-05-19T21:31:03.909Z" },
+]
+
+[[package]]
+name = "zephyr-4-4-0-hci"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "zephyr-4-4-0-hci-usb-nrf52840dk-acl-502" },
+    { name = "zephyr-4-4-0-hci-usb-nrf52840dk-default" },
+    { name = "zephyr-4-4-0-hci-usb-nrf52840dk-legacy" },
+    { name = "zephyr-4-4-0-hci-usb-nrf5340dk-acl-502" },
+    { name = "zephyr-4-4-0-hci-usb-nrf5340dk-default" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/3a/027079c10bbe6aec8aa5bcb172479600e0e2179b92a21c9c4f71b45bea87/zephyr_4_4_0_hci-0.1.3.tar.gz", hash = "sha256:c8c3ec954774b045e61c746456bd6e376c3e6a83f6e8e6379b17d6df289276e1", size = 2659, upload-time = "2026-05-26T23:53:12.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/07/5d808921fcbf40e41234368a6c28b2271e208b0cfb293565d23271160a3f/zephyr_4_4_0_hci-0.1.3-py3-none-any.whl", hash = "sha256:91dbf35d94f22f72f65c36445c1672e54e598f0f01507c5b4415d955a9ff5070", size = 3589, upload-time = "2026-05-26T23:53:02.289Z" },
+]
+
+[[package]]
+name = "zephyr-4-4-0-hci-usb-nrf52840dk-acl-502"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/51/aa9dae6e206a715860a24445f5efe239174861ef8ebd83bb30810776cbe8/zephyr_4_4_0_hci_usb_nrf52840dk_acl_502-0.1.3.tar.gz", hash = "sha256:23903a254c62737b9f7853cb5497ecc3def37cec13c77adf43b39b99179fb1fe", size = 140172, upload-time = "2026-05-26T23:53:13.16Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/74/238e84591b245d95b7081bcdc5fbe4959a597d19e85aa573dbe5835f76db/zephyr_4_4_0_hci_usb_nrf52840dk_acl_502-0.1.3-py3-none-any.whl", hash = "sha256:99885e41c0df8d070d5bc6a89eb4b7fb08b0fccc4af74bfbb9608c10e45b1bc9", size = 141182, upload-time = "2026-05-26T23:53:03.822Z" },
+]
+
+[[package]]
+name = "zephyr-4-4-0-hci-usb-nrf52840dk-default"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d5/1e/8d4cc6b5ca50a24f01a0b14d1b69c6f5a78959845071a5022d781ce5e63a/zephyr_4_4_0_hci_usb_nrf52840dk_default-0.1.3.tar.gz", hash = "sha256:6c57f76bdbdb2533fa8539883018c1728389e56c4a13be99e26fc8efa5145b7b", size = 137407, upload-time = "2026-05-26T23:53:14.442Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/5d/9bb1f26d2551893d4e9a922ec946438a13aca273f18854df3e59c4fd3d8b/zephyr_4_4_0_hci_usb_nrf52840dk_default-0.1.3-py3-none-any.whl", hash = "sha256:1323e9cb03d565981fb5e66b8ef10059de317c929dfb024cbb7e69820d1b2414", size = 138460, upload-time = "2026-05-26T23:53:05.544Z" },
+]
+
+[[package]]
+name = "zephyr-4-4-0-hci-usb-nrf52840dk-legacy"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/a1/75a197c74dfaedd2a5939e7f85091822fc3aad51b57683bbf996242beb5e/zephyr_4_4_0_hci_usb_nrf52840dk_legacy-0.1.3.tar.gz", hash = "sha256:e6712488f0c611b3240e8055bdd87b40030014df84b2fe2bd41332be954c1061", size = 130533, upload-time = "2026-05-26T23:53:15.906Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/3f/1009ba7e4b0be67fe2cbf33a93d58e37d885936144963a2c340522629926/zephyr_4_4_0_hci_usb_nrf52840dk_legacy-0.1.3-py3-none-any.whl", hash = "sha256:8ab8ca2d1790c6e1b662e9f5511792566e87d296348c11c778cf8be0215b451a", size = 131361, upload-time = "2026-05-26T23:53:07.3Z" },
+]
+
+[[package]]
+name = "zephyr-4-4-0-hci-usb-nrf5340dk-acl-502"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/2f/1547ee0883882cf330ea8fb5d8bee83536651f51f6cab8513a72c163185b/zephyr_4_4_0_hci_usb_nrf5340dk_acl_502-0.1.3.tar.gz", hash = "sha256:25216906b84b5b5c43eec82534cdb1088ae8d1ea7384efa71fb9c24732d45fcc", size = 194008, upload-time = "2026-05-26T23:53:17.032Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/be/691150f246fdb35de271463c1e123b592047bce304b1feaba510caf40d48/zephyr_4_4_0_hci_usb_nrf5340dk_acl_502-0.1.3-py3-none-any.whl", hash = "sha256:46bddca555b5e4a10242f55fc885327eddd87ad1aba1684c977fa2ebeda2fd0d", size = 195260, upload-time = "2026-05-26T23:53:09.055Z" },
+]
+
+[[package]]
+name = "zephyr-4-4-0-hci-usb-nrf5340dk-default"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/67/96/944aed64084da2d977c7563b7723ff08e84dfc53330dc2a4333bb5c244e6/zephyr_4_4_0_hci_usb_nrf5340dk_default-0.1.3.tar.gz", hash = "sha256:3c32bca544fba8bc37ae9ba4a9e9532d212624221e94645886891286a96cb6d4", size = 191086, upload-time = "2026-05-26T23:53:18.232Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/47/a118b9043ddc79418b545342f24c985a94d5ca7aa916b7d07db7a1a599cf/zephyr_4_4_0_hci_usb_nrf5340dk_default-0.1.3-py3-none-any.whl", hash = "sha256:66bbeb993687dcbbfca5f47f42f86baf2d0b04770869a5a71f22c3f8670d33c2", size = 192397, upload-time = "2026-05-26T23:53:10.714Z" },
 ]
 
 [[package]]

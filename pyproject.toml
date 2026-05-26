@@ -31,7 +31,8 @@ serial = ["pyserial>=3.5"]
 ble = ["bleak>=3.0.2,<4"]
 udp = []
 bumble = ["bumble==0.0.228", "libusb1>=3.1,<4", "platformdirs>=4,<5"]
-all = ["smpclient[serial,ble,udp,bumble]"]
+hci_firmware = ["zephyr-4.4.0-hci>=0.1.3,<1"]
+all = ["smpclient[serial,ble,udp,bumble,hci_firmware]"]
 
 [project.urls]
 Homepage = "https://www.intercreate.io"
