@@ -11,7 +11,7 @@ try:
     from bumble.core import UUID as BumbleUUID
     from bumble.device import Connection, Device, Peer
     from bumble.gatt_client import CharacteristicProxy
-    from bumble.hci import Address
+    from bumble.hci import Address, HCI_ErrorCode
     from bumble.keys import KeyStore
     from bumble.pairing import PairingConfig, PairingDelegate
     from bumble.smp import AuthReq
@@ -451,7 +451,25 @@ class SMPBumbleTransport(SMPTransport):
         self._notifications.put_nowait(data)
 
     def _on_disconnection(self, reason: int) -> None:
-        logger.warning(f"Peer disconnected: reason=0x{reason:02x}")
+        named: HCI_ErrorCode | None
+        try:
+            named = HCI_ErrorCode(reason)
+        except ValueError:
+            named = None
+        msg: Final = f"Peer disconnected: reason=0x{reason:02x}" + (
+            f" ({named.name})" if named is not None else ""
+        )
+        match named:
+            case HCI_ErrorCode.CONNECTION_TERMINATED_BY_LOCAL_HOST_ERROR:
+                logger.debug(msg)
+            case (
+                HCI_ErrorCode.REMOTE_USER_TERMINATED_CONNECTION_ERROR
+                | HCI_ErrorCode.REMOTE_DEVICE_TERMINATED_CONNECTION_DUE_TO_LOW_RESOURCES_ERROR
+                | HCI_ErrorCode.REMOTE_DEVICE_TERMINATED_CONNECTION_DUE_TO_POWER_OFF_ERROR
+            ):
+                logger.info(msg)
+            case _:
+                logger.warning(msg)
         self._disconnected_event.set()
         self._notifications.put_nowait(_DisconnectSentinel())
 

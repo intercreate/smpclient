@@ -1,6 +1,7 @@
 """Tests for `SMPBumbleTransport`."""
 
 import asyncio
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -174,6 +175,30 @@ async def test_receive_raises_when_peer_disconnects() -> None:
     t._on_disconnection(0x16)
     with pytest.raises(SMPTransportDisconnected):
         await t.receive()
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_level"),
+    [
+        (0x16, logging.DEBUG),  # LOCALHOST_TERM_CONN — we hung up
+        (0x13, logging.INFO),  # REMOTE_USER_TERMINATED
+        (0x14, logging.INFO),  # REMOTE_LOW_RESOURCES
+        (0x15, logging.INFO),  # REMOTE_POWER_OFF
+        (0x08, logging.WARNING),  # CONNECTION_TIMEOUT
+        (0x3E, logging.WARNING),  # CONNECTION_FAILED_TO_ESTABLISH
+        (0x00, logging.WARNING),  # any unmapped code stays loud
+    ],
+)
+def test_disconnect_log_level_by_reason(
+    reason: int, expected_level: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    t, _ = _make_connected()
+    with caplog.at_level(logging.DEBUG, logger="smpclient.transport.bumble"):
+        t._on_disconnection(reason)
+    records = [r for r in caplog.records if r.message.startswith("Peer disconnected")]
+    assert len(records) == 1
+    assert records[0].levelno == expected_level
+    assert f"reason=0x{reason:02x}" in records[0].message
 
 
 @pytest.mark.asyncio
