@@ -14,13 +14,14 @@ from typing_extensions import assert_never
 from smpclient import SMPClient
 from smpclient.generics import error, success
 from smpclient.requests.os_management import EchoWrite
-from smpclient.transport.bumble import SMPBumbleTransport, pair_device
+from smpclient.transport.bumble import SMPBumbleTransport
 from smpclient.transport.bumble.pairing import (
     KeyboardOnly,
     PairingAlreadyBonded,
     PairingFailed,
     PairingSucceeded,
     PairingTimedOut,
+    pair_device,
 )
 
 

@@ -21,7 +21,6 @@ black box through the `SMPTransport` Protocol.
 
 import asyncio
 import logging
-import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -32,9 +31,9 @@ try:
     from bumble.core import UUID as BumbleUUID
     from bumble.device import Connection, Device, Peer
     from bumble.gatt_client import CharacteristicProxy
-    from bumble.hci import Address, AddressType
+    from bumble.hci import Address
     from bumble.keys import KeyStore
-    from bumble.pairing import PairingConfig, PairingDelegate
+    from bumble.pairing import PairingDelegate
     from bumble.transport import open_transport
     from bumble.transport.common import Transport
 except ModuleNotFoundError as e:
@@ -54,15 +53,25 @@ from smpclient.transport import (
     SMPTransport,
     SMPTransportDisconnected,
 )
+from smpclient.transport.bumble.device import (
+    DEFAULT_HCI_TRANSPORT,
+    DEFAULT_HOST_ADDRESS,
+    DEFAULT_HOST_NAME,
+    MAC_ADDRESS_PATTERN,
+    bumble_device,
+)
 from smpclient.transport.bumble.keystore import KeystoreStrategy, Tempfile
 from smpclient.transport.bumble.keystore import resolve as resolve_keystore
 from smpclient.transport.bumble.pairing import (
+    DEFAULT_PAIR_TIMEOUT_S,
+    DEFAULT_POST_PAIR_SETTLE_S,
     PairingAlreadyBonded,
     PairingFailed,
-    PairingFailureReason,
     PairingResult,
     PairingSucceeded,
     PairingTimedOut,
+    encrypt_using_bond,
+    pair,
 )
 from smpclient.transport.bumble.scan import ScanAll, ScanForName, ScanMode, ScanResult
 from smpclient.transport.bumble.scan import scan as scan_for_devices
@@ -70,28 +79,11 @@ from smpclient.transport.bumble.scan import scan as scan_for_devices
 logger = logging.getLogger(__name__)
 
 
-MAC_ADDRESS_PATTERN: Final = re.compile(r"([0-9A-F]{2}[:]){5}[0-9A-F]{2}$", flags=re.IGNORECASE)
-
-DEFAULT_HOST_ADDRESS: Final = Address("F0:5C:81:00:00:01", AddressType.RANDOM_DEVICE)
-"""Default static-random BD_ADDR used by the local host.
-
-Static-random addresses have the top two bits of the MSB set to 1.  Override
-via the transport constructor if you need a stable identity for bonding or to
-avoid collision with another bumble-based process.
-"""
-
-DEFAULT_HOST_NAME: Final = "smpclient-bumble"
-DEFAULT_HCI_TRANSPORT: Final = "usb:0"
 DEFAULT_PREFERRED_MTU: Final = 247
 ATT_WRITE_OVERHEAD: Final = 3
 """ATT write PDU header: 1-byte opcode + 2-byte handle.
 
 Subtracted from the ATT MTU to get the maximum payload per write."""
-DEFAULT_PAIR_TIMEOUT_S: Final = 30.0
-DEFAULT_POST_PAIR_SETTLE_S: Final = 1.5
-"""After `connection.pair()` returns, peers need a brief settle window to
-finalize bonding on their side before disconnect.  Tune per-peer via
-`pair_device(..., settle_s=...)` if a particular peer needs longer."""
 
 
 class SMPBumbleTransportException(SMPClientException):
@@ -214,8 +206,8 @@ class SMPBumbleTransport(SMPTransport):
 
         self._state: _State = Disconnected()
 
-        self._notifications: asyncio.Queue[bytes | _DisconnectSentinel] = asyncio.Queue()
-        self._disconnected_event = asyncio.Event()
+        self._notifications: Final[asyncio.Queue[bytes | _DisconnectSentinel]] = asyncio.Queue()
+        self._disconnected_event: Final = asyncio.Event()
         self._disconnected_event.set()
 
         logger.debug(f"Initialized {self.__class__.__name__}(hci={hci!r})")
@@ -251,7 +243,7 @@ class SMPBumbleTransport(SMPTransport):
             self._state.connection.on(Connection.EVENT_DISCONNECTION, self._on_disconnection)
             self._state.connection.on(Connection.EVENT_SECURITY_REQUEST, self._on_security_request)
 
-            await _encrypt_using_bond(self._state.connection, self._state.device)
+            await encrypt_using_bond(self._state.connection, self._state.device)
 
             if self._pair_on_connect is not None and not self._state.connection.is_encrypted:
                 pair_result: Final = await pair(
@@ -425,28 +417,18 @@ class SMPBumbleTransport(SMPTransport):
         logger.info(f"Borrowing connection to {connection.peer_address}, max_write={max_write}")
 
     async def bonded_devices(self) -> tuple[str, ...]:
-        """Return the BD_ADDRs of peers currently in the keystore.
+        """Return the BD_ADDRs of peers currently in the keystore."""
+        return tuple(addr for addr, _keys in await self._standalone_keystore().get_all())
 
-        Works in any state — the keystore is constructed from the configured
-        strategy + the local host address.
-        """
-        bonds = await self._standalone_keystore().get_all()
-        return tuple(addr for addr, _keys in bonds)
+    async def clear_bond(self, address: str) -> None:
+        """Delete the bond for `address` from the keystore."""
+        await self._standalone_keystore().delete(address)
+        logger.info(f"Cleared bond for {address}")
 
-    async def clear_bond(self, address: str | None = None) -> None:
-        """Delete one bond, or all bonds when `address` is `None`.
-
-        Args:
-            address: The peer BD_ADDR whose bond should be removed.  If
-                `None`, every bond in the keystore is removed.
-        """
-        keystore = self._standalone_keystore()
-        if address is None:
-            await keystore.delete_all()
-            logger.info("Cleared all bonds")
-        else:
-            await keystore.delete(address)
-            logger.info(f"Cleared bond for {address}")
+    async def clear_bonds(self) -> None:
+        """Delete every bond from the keystore."""
+        await self._standalone_keystore().delete_all()
+        logger.info("Cleared all bonds")
 
     def _standalone_keystore(self) -> KeyStore:
         return resolve_keystore(self._keystore, namespace=str(self._host_address))
@@ -528,17 +510,27 @@ class SMPBumbleTransport(SMPTransport):
 
     async def _on_security_request(self, auth_req: object) -> None:
         # Auto-encrypt only when an LTK exists; never auto-initiate a fresh pair.
-        # `ConnectedBorrowed` skips this: the caller owns the Device & its keystore.
-        if not isinstance(self._state, Connected):
-            return
-        logger.debug(f"Peer security request: {auth_req!r}")
-        await _encrypt_using_bond(self._state.connection, self._state.device)
+        match self._state:
+            case Connected() as s:
+                logger.debug(f"Peer security request: {auth_req!r}")
+                await encrypt_using_bond(s.connection, s.device)
+            case ConnectedBorrowed():
+                logger.info(
+                    f"Ignoring peer security request {auth_req!r}: "
+                    "caller owns the Device and its keystore"
+                )
+            case Disconnected() | Connecting():
+                logger.warning(
+                    f"Peer security request {auth_req!r} in unexpected state "
+                    f"{type(self._state).__name__}"
+                )
+            case _:
+                assert_never(self._state)
 
     async def _next_chunk(self) -> bytes:
         if self._disconnected_event.is_set():
             raise SMPTransportDisconnected(f"{self.__class__.__name__} peer disconnected")
-        chunk = await self._notifications.get()
-        match chunk:
+        match chunk := await self._notifications.get():
             case _DisconnectSentinel():
                 raise SMPTransportDisconnected(f"{self.__class__.__name__} peer disconnected")
             case bytes():
@@ -570,104 +562,7 @@ class SMPBumbleTransport(SMPTransport):
             return connection.att_mtu - ATT_WRITE_OVERHEAD
 
 
-async def _encrypt_using_bond(connection: Connection, device: Device) -> bool:
-    """Encrypt `connection` using a stored LTK if one exists.
-
-    Proactive — the peer-initiated `EVENT_SECURITY_REQUEST` flow races with
-    GATT discovery, and `subscribe()` needs encryption first.
-
-    Args:
-        connection: An established LE connection to the peer.
-        device: The local bumble `Device`; its keystore is consulted.
-
-    Returns:
-        True if `connection.is_encrypted` after this call; False otherwise.
-    """
-    if connection.is_encrypted:
-        return True
-    if device.keystore is None:
-        return False
-    if (await device.keystore.get(str(connection.peer_address))) is None:
-        return False
-    logger.debug(f"Bond exists for {connection.peer_address}; initiating encryption")
-    try:
-        await connection.encrypt()
-    except Exception as e:
-        logger.warning(f"connection.encrypt() failed: {e}")
-        return False
-    return connection.is_encrypted
-
-
-async def pair(
-    connection: Connection,
-    device: Device,
-    delegate: PairingDelegate,
-    *,
-    pair_timeout_s: float,
-    settle_s: float,
-    force: bool,
-) -> PairingResult:
-    """Perform SMP pairing on an established `connection`.
-
-    Shared core used by `SMPBumbleTransport.pair()`, `pair_device()`, and the
-    `pair_on_connect` path inside `SMPBumbleTransport.connect()`.
-
-    Args:
-        connection: An established `Connection`.
-        device: The local bumble `Device` (must have keystore set).
-        delegate: The `PairingDelegate` for this exchange.
-        pair_timeout_s: Upper bound on `connection.pair()`.
-        settle_s: Sleep after successful pair so the peer can finalize bonding.
-        force: When True, delete any existing local bond first.
-
-    Returns:
-        A `PairingResult` variant.
-    """
-    if (ks := device.keystore) is not None:
-        if (existing := await ks.get(str(connection.peer_address))) is not None:
-            if not force:
-                logger.info(f"Already bonded to {connection.peer_address}")
-                return PairingAlreadyBonded()
-            logger.info(f"force=True; deleting local bond for {connection.peer_address}")
-            try:
-                await ks.delete(str(connection.peer_address))
-            except Exception as e:
-                logger.warning(f"keystore.delete failed: {e}")
-            del existing
-
-    device.pairing_config_factory = lambda _c: PairingConfig(delegate=delegate)
-
-    loop: Final = asyncio.get_running_loop()
-    start: Final = loop.time()
-    try:
-        await asyncio.wait_for(connection.pair(), timeout=pair_timeout_s)
-    except asyncio.TimeoutError:
-        return PairingTimedOut(elapsed_s=loop.time() - start)
-    except Exception as e:
-        return PairingFailed(
-            reason=PairingFailureReason.BUMBLE,
-            detail=f"connection.pair() raised: {e!r}",
-        )
-
-    if connection.is_encrypted and connection.authenticated:
-        logger.info(f"Pair succeeded; settling for {settle_s}s")
-        await asyncio.sleep(settle_s)
-        stored: Final = await ks.get(str(connection.peer_address)) if ks is not None else None
-        return PairingSucceeded(bonded=stored is not None)
-
-    return PairingFailed(
-        reason=PairingFailureReason.AUTH,
-        detail=(
-            f"post-pair state: is_encrypted={connection.is_encrypted}, "
-            f"authenticated={connection.authenticated}"
-        ),
-    )
-
-
 async def _teardown_borrowed(s: ConnectedBorrowed, on_disconnection: Callable[[int], None]) -> None:
-    # Borrowed: caller owns the LE link, device, and HCI transport.  Unsubscribe
-    # from notifications and drop our disconnection listener so the caller's
-    # Connection isn't left holding references after we hand it back.
     try:
         await s.smp_characteristic.unsubscribe()
     except Exception as e:
@@ -721,91 +616,15 @@ def _find_smp_characteristic(peer: Peer) -> CharacteristicProxy[bytes]:
 
 
 @asynccontextmanager
-async def bumble_device(
+async def borrowed_connection(
+    transport: SMPBumbleTransport,
+    connection: Connection,
     *,
-    hci: str = DEFAULT_HCI_TRANSPORT,
-    delegate: PairingDelegate | None = None,
-    host_address: Address = DEFAULT_HOST_ADDRESS,
-    host_name: str = DEFAULT_HOST_NAME,
-    keystore: KeystoreStrategy = Tempfile(),
-) -> AsyncIterator[Device]:
-    """Open an HCI transport, configure a powered-on bumble `Device`, yield it.
-
-    On exit, powers off the device and closes the transport, attempting each
-    step regardless of earlier failures.
-    """
-    async with await open_transport(hci) as transport:
-        device = Device.with_hci(host_name, host_address, transport.source, transport.sink)
-        device.keystore = resolve_keystore(  # type: ignore[assignment]
-            keystore, namespace=str(host_address)
-        )
-        if delegate is not None:
-            device.pairing_config_factory = lambda _c: PairingConfig(delegate=delegate)
-        await device.power_on()
-        try:
-            yield device
-        finally:
-            try:
-                await device.power_off()
-            except Exception as e:
-                logger.warning(f"device.power_off failed: {e}")
-
-
-async def pair_device(
-    address: str,
-    delegate: PairingDelegate,
-    *,
-    hci: str = DEFAULT_HCI_TRANSPORT,
-    keystore: KeystoreStrategy = Tempfile(),
-    scan_timeout_s: float = 10.0,
-    pair_timeout_s: float = 30.0,
-    settle_s: float = DEFAULT_POST_PAIR_SETTLE_S,
-    force: bool = False,
-) -> PairingResult:
-    """One-shot bonding: open HCI, connect, pair, disconnect.
-
-    No GATT discovery or subscribe — use this to bond a peer before any SMP
-    traffic.  For peers whose SMP characteristic requires encryption on first
-    connect, pass `pair_on_connect=` to `SMPBumbleTransport` instead.
-
-    Args:
-        address: BD_ADDR or advertised local name of the peer.
-        delegate: A `PairingDelegate` (e.g. `KeyboardOnly(pin_callback)`).
-        hci: bumble HCI transport spec.
-        keystore: How bond keys are persisted.
-        scan_timeout_s: Max scan time when `address` is a local name.
-        pair_timeout_s: Upper bound on the pairing exchange.
-        settle_s: Wait between successful pair and disconnect so the peer can
-            finalize bonding.  See `DEFAULT_POST_PAIR_SETTLE_S`.
-        force: When True, delete any existing local bond for this peer and
-            pair from scratch.  Use this after the peer has wiped its side.
-
-    Returns:
-        A `PairingResult` variant.
-    """
-    async with bumble_device(hci=hci, delegate=delegate, keystore=keystore) as device:
-        if MAC_ADDRESS_PATTERN.match(address):
-            target = address
-        elif hits := await scan_for_devices(device, scan_timeout_s, ScanForName(address)):
-            target = hits[0].address
-        else:
-            return PairingFailed(
-                reason=PairingFailureReason.NOT_FOUND,
-                detail=f"no device matched name {address!r} within {scan_timeout_s}s",
-            )
-
-        connection: Final = await device.connect(Address(target))
-        try:
-            return await pair(
-                connection,
-                device,
-                delegate,
-                pair_timeout_s=pair_timeout_s,
-                settle_s=settle_s,
-                force=force,
-            )
-        finally:
-            try:
-                await connection.disconnect()
-            except Exception as e:
-                logger.warning(f"connection.disconnect failed: {e}")
+    peer: Peer | None = None,
+) -> AsyncIterator[SMPBumbleTransport]:
+    """`async with`-friendly wrapper around `use_connection()` + `disconnect()`."""
+    await transport.use_connection(connection, peer=peer)
+    try:
+        yield transport
+    finally:
+        await transport.disconnect()

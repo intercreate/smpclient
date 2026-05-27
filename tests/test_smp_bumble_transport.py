@@ -12,8 +12,6 @@ import pytest
 from smpclient.transport import SMPTransportDisconnected
 from smpclient.transport.bumble import (
     ATT_WRITE_OVERHEAD,
-    DEFAULT_HCI_TRANSPORT,
-    DEFAULT_HOST_NAME,
     SMP_CHARACTERISTIC_UUID,
     SMP_SERVICE_UUID,
     Connected,
@@ -26,6 +24,7 @@ from smpclient.transport.bumble import (
     _DisconnectSentinel,
     _find_smp_characteristic,
 )
+from smpclient.transport.bumble.device import DEFAULT_HCI_TRANSPORT, DEFAULT_HOST_NAME
 from smpclient.transport.bumble.keystore import (
     Custom,
     ExistingCustom,
@@ -393,8 +392,12 @@ def bumble_env(monkeypatch: pytest.MonkeyPatch) -> _MockBumbleEnvironment:
         return env.device
 
     monkeypatch.setattr("smpclient.transport.bumble.open_transport", env.open_transport)
+    monkeypatch.setattr("smpclient.transport.bumble.device.open_transport", env.open_transport)
     monkeypatch.setattr(
         "smpclient.transport.bumble.Device.with_hci", staticmethod(_device_with_hci)
+    )
+    monkeypatch.setattr(
+        "smpclient.transport.bumble.device.Device.with_hci", staticmethod(_device_with_hci)
     )
     monkeypatch.setattr("smpclient.transport.bumble.Peer", lambda _conn: env.peer)
     monkeypatch.setattr(
@@ -403,6 +406,10 @@ def bumble_env(monkeypatch: pytest.MonkeyPatch) -> _MockBumbleEnvironment:
     )
     monkeypatch.setattr(
         "smpclient.transport.bumble.resolve_keystore",
+        lambda _strategy, namespace: env.keystore,
+    )
+    monkeypatch.setattr(
+        "smpclient.transport.bumble.device.resolve_keystore",
         lambda _strategy, namespace: env.keystore,
     )
     return env
@@ -426,8 +433,13 @@ async def test_connect_proactively_encrypts_when_bonded(
 ) -> None:
     env = _MockBumbleEnvironment(with_bond=True)
     monkeypatch.setattr("smpclient.transport.bumble.open_transport", env.open_transport)
+    monkeypatch.setattr("smpclient.transport.bumble.device.open_transport", env.open_transport)
     monkeypatch.setattr(
         "smpclient.transport.bumble.Device.with_hci",
+        staticmethod(lambda *a, **kw: env.device),
+    )
+    monkeypatch.setattr(
+        "smpclient.transport.bumble.device.Device.with_hci",
         staticmethod(lambda *a, **kw: env.device),
     )
     monkeypatch.setattr("smpclient.transport.bumble.Peer", lambda _conn: env.peer)
@@ -744,11 +756,11 @@ def _pair_test_objs() -> tuple[MagicMock, MagicMock, MagicMock]:
 
 @pytest.mark.asyncio
 async def test_module_pair_returns_already_bonded_when_keystore_has_entry() -> None:
-    from smpclient.transport.bumble import pair as module_pair
+    from smpclient.transport.bumble.pairing import pair
 
     connection, device, keystore = _pair_test_objs()
     keystore.get.return_value = object()
-    result = await module_pair(
+    result = await pair(
         connection, device, NoInputNoOutput(), pair_timeout_s=5.0, settle_s=0.0, force=False
     )
     assert isinstance(result, PairingAlreadyBonded)
@@ -757,13 +769,13 @@ async def test_module_pair_returns_already_bonded_when_keystore_has_entry() -> N
 
 @pytest.mark.asyncio
 async def test_module_pair_succeeds_when_post_pair_state_is_encrypted() -> None:
-    from smpclient.transport.bumble import pair as module_pair
+    from smpclient.transport.bumble.pairing import pair
 
     connection, device, keystore = _pair_test_objs()
     # First call (pre-pair existing-bond check) returns None; second (post-pair
     # bonded? check) returns a stored object.
     keystore.get.side_effect = [None, object()]
-    result = await module_pair(
+    result = await pair(
         connection, device, NoInputNoOutput(), pair_timeout_s=5.0, settle_s=0.0, force=False
     )
     assert isinstance(result, PairingSucceeded)
@@ -772,11 +784,11 @@ async def test_module_pair_succeeds_when_post_pair_state_is_encrypted() -> None:
 
 @pytest.mark.asyncio
 async def test_module_pair_force_deletes_bond_first() -> None:
-    from smpclient.transport.bumble import pair as module_pair
+    from smpclient.transport.bumble.pairing import pair
 
     connection, device, keystore = _pair_test_objs()
     keystore.get.return_value = object()
-    result = await module_pair(
+    result = await pair(
         connection, device, NoInputNoOutput(), pair_timeout_s=5.0, settle_s=0.0, force=True
     )
     keystore.delete.assert_awaited_once()
@@ -785,7 +797,7 @@ async def test_module_pair_force_deletes_bond_first() -> None:
 
 @pytest.mark.asyncio
 async def test_module_pair_timeout() -> None:
-    from smpclient.transport.bumble import pair as module_pair
+    from smpclient.transport.bumble.pairing import pair
 
     connection, device, _keystore = _pair_test_objs()
 
@@ -793,7 +805,7 @@ async def test_module_pair_timeout() -> None:
         await asyncio.sleep(10)
 
     connection.pair.side_effect = slow_pair
-    result = await module_pair(
+    result = await pair(
         connection, device, NoInputNoOutput(), pair_timeout_s=0.01, settle_s=0.0, force=False
     )
     assert isinstance(result, PairingTimedOut)
@@ -801,11 +813,11 @@ async def test_module_pair_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_module_pair_bumble_exception() -> None:
-    from smpclient.transport.bumble import pair as module_pair
+    from smpclient.transport.bumble.pairing import pair
 
     connection, device, _keystore = _pair_test_objs()
     connection.pair.side_effect = RuntimeError("smp blew up")
-    result = await module_pair(
+    result = await pair(
         connection, device, NoInputNoOutput(), pair_timeout_s=5.0, settle_s=0.0, force=False
     )
     assert isinstance(result, PairingFailed)
@@ -814,12 +826,12 @@ async def test_module_pair_bumble_exception() -> None:
 
 @pytest.mark.asyncio
 async def test_module_pair_post_pair_not_encrypted() -> None:
-    from smpclient.transport.bumble import pair as module_pair
+    from smpclient.transport.bumble.pairing import pair
 
     connection, device, _keystore = _pair_test_objs()
     connection.is_encrypted = False
     connection.authenticated = False
-    result = await module_pair(
+    result = await pair(
         connection, device, NoInputNoOutput(), pair_timeout_s=5.0, settle_s=0.0, force=False
     )
     assert isinstance(result, PairingFailed)
@@ -924,7 +936,7 @@ async def test_cli_echo_returns_1_on_error(capsys: pytest.CaptureFixture[str]) -
 async def test_bumble_device_context_manager(
     monkeypatch: pytest.MonkeyPatch, bumble_env: _MockBumbleEnvironment
 ) -> None:
-    from smpclient.transport.bumble import bumble_device
+    from smpclient.transport.bumble.device import bumble_device
 
     async with bumble_device(hci="usb:0", delegate=NoInputNoOutput()) as device:
         assert device is bumble_env.device
@@ -936,7 +948,7 @@ async def test_bumble_device_context_manager(
 async def test_pair_device_resolves_mac_directly(
     monkeypatch: pytest.MonkeyPatch, bumble_env: _MockBumbleEnvironment
 ) -> None:
-    from smpclient.transport.bumble import pair_device
+    from smpclient.transport.bumble.pairing import pair_device
 
     bumble_env.connection.is_encrypted = True
     bumble_env.connection.authenticated = True
@@ -957,11 +969,11 @@ async def test_pair_device_resolves_mac_directly(
 async def test_pair_device_scans_by_name_when_not_mac(
     monkeypatch: pytest.MonkeyPatch, bumble_env: _MockBumbleEnvironment
 ) -> None:
-    from smpclient.transport.bumble import pair_device
+    from smpclient.transport.bumble.pairing import pair_device
     from smpclient.transport.bumble.scan import ScanResult
 
     monkeypatch.setattr(
-        "smpclient.transport.bumble.scan_for_devices",
+        "smpclient.transport.bumble.pairing.scan_for_devices",
         AsyncMock(
             return_value=(
                 ScanResult(
@@ -991,10 +1003,10 @@ async def test_pair_device_scans_by_name_when_not_mac(
 async def test_pair_device_returns_not_found_on_name_miss(
     monkeypatch: pytest.MonkeyPatch, bumble_env: _MockBumbleEnvironment
 ) -> None:
-    from smpclient.transport.bumble import pair_device
+    from smpclient.transport.bumble.pairing import pair_device
 
     monkeypatch.setattr(
-        "smpclient.transport.bumble.scan_for_devices",
+        "smpclient.transport.bumble.pairing.scan_for_devices",
         AsyncMock(return_value=()),
     )
     result = await pair_device(
