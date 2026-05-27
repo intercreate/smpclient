@@ -456,6 +456,101 @@ async def test_connect_proactively_encrypts_when_bonded(
 
 
 @pytest.mark.asyncio
+async def test_pair_on_connect_installs_delegate_before_device_connect(
+    bumble_env: _MockBumbleEnvironment,
+) -> None:
+    """Pairing delegate must be on the Device before device.connect() resolves.
+
+    Some Zephyr peripherals (CONFIG_BT_SMP_ENFORCE_MITM=y) emit a security
+    request the instant the LE link is up — bumble consults
+    `pairing_config_factory` to respond, so the delegate must be installed
+    *before* device.connect() runs.
+    """
+    bumble_env.connection.is_encrypted = True  # short-circuit central-initiated pair()
+
+    delegate = NoInputNoOutput()
+    factory_set_at: dict[str, bool] = {"value": False}
+    original_connect = bumble_env.device.connect
+
+    async def _connect_snapshotting(*args: object, **kwargs: object) -> MagicMock:
+        factory_set_at["value"] = bumble_env.device.pairing_config_factory is not None
+        return cast(MagicMock, await original_connect(*args, **kwargs))
+
+    bumble_env.device.connect = _connect_snapshotting
+
+    t = SMPBumbleTransport(pair_on_connect=delegate)
+    await t.connect("AA:BB:CC:DD:EE:FF", 5.0)
+    assert factory_set_at["value"], (
+        "pairing_config_factory must be set before device.connect() returns"
+    )
+
+
+@pytest.mark.asyncio
+async def test_peer_initiated_security_during_connecting_drives_pair(
+    bumble_env: _MockBumbleEnvironment,
+) -> None:
+    """Peer-initiated SMP during Connecting must drive pair via `_on_security_request`."""
+
+    async def _pair_and_encrypt() -> None:
+        bumble_env.connection.is_encrypted = True
+        bumble_env.connection.authenticated = True
+
+    bumble_env.connection.pair.side_effect = _pair_and_encrypt
+
+    delegate = NoInputNoOutput()
+    t = SMPBumbleTransport(pair_on_connect=delegate, settle_s=0.0)
+
+    captured: dict[str, object] = {}
+    original_on = bumble_env.connection.on
+
+    def _on(event: str, handler: object) -> None:
+        captured[event] = handler
+        original_on(event, handler)
+
+    bumble_env.connection.on = _on
+
+    async def _emit_security_request_after_connect(*args: object, **kwargs: object) -> MagicMock:
+        result = await AsyncMock(return_value=bumble_env.connection)(*args, **kwargs)
+        from bumble.device import Connection
+
+        asyncio.get_running_loop().call_soon(
+            lambda: asyncio.create_task(captured[Connection.EVENT_SECURITY_REQUEST](0x01))  # type: ignore[operator]
+        )
+        return cast(MagicMock, result)
+
+    bumble_env.device.connect = _emit_security_request_after_connect
+
+    await t.connect("AA:BB:CC:DD:EE:FF", 5.0)
+    bumble_env.connection.pair.assert_awaited_once()
+    assert isinstance(t._state, Connected)
+
+
+@pytest.mark.asyncio
+async def test_pair_during_connect_is_idempotent_across_callers(
+    bumble_env: _MockBumbleEnvironment,
+) -> None:
+    """connect() and _on_security_request may both call _pair_during_connect; only one pair() runs."""
+
+    async def _pair_and_encrypt() -> None:
+        bumble_env.connection.is_encrypted = True
+        bumble_env.connection.authenticated = True
+
+    bumble_env.connection.pair.side_effect = _pair_and_encrypt
+
+    t = SMPBumbleTransport(pair_on_connect=NoInputNoOutput(), settle_s=0.0)
+    t._state = Connecting(connection=bumble_env.connection, device=bumble_env.device)
+    t._pair_lock = asyncio.Lock()
+    t._pair_result = None
+
+    a, b = await asyncio.gather(
+        t._pair_during_connect(),
+        t._pair_during_connect(),
+    )
+    assert a is b
+    bumble_env.connection.pair.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_connect_failure_tears_down_partial_state(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:

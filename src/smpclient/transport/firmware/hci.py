@@ -7,6 +7,5 @@ except ModuleNotFoundError as e:
     if e.name != "zephyr_4_4_0_hci":
         raise
     raise ImportError(
-        "Bundled Zephyr HCI firmware requires the 'hci_firmware' extra. "
-        "Use smpclient[hci_firmware]"
+        "Bundled Zephyr HCI firmware requires the 'hci_firmware' extra. Use smpclient[hci_firmware]"
     ) from e

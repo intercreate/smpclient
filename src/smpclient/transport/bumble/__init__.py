@@ -13,7 +13,7 @@ try:
     from bumble.gatt_client import CharacteristicProxy
     from bumble.hci import Address
     from bumble.keys import KeyStore
-    from bumble.pairing import PairingDelegate
+    from bumble.pairing import PairingConfig, PairingDelegate
     from bumble.smp import AuthReq
     from bumble.transport import open_transport
     from bumble.transport.common import Transport
@@ -176,6 +176,13 @@ class SMPBumbleTransport(SMPTransport):
         self._disconnected_event: Final = asyncio.Event()
         self._disconnected_event.set()
 
+        # Pair-on-connect coordination — both `connect()` and `_on_security_request`
+        # may try to drive the SMP exchange concurrently when the peer issues a
+        # security request immediately after LE-connect.  Lock + cached result
+        # ensure exactly one pair() call.
+        self._pair_lock: asyncio.Lock | None = None
+        self._pair_result: PairingResult | None = None
+
         logger.debug(f"Initialized {self.__class__.__name__}(hci={hci!r})")
 
     @override
@@ -189,6 +196,8 @@ class SMPBumbleTransport(SMPTransport):
         while not self._notifications.empty():
             self._notifications.get_nowait()
         self._disconnected_event.clear()
+        self._pair_lock = asyncio.Lock()
+        self._pair_result = None
 
         try:
             self._state.transport = await open_transport(self._hci)
@@ -201,6 +210,15 @@ class SMPBumbleTransport(SMPTransport):
             self._state.device.keystore = resolve_keystore(  # type: ignore[assignment]
                 self._keystore, namespace=str(self._host_address)
             )
+            # Install the pairing delegate before `device.connect()` so it's in
+            # place if the peer issues a security request the instant the LE
+            # link is up (e.g. Zephyr peripherals built with
+            # `CONFIG_BT_SMP_ENFORCE_MITM=y`).
+            if self._pair_on_connect is not None:
+                delegate: Final = self._pair_on_connect
+                self._state.device.pairing_config_factory = lambda _c: PairingConfig(
+                    delegate=delegate
+                )
             await self._state.device.power_on()
 
             target = await _resolve_target(self._state.device, address, timeout_s)
@@ -212,14 +230,7 @@ class SMPBumbleTransport(SMPTransport):
             await encrypt_using_bond(self._state.connection, self._state.device)
 
             if self._pair_on_connect is not None and not self._state.connection.is_encrypted:
-                pair_result: Final = await pair(
-                    self._state.connection,
-                    self._state.device,
-                    self._pair_on_connect,
-                    pair_timeout_s=self._pair_timeout_s,
-                    settle_s=self._settle_s,
-                    force=False,
-                )
+                pair_result = await self._pair_during_connect()
                 match pair_result:
                     case PairingSucceeded() | PairingAlreadyBonded():
                         pass
@@ -445,23 +456,61 @@ class SMPBumbleTransport(SMPTransport):
         self._notifications.put_nowait(_DisconnectSentinel())
 
     async def _on_security_request(self, auth_req: AuthReq) -> None:
-        # Auto-encrypt only when an LTK exists; never auto-initiate a fresh pair.
         match self._state:
             case Connected() as s:
+                # Auto-encrypt only when an LTK exists; never auto-initiate a fresh pair.
                 logger.debug(f"Peer security request: {auth_req!r}")
                 await encrypt_using_bond(s.connection, s.device)
+            case Connecting():
+                # Peer-initiated SMP during the connect() flow.  If the user
+                # provided a `pair_on_connect` delegate, drive the pairing
+                # exchange now via the shared idempotent helper so we don't
+                # race with the central-driven pair() that connect() will
+                # also attempt.
+                if self._pair_on_connect is None:
+                    logger.warning(
+                        f"Peer security request {auth_req!r} during connect() but no "
+                        "pair_on_connect delegate; dropping"
+                    )
+                    return
+                logger.info(f"Peer security request {auth_req!r} during connect(); initiating pair")
+                await self._pair_during_connect()
             case ConnectedBorrowed():
                 logger.info(
                     f"Ignoring peer security request {auth_req!r}: "
                     "caller owns the Device and its keystore"
                 )
-            case Disconnected() | Connecting():
+            case Disconnected():
                 logger.warning(
-                    f"Peer security request {auth_req!r} in unexpected state "
-                    f"{type(self._state).__name__}"
+                    f"Peer security request {auth_req!r} in unexpected state Disconnected"
                 )
             case _:
                 assert_never(self._state)
+
+    async def _pair_during_connect(self) -> PairingResult:
+        """Idempotent pair-on-connect driver.
+
+        Both `connect()` and `_on_security_request` (when state is `Connecting`)
+        may invoke this concurrently.  The lock + cached result ensure only the
+        first caller runs the exchange; later callers return the cached result.
+        """
+        assert self._pair_lock is not None
+        assert self._pair_on_connect is not None
+        async with self._pair_lock:
+            if self._pair_result is not None:
+                return self._pair_result
+            assert isinstance(self._state, Connecting)
+            assert self._state.connection is not None
+            assert self._state.device is not None
+            self._pair_result = await pair(
+                self._state.connection,
+                self._state.device,
+                self._pair_on_connect,
+                pair_timeout_s=self._pair_timeout_s,
+                settle_s=self._settle_s,
+                force=False,
+            )
+            return self._pair_result
 
     async def _next_chunk(self) -> bytes:
         if self._disconnected_event.is_set():
