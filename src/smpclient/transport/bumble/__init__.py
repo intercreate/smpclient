@@ -1,27 +1,7 @@
-"""A bumble-backed `SMPTransport` for BLE.
-
-This transport drives an external HCI controller (e.g. an nRF52840 DK running
-the Zephyr `hci_usb` sample) through Google's bumble Bluetooth stack and
-communicates with an SMP server over GATT.
-
-It is an alternative to `smpclient.transport.ble.SMPBLETransport`, which uses
-the OS's BLE stack via bleak.  The bumble transport is useful when the OS
-stack is unavailable, missing required features (e.g. LE Secure Connections
-with a custom IO capability), or when reproducible cross-platform behavior is
-desired by using the *same* HCI controller everywhere.
-
-The transport's connection lifecycle is modeled as a sum type
-(`Disconnected | Connecting | Connected | ConnectedBorrowed`).  `Connected`
-is for connections owned by the transport (opened via `connect()`);
-`ConnectedBorrowed` is for caller-owned connections adopted via
-`use_connection()` and is torn down without closing the underlying transport.
-Pattern-match on `transport._state` or, better, treat the transport as a
-black box through the `SMPTransport` Protocol.
-"""
+"""A bumble-backed `SMPTransport` driving an external HCI controller over GATT."""
 
 import asyncio
 import logging
-from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
@@ -34,6 +14,7 @@ try:
     from bumble.hci import Address
     from bumble.keys import KeyStore
     from bumble.pairing import PairingDelegate
+    from bumble.smp import AuthReq
     from bumble.transport import open_transport
     from bumble.transport.common import Transport
 except ModuleNotFoundError as e:
@@ -76,14 +57,12 @@ from smpclient.transport.bumble.pairing import (
 from smpclient.transport.bumble.scan import ScanAll, ScanForName, ScanMode, ScanResult
 from smpclient.transport.bumble.scan import scan as scan_for_devices
 
-logger = logging.getLogger(__name__)
+logger: Final = logging.getLogger(__name__)
 
 
 DEFAULT_PREFERRED_MTU: Final = 247
 ATT_WRITE_OVERHEAD: Final = 3
-"""ATT write PDU header: 1-byte opcode + 2-byte handle.
-
-Subtracted from the ATT MTU to get the maximum payload per write."""
+"""ATT write PDU header: 1-byte opcode + 2-byte handle."""
 
 
 class SMPBumbleTransportException(SMPClientException):
@@ -101,14 +80,11 @@ class SMPBumbleTransportNotSMPServer(SMPBumbleTransportException):
 class Disconnected(NamedTuple): ...
 
 
-class _DisconnectSentinel(NamedTuple):
-    """Pushed onto `_notifications` to wake a pending `receive()` on disconnect."""
+class _DisconnectSentinel(NamedTuple): ...
 
 
 @dataclass(slots=True)
 class Connecting:
-    """Partial state populated field-by-field during `connect()`, drained by `disconnect()` on failure."""
-
     transport: Transport | None = None
     device: Device | None = None
     connection: Connection | None = None
@@ -117,12 +93,6 @@ class Connecting:
 
 
 class ConnectedProtocol(Protocol):
-    """Structural type for any state with an established SMP channel.
-
-    Both `Connected` (owned) and `ConnectedBorrowed` (caller-owned LE link)
-    satisfy this — `send`/`receive`/`mtu` operate on it without caring which.
-    """
-
     @property
     def connection(self) -> Connection: ...
     @property
@@ -134,8 +104,6 @@ class ConnectedProtocol(Protocol):
 
 
 class Connected(NamedTuple):
-    """Owned connection: transport built the link and tears it all down on disconnect."""
-
     transport: Transport
     device: Device
     connection: Connection
@@ -145,8 +113,6 @@ class Connected(NamedTuple):
 
 
 class ConnectedBorrowed(NamedTuple):
-    """Borrowed connection: caller owns transport/device and the LE link itself."""
-
     connection: Connection
     peer: Peer
     smp_characteristic: CharacteristicProxy[bytes]
@@ -237,7 +203,7 @@ class SMPBumbleTransport(SMPTransport):
             )
             await self._state.device.power_on()
 
-            target = await self._resolve_target(self._state.device, address, timeout_s)
+            target = await _resolve_target(self._state.device, address, timeout_s)
             logger.info(f"Connecting to {target}")
             self._state.connection = await self._state.device.connect(Address(target))
             self._state.connection.on(Connection.EVENT_DISCONNECTION, self._on_disconnection)
@@ -273,7 +239,9 @@ class SMPBumbleTransport(SMPTransport):
             self._state.smp_characteristic = _find_smp_characteristic(self._state.peer)
             await self._state.smp_characteristic.subscribe(self._on_notification)
 
-            max_write = await self._negotiate_mtu(self._state.peer, self._state.connection)
+            max_write = await _negotiate_mtu(
+                self._state.peer, self._state.connection, self._preferred_mtu
+            )
 
             self._state = Connected(
                 transport=self._state.transport,
@@ -296,8 +264,8 @@ class SMPBumbleTransport(SMPTransport):
                 return
             case Connecting() | Connected() as s:
                 await _teardown(s)
-            case ConnectedBorrowed() as b:
-                await _teardown_borrowed(b, self._on_disconnection)
+            case ConnectedBorrowed():
+                await self._teardown_borrowed()
             case _:
                 assert_never(self._state)
         self._state = Disconnected()
@@ -348,23 +316,7 @@ class SMPBumbleTransport(SMPTransport):
         mode: ScanMode = ScanAll(),
         service_uuid: UUID | None = SMP_SERVICE_UUID,
     ) -> tuple[ScanResult, ...]:
-        """Scan for advertising devices via a one-shot bumble device.
-
-        Convenience wrapper over `bumble_device()` + `scan()` from `scan.py`
-        so callers don't have to wire up the HCI transport themselves.
-
-        Args:
-            hci: bumble HCI transport spec.
-            timeout_s: Maximum scan duration.
-            mode: `ScanAll()` (default) returns everything observed for the
-                full timeout; `ScanForName(name)` returns at the first match
-                (or pass `ScanForName(name, eager=False)` to enumerate).
-            service_uuid: When set, results advertising this UUID get
-                `has_smp_service=True`.  Defaults to the SMP service UUID.
-
-        Returns:
-            Observed `ScanResult`s.
-        """
+        """Scan for advertising devices via a one-shot bumble device."""
         async with bumble_device(hci=hci) as device:
             return await scan_for_devices(device, timeout_s, mode, service_uuid=service_uuid)
 
@@ -374,22 +326,7 @@ class SMPBumbleTransport(SMPTransport):
         *,
         peer: Peer | None = None,
     ) -> None:
-        """Use an existing bumble `Connection` for SMP traffic; caller owns the LE link.
-
-        The transport does GATT discovery + subscribe on the supplied connection
-        and transitions to `ConnectedBorrowed`.  On `disconnect()`, the transport
-        unsubscribes but does *not* tear down the connection, device, or HCI
-        transport — the caller is responsible for those.  This lets a single
-        bumble session multiplex SMP and non-SMP traffic over the same link.
-
-        Args:
-            connection: An established LE `Connection`.
-            peer: An optional pre-constructed `Peer`.  If `None`, a new one is
-                created from `connection`.
-
-        Raises:
-            SMPBumbleTransportException: if called outside `Disconnected` state.
-        """
+        """Adopt a caller-owned `Connection`; `disconnect()` only unsubscribes."""
         if not isinstance(self._state, Disconnected):
             raise SMPBumbleTransportException(
                 f"use_connection() called while in state {type(self._state).__name__}"
@@ -401,12 +338,11 @@ class SMPBumbleTransport(SMPTransport):
 
         connection.on(Connection.EVENT_DISCONNECTION, self._on_disconnection)
 
-        p: Final = peer if peer is not None else Peer(connection)
-        if not p.services:
+        if not (p := peer if peer is not None else Peer(connection)).services:
             await p.discover_all()
         smp_char: Final = _find_smp_characteristic(p)
         await smp_char.subscribe(self._on_notification)
-        max_write: Final = await self._negotiate_mtu(p, connection)
+        max_write: Final = await _negotiate_mtu(p, connection, self._preferred_mtu)
 
         self._state = ConnectedBorrowed(
             connection=connection,
@@ -508,7 +444,7 @@ class SMPBumbleTransport(SMPTransport):
         self._disconnected_event.set()
         self._notifications.put_nowait(_DisconnectSentinel())
 
-    async def _on_security_request(self, auth_req: object) -> None:
+    async def _on_security_request(self, auth_req: AuthReq) -> None:
         # Auto-encrypt only when an LTK exists; never auto-initiate a fresh pair.
         match self._state:
             case Connected() as s:
@@ -538,39 +474,43 @@ class SMPBumbleTransport(SMPTransport):
             case _:
                 assert_never(chunk)
 
-    async def _resolve_target(self, device: Device, address: str, timeout_s: float) -> str:
-        if MAC_ADDRESS_PATTERN.match(address):
-            return address
-
-        logger.info(f"Scanning for device name {address!r} (eager, up to {timeout_s}s)")
-        if not (results := await scan_for_devices(device, timeout_s, ScanForName(address))):
-            raise SMPBumbleTransportDeviceNotFound(
-                f"No advertising device matched name {address!r} in {timeout_s}s"
-            )
-        return results[0].address
-
-    async def _negotiate_mtu(self, peer: Peer, connection: Connection) -> int:
+    async def _teardown_borrowed(self) -> None:
+        assert isinstance(self._state, ConnectedBorrowed)
         try:
-            negotiated: Final = await peer.request_mtu(self._preferred_mtu)
-            logger.info(f"Requested MTU {self._preferred_mtu}, negotiated {negotiated}")
-            return negotiated - ATT_WRITE_OVERHEAD
+            await self._state.smp_characteristic.unsubscribe()
         except Exception as e:
-            logger.warning(
-                f"MTU exchange failed (preferred {self._preferred_mtu}), "
-                f"falling back to ATT MTU {connection.att_mtu}: {e}"
+            logger.warning(f"smp_characteristic.unsubscribe failed: {e}")
+        try:
+            self._state.connection.remove_listener(
+                Connection.EVENT_DISCONNECTION, self._on_disconnection
             )
-            return connection.att_mtu - ATT_WRITE_OVERHEAD
+        except Exception as e:
+            logger.warning(f"remove_listener(EVENT_DISCONNECTION) failed: {e}")
 
 
-async def _teardown_borrowed(s: ConnectedBorrowed, on_disconnection: Callable[[int], None]) -> None:
+async def _resolve_target(device: Device, address: str, timeout_s: float) -> str:
+    if MAC_ADDRESS_PATTERN.match(address):
+        return address
+
+    logger.info(f"Scanning for device name {address!r} (eager, up to {timeout_s}s)")
+    if not (results := await scan_for_devices(device, timeout_s, ScanForName(address))):
+        raise SMPBumbleTransportDeviceNotFound(
+            f"No advertising device matched name {address!r} in {timeout_s}s"
+        )
+    return results[0].address
+
+
+async def _negotiate_mtu(peer: Peer, connection: Connection, preferred_mtu: int) -> int:
     try:
-        await s.smp_characteristic.unsubscribe()
+        negotiated: Final = await peer.request_mtu(preferred_mtu)
+        logger.info(f"Requested MTU {preferred_mtu}, negotiated {negotiated}")
+        return negotiated - ATT_WRITE_OVERHEAD
     except Exception as e:
-        logger.warning(f"smp_characteristic.unsubscribe failed: {e}")
-    try:
-        s.connection.remove_listener(Connection.EVENT_DISCONNECTION, on_disconnection)
-    except Exception as e:
-        logger.warning(f"remove_listener(EVENT_DISCONNECTION) failed: {e}")
+        logger.warning(
+            f"MTU exchange failed (preferred {preferred_mtu}), "
+            f"falling back to ATT MTU {connection.att_mtu}: {e}"
+        )
+        return connection.att_mtu - ATT_WRITE_OVERHEAD
 
 
 async def _teardown(s: Connecting | Connected) -> None:

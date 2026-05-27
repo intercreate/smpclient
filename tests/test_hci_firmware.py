@@ -64,7 +64,7 @@ def test_iteration_walks_every_variant() -> None:
 def test_missing_umbrella_raises_friendly_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "zephyr_4_4_0_hci", None)
     monkeypatch.delitem(sys.modules, HCI_MODULE_PATH, raising=False)
-    with pytest.raises(ModuleNotFoundError, match=r"smpclient\[hci_firmware\]"):
+    with pytest.raises(ImportError, match=r"smpclient\[hci_firmware\]"):
         importlib.import_module(HCI_MODULE_PATH)
 
 

@@ -53,7 +53,7 @@ def _extract_name(advertisement: Advertisement) -> str | None:
             try:
                 return value.decode("utf-8")
             except UnicodeDecodeError:
-                return None
+                continue
     return None
 
 

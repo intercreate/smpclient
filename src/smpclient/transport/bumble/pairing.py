@@ -1,11 +1,4 @@
-"""Pairing delegates, results, and module-level pairing helpers.
-
-Three IO-capability flavors are provided directly; users can subclass
-`bumble.pairing.PairingDelegate` for more exotic flows.
-
-Pairing outcomes are exposed as a sum type (`PairingResult`) so callers
-exhaustively handle every case.  See `SMPBumbleTransport.pair`.
-"""
+"""Pairing delegates, results, and module-level pairing helpers."""
 
 import asyncio
 import logging
@@ -25,31 +18,26 @@ from smpclient.transport.bumble.keystore import KeystoreStrategy, Tempfile
 from smpclient.transport.bumble.scan import ScanForName
 from smpclient.transport.bumble.scan import scan as scan_for_devices
 
-logger = logging.getLogger(__name__)
+logger: Final = logging.getLogger(__name__)
 
 
 DEFAULT_PAIR_TIMEOUT_S: Final = 30.0
 DEFAULT_POST_PAIR_SETTLE_S: Final = 1.5
-"""After `connection.pair()` returns, peers need a brief settle window to
-finalize bonding on their side before disconnect.  Tune per-peer if a
-particular peer needs longer."""
+"""Settle window peers need to finalize bonding before disconnect."""
 
 PinCallback: TypeAlias = Callable[[], Awaitable[int | None]]
-"""Returns the 6-digit PIN the peer is displaying, or `None` to reject pairing."""
-
 DisplayCallback: TypeAlias = Callable[[int], Awaitable[None]]
-"""Called with the 6-digit PIN the user must read off the local device to the peer."""
 
 
 class NoInputNoOutput(PairingDelegate):
-    """JustWorks pairing — no MITM protection.  Use only when both sides agree to it."""
+    """JustWorks pairing — no MITM protection."""
 
     def __init__(self) -> None:
         super().__init__(io_capability=PairingDelegate.NO_OUTPUT_NO_INPUT)
 
 
 class KeyboardOnly(PairingDelegate):
-    """The peer displays a 6-digit PIN; the user enters it via `pin_callback`."""
+    """Peer displays a 6-digit PIN; user enters it via `pin_callback`."""
 
     def __init__(self, pin_callback: PinCallback) -> None:
         super().__init__(io_capability=PairingDelegate.KEYBOARD_INPUT_ONLY)
@@ -65,7 +53,7 @@ class KeyboardOnly(PairingDelegate):
 
 
 class DisplayOnly(PairingDelegate):
-    """The local device displays a 6-digit PIN via `display_callback`; the peer enters it."""
+    """Local device displays a 6-digit PIN via `display_callback`; peer enters it."""
 
     def __init__(self, display_callback: DisplayCallback) -> None:
         super().__init__(io_capability=PairingDelegate.DISPLAY_OUTPUT_ONLY)
@@ -86,11 +74,9 @@ class PairingFailureReason(Enum):
 
 class PairingSucceeded(NamedTuple):
     bonded: bool
-    """True if a long-term key was stored in the device's keystore."""
 
 
-class PairingAlreadyBonded(NamedTuple):
-    """The peer was already bonded; no new pairing was performed."""
+class PairingAlreadyBonded(NamedTuple): ...
 
 
 class PairingTimedOut(NamedTuple):
