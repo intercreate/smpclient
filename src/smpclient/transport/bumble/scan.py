@@ -91,12 +91,12 @@ async def scan(
     Args:
         device: A bumble `Device` already powered on.
         timeout_s: Maximum scan duration in seconds.
-        mode: A `ScanMode` sum type.  `ScanAll()` returns everything observed
-            for the full timeout.  `ScanForName(name, eager=True)` (default)
-            returns at the first advertisement matching `name`;
-            `ScanForName(name, eager=False)` runs the full timeout and returns
-            every matching device — useful for enumerating peers that share
-            a name.
+        mode: A `ScanMode` sum type.  Defaults to `ScanAll()`, which returns
+            everything observed for the full timeout.  `ScanForName(name)`
+            (or `ScanForName(name, eager=True)`) returns at the first
+            advertisement matching `name`;  `ScanForName(name, eager=False)`
+            runs the full timeout and returns every matching device — useful
+            for enumerating peers that share a name.
         service_uuid: When set, results have `has_smp_service=True` if they
             advertise this UUID.  Marker only — does not filter the result set.
 

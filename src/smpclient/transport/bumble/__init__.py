@@ -11,14 +11,18 @@ with a custom IO capability), or when reproducible cross-platform behavior is
 desired by using the *same* HCI controller everywhere.
 
 The transport's connection lifecycle is modeled as a sum type
-(`Disconnected | Connecting | Connected`).  Pattern-match on `transport._state`
-or, better, treat the transport as a black box through the `SMPTransport`
-Protocol.
+(`Disconnected | Connecting | Connected | ConnectedBorrowed`).  `Connected`
+is for connections owned by the transport (opened via `connect()`);
+`ConnectedBorrowed` is for caller-owned connections adopted via
+`use_connection()` and is torn down without closing the underlying transport.
+Pattern-match on `transport._state` or, better, treat the transport as a
+black box through the `SMPTransport` Protocol.
 """
 
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
@@ -301,7 +305,7 @@ class SMPBumbleTransport(SMPTransport):
             case Connecting() | Connected() as s:
                 await _teardown(s)
             case ConnectedBorrowed() as b:
-                await _teardown_borrowed(b)
+                await _teardown_borrowed(b, self._on_disconnection)
             case _:
                 assert_never(self._state)
         self._state = Disconnected()
@@ -381,7 +385,7 @@ class SMPBumbleTransport(SMPTransport):
         """Use an existing bumble `Connection` for SMP traffic; caller owns the LE link.
 
         The transport does GATT discovery + subscribe on the supplied connection
-        and transitions to `Connected`.  On `disconnect()`, the transport
+        and transitions to `ConnectedBorrowed`.  On `disconnect()`, the transport
         unsubscribes but does *not* tear down the connection, device, or HCI
         transport — the caller is responsible for those.  This lets a single
         bumble session multiplex SMP and non-SMP traffic over the same link.
@@ -660,13 +664,18 @@ async def pair(
     )
 
 
-async def _teardown_borrowed(s: ConnectedBorrowed) -> None:
-    # Borrowed: caller owns the LE link, device, and HCI transport.  We only
-    # unsubscribe and drop our listener.
+async def _teardown_borrowed(s: ConnectedBorrowed, on_disconnection: Callable[[int], None]) -> None:
+    # Borrowed: caller owns the LE link, device, and HCI transport.  Unsubscribe
+    # from notifications and drop our disconnection listener so the caller's
+    # Connection isn't left holding references after we hand it back.
     try:
         await s.smp_characteristic.unsubscribe()
     except Exception as e:
         logger.warning(f"smp_characteristic.unsubscribe failed: {e}")
+    try:
+        s.connection.remove_listener(Connection.EVENT_DISCONNECTION, on_disconnection)
+    except Exception as e:
+        logger.warning(f"remove_listener(EVENT_DISCONNECTION) failed: {e}")
 
 
 async def _teardown(s: Connecting | Connected) -> None:

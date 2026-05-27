@@ -115,9 +115,9 @@ jobs:
       - name: hci firmware should ${{ matrix.expect-hci-firmware }}
         run: |
           if [ "${{ matrix.expect-hci-firmware }}" = "pass" ]; then
-            .venv/bin/python -c "from smpclient.transport.bumble.firmware import firmware; assert firmware.nrf52840dk_default.HEX_PATH.is_file()"
+            .venv/bin/python -c "from smpclient.transport.firmware.hci import firmware; assert firmware.nrf52840dk_default.HEX_PATH.is_file()"
           else
-            ! .venv/bin/python -c "from smpclient.transport.bumble.firmware import firmware" 2>/dev/null
+            ! .venv/bin/python -c "from smpclient.transport.firmware.hci import firmware" 2>/dev/null
           fi
 
       - name: udp transport should pass

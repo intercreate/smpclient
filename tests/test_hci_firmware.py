@@ -1,21 +1,24 @@
-"""Tests for `smpclient.transport.bumble.firmware`.
+"""Tests for `smpclient.transport.firmware.hci`.
 
 These only run when the optional `[hci_firmware]` extra is installed (provided
 by the dev group via `smpclient[all]`).  When `zephyr_4_4_0_hci` isn't on the
 import path the whole module is skipped.
 """
 
+import builtins
 import importlib
 import sys
 from hashlib import sha256
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 import pytest
 
 zephyr_4_4_0_hci = pytest.importorskip("zephyr_4_4_0_hci")
 
-from smpclient.transport.bumble import firmware as fw_helper  # noqa: E402
+from smpclient.transport.firmware import hci as fw_helper  # noqa: E402
+
+HCI_MODULE_PATH: Final = "smpclient.transport.firmware.hci"
 
 EXPECTED_VARIANTS: Final = (
     "nrf52840dk_default",
@@ -60,6 +63,20 @@ def test_iteration_walks_every_variant() -> None:
 
 def test_missing_umbrella_raises_friendly_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "zephyr_4_4_0_hci", None)
-    monkeypatch.delitem(sys.modules, "smpclient.transport.bumble.firmware", raising=False)
+    monkeypatch.delitem(sys.modules, HCI_MODULE_PATH, raising=False)
     with pytest.raises(ModuleNotFoundError, match=r"smpclient\[hci_firmware\]"):
-        importlib.import_module("smpclient.transport.bumble.firmware")
+        importlib.import_module(HCI_MODULE_PATH)
+
+
+def test_unrelated_module_not_found_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delitem(sys.modules, HCI_MODULE_PATH, raising=False)
+    real_import = builtins.__import__
+
+    def boom(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "zephyr_4_4_0_hci":
+            raise ModuleNotFoundError("transitive dep gone", name="transitive_dep")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", boom)
+    with pytest.raises(ModuleNotFoundError, match=r"transitive dep gone"):
+        importlib.import_module(HCI_MODULE_PATH)
