@@ -202,6 +202,48 @@ def test_disconnect_log_level_by_reason(
 
 
 @pytest.mark.asyncio
+async def test_negotiate_mtu_skips_request_when_att_mtu_meets_preferred() -> None:
+    """If the link already negotiated >= preferred_mtu, skip request_mtu()."""
+    from smpclient.transport.bumble import _negotiate_mtu
+
+    peer = MagicMock()
+    peer.request_mtu = AsyncMock()
+    connection = MagicMock()
+    connection.att_mtu = 498
+
+    max_write = await _negotiate_mtu(peer, connection, preferred_mtu=247)
+    assert max_write == 498 - ATT_WRITE_OVERHEAD
+    peer.request_mtu.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_negotiate_mtu_requests_when_att_mtu_below_preferred() -> None:
+    from smpclient.transport.bumble import _negotiate_mtu
+
+    peer = MagicMock()
+    peer.request_mtu = AsyncMock(return_value=247)
+    connection = MagicMock()
+    connection.att_mtu = 23
+
+    max_write = await _negotiate_mtu(peer, connection, preferred_mtu=247)
+    assert max_write == 247 - ATT_WRITE_OVERHEAD
+    peer.request_mtu.assert_awaited_once_with(247)
+
+
+@pytest.mark.asyncio
+async def test_negotiate_mtu_falls_back_on_request_failure() -> None:
+    from smpclient.transport.bumble import _negotiate_mtu
+
+    peer = MagicMock()
+    peer.request_mtu = AsyncMock(side_effect=RuntimeError("nope"))
+    connection = MagicMock()
+    connection.att_mtu = 100
+
+    max_write = await _negotiate_mtu(peer, connection, preferred_mtu=247)
+    assert max_write == 100 - ATT_WRITE_OVERHEAD
+
+
+@pytest.mark.asyncio
 async def test_disconnect_sentinel_wakes_receive() -> None:
     t, _ = _make_connected()
 

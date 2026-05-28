@@ -568,6 +568,11 @@ async def _resolve_target(device: Device, address: str, timeout_s: float) -> str
 
 
 async def _negotiate_mtu(peer: Peer, connection: Connection, preferred_mtu: int) -> int:
+    # ATT MTU only ratchets up; if the link already negotiated >= preferred,
+    # there's nothing to request — and the round-trip would log misleadingly.
+    if connection.att_mtu >= preferred_mtu:
+        logger.debug(f"ATT MTU already at {connection.att_mtu}; skipping request")
+        return connection.att_mtu - ATT_WRITE_OVERHEAD
     try:
         negotiated: Final = await peer.request_mtu(preferred_mtu)
         logger.info(f"Requested MTU {preferred_mtu}, negotiated {negotiated}")
