@@ -44,18 +44,40 @@ jobs:
             extras: ""
             expect-serial: fail
             expect-ble: fail
+            expect-bumble: fail
+            expect-hci-firmware: fail
           - name: serial-only
             extras: "[serial]"
             expect-serial: pass
             expect-ble: fail
+            expect-bumble: fail
+            expect-hci-firmware: fail
           - name: ble-only
             extras: "[ble]"
             expect-serial: fail
             expect-ble: pass
+            expect-bumble: fail
+            expect-hci-firmware: fail
+          - name: bumble-only
+            extras: "[bumble]"
+            # bumble depends on pyserial-asyncio, which transitively installs
+            # pyserial — so the serial transport import happens to succeed too.
+            expect-serial: pass
+            expect-ble: fail
+            expect-bumble: pass
+            expect-hci-firmware: fail
+          - name: hci-firmware-only
+            extras: "[hci_firmware]"
+            expect-serial: fail
+            expect-ble: fail
+            expect-bumble: fail
+            expect-hci-firmware: pass
           - name: all
             extras: "[all]"
             expect-serial: pass
             expect-ble: pass
+            expect-bumble: pass
+            expect-hci-firmware: pass
     name: transport-extras (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4
@@ -80,6 +102,22 @@ jobs:
             .venv/bin/python -c "from smpclient.transport.ble import SMPBLETransport"
           else
             ! .venv/bin/python -c "from smpclient.transport.ble import SMPBLETransport" 2>/dev/null
+          fi
+
+      - name: bumble transport should ${{ matrix.expect-bumble }}
+        run: |
+          if [ "${{ matrix.expect-bumble }}" = "pass" ]; then
+            .venv/bin/python -c "from smpclient.transport.bumble import SMPBumbleTransport"
+          else
+            ! .venv/bin/python -c "from smpclient.transport.bumble import SMPBumbleTransport" 2>/dev/null
+          fi
+
+      - name: hci firmware should ${{ matrix.expect-hci-firmware }}
+        run: |
+          if [ "${{ matrix.expect-hci-firmware }}" = "pass" ]; then
+            .venv/bin/python -c "from smpclient.transport.firmware.hci import firmware; assert firmware.nrf52840dk_default.HEX_PATH.is_file()"
+          else
+            ! .venv/bin/python -c "from smpclient.transport.firmware.hci import firmware" 2>/dev/null
           fi
 
       - name: udp transport should pass

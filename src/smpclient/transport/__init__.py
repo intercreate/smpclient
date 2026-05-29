@@ -1,6 +1,17 @@
 """Simple Management Protocol (SMP) Client Transport Protocol."""
 
-from typing import Protocol
+from typing import Final, Protocol
+from uuid import UUID
+
+SMP_SERVICE_UUID: Final = UUID("8D53DC1D-1DB7-4CD3-868B-8A527460AA84")
+"""The 128-bit GATT service UUID for an SMP server.
+
+Shared by all GATT-based transports (`ble`, `bumble`) so the constant has a
+single source of truth.
+"""
+
+SMP_CHARACTERISTIC_UUID: Final = UUID("DA2E7828-FBCE-4E01-AE9E-261174997C48")
+"""The 128-bit GATT characteristic UUID for the SMP write+notify channel."""
 
 
 class SMPTransportDisconnected(Exception):

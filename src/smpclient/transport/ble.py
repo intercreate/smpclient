@@ -21,7 +21,12 @@ from smp import header as smphdr
 from typing_extensions import override
 
 from smpclient.exceptions import SMPClientException
-from smpclient.transport import SMPTransport, SMPTransportDisconnected
+from smpclient.transport import (
+    SMP_CHARACTERISTIC_UUID,
+    SMP_SERVICE_UUID,
+    SMPTransport,
+    SMPTransportDisconnected,
+)
 
 if sys.platform == "linux":
     from bleak.backends.bluezdbus.client import BleakClientBlueZDBus
@@ -42,9 +47,6 @@ else:  # stub for mypy
         @property
         def _session(self) -> GattSession: ...
 
-
-SMP_SERVICE_UUID: Final = UUID("8D53DC1D-1DB7-4CD3-868B-8A527460AA84")
-SMP_CHARACTERISTIC_UUID: Final = UUID("DA2E7828-FBCE-4E01-AE9E-261174997C48")
 
 MAC_ADDRESS_PATTERN: Final = re.compile(r"([0-9A-F]{2}[:]){5}[0-9A-F]{2}$", flags=re.IGNORECASE)
 UUID_PATTERN: Final = re.compile(
