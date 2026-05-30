@@ -28,6 +28,12 @@ Or none (UDP transport only):
 smpclient
 ```
 
+With [Bumble](https://google.github.io/bumble/) transport for HCI forwarding:
+
+```
+smpclient[bumble]
+```
+
 Or build with only the transports you need:
 
 ```
