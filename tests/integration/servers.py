@@ -223,8 +223,17 @@ class QemuSocketSerialTransport(SMPSerialTransport):
     emulated UART.  The socket has no `out_waiting`, so `send()` omits that drain.
     """
 
-    def __init__(self, url: str) -> None:  # noqa: DOC301
-        super().__init__()
+    def __init__(  # noqa: DOC301
+        self,
+        url: str,
+        fragmentation_strategy: SMPSerialTransport.Auto
+        | SMPSerialTransport.BufferParams
+        | None = None,
+    ) -> None:
+        if fragmentation_strategy is None:
+            super().__init__()
+        else:
+            super().__init__(fragmentation_strategy=fragmentation_strategy)
         self._url: Final = url
 
     @override

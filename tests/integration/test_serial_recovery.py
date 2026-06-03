@@ -4,6 +4,13 @@ Exercises the smp 4.1.0 `boot_mode` field (PR #113): a fully-featured app reboot
 into MCUboot serial recovery via `os reset boot_mode=BOOTLOADER`, and the
 bootloader's SMP server then accepts a fragmented image upload. This is the path a
 client uses to recover a device that can't otherwise be updated from the app.
+
+The recovery server does not advertise MCUmgr params, so the client must be told
+its buffer geometry. We upload at two configurations to exercise the recovery
+server's reassembly across very different transaction sizes:
+
+- `128x1` (smpclient's conservative default): ~83 B payloads, one line packet each.
+- `128x8` (MCUboot's default UART buffer): ~685 B payloads, eight line packets each.
 """
 
 from __future__ import annotations
@@ -20,18 +27,29 @@ from smpclient.exceptions import SMPBadSequence
 from smpclient.generics import success
 from smpclient.requests.image_management import ImageStatesRead
 from smpclient.requests.os_management import ResetWrite
+from smpclient.transport.serial import SMPSerialTransport
 from tests.integration.conftest import connected, fixture_params, upload_image
 from tests.integration.servers import QemuSocketSerialTransport, ServerFixture, SocketSerialEndpoint
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+
+_BUFFER_CONFIGS = [
+    pytest.param(None, 1, id="128x1-default"),
+    pytest.param(SMPSerialTransport.BufferParams(line_length=128, line_buffers=8), 8, id="128x8"),
+]
 
 
 def _signed_image(fixture: ServerFixture) -> Path:
     return fixture.path.with_name(re.sub(r"\.(merged\.)?hex$", ".signed.bin", fixture.artifact))
 
 
+@pytest.mark.parametrize("fragmentation, expected_line_buffers", _BUFFER_CONFIGS)
 @pytest.mark.parametrize("fixture", fixture_params(lambda f: f.serial_recovery))
-async def test_reset_into_recovery_then_upload(fixture: ServerFixture) -> None:
+async def test_reset_into_recovery_then_upload(
+    fixture: ServerFixture,
+    fragmentation: SMPSerialTransport.BufferParams | None,
+    expected_line_buffers: int,
+) -> None:
     signed = _signed_image(fixture).read_bytes()
 
     async with connected(fixture) as cs:
@@ -49,11 +67,15 @@ async def test_reset_into_recovery_then_upload(fixture: ServerFixture) -> None:
         await cs.client.disconnect()
         await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
 
-        # Reconnect to the bootloader's SMP server on the same serial socket.
+        # Reconnect to the bootloader's SMP server on the same serial socket, at the
+        # buffer geometry under test (recovery does not advertise MCUmgr params).
         assert isinstance(cs.endpoint, SocketSerialEndpoint)
-        bootloader = SMPClient(QemuSocketSerialTransport(cs.endpoint.url), cs.endpoint.url)
+        transport = QemuSocketSerialTransport(cs.endpoint.url, fragmentation_strategy=fragmentation)
+        bootloader = SMPClient(transport, cs.endpoint.url)
         await bootloader.connect()
         try:
+            assert transport._line_buffers == expected_line_buffers
+
             # The recovery SMP server speaks img (not echo), so probe with image-list.
             for _ in range(30):
                 try:
@@ -65,7 +87,12 @@ async def test_reset_into_recovery_then_upload(fixture: ServerFixture) -> None:
             else:
                 pytest.fail("MCUboot serial recovery SMP server never answered")
 
-            offsets = await upload_image(bootloader, signed, max_bytes=8192)
-            assert offsets[-1] >= 8192  # the bootloader accepts a fragmented upload
+            offsets = await upload_image(bootloader, signed, max_bytes=4096)
+            assert offsets[-1] >= 4096  # the bootloader reassembles the fragmented upload
+            # A 128x8 upload moves far more per request than 128x1 (8 line packets vs 1).
+            assert (
+                max(b - a for a, b in zip(offsets, offsets[1:]))
+                >= transport.max_unencoded_size // 2
+            )
         finally:
             await bootloader.disconnect()
