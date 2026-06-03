@@ -2760,16 +2760,16 @@ wheels = [
 
 [[package]]
 name = "smp"
-version = "4.0.2"
+version = "4.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cbor2" },
     { name = "crcmod" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/3d/2fff3d2fb96f371eaa2621e1d5478db3f27fe11c8c01e8c7320997fb71d5/smp-4.0.2.tar.gz", hash = "sha256:11ea847fb6ebfdd4fe9240bfa48c03e7030f74a1372c1fb1672a9988aab8d87f", size = 26514, upload-time = "2025-12-18T00:38:03.642Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/3a/2a5017d4ed321389f242f26392d1cadfa36d9c6f235206b26491df83aafb/smp-4.1.0.tar.gz", hash = "sha256:def270346a9f67e99e526a3c789a814e6e2203afa4d913cb11bb5a9bda6423a9", size = 26936, upload-time = "2026-06-03T02:00:01.347Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/a3/2eff5abb16f641113d315036a6d4a5c2e75dccc64df4331ac82098549d41/smp-4.0.2-py3-none-any.whl", hash = "sha256:734f84d2a44dc408a10553373b3a525b9f8c9ce25579b6259e228a346b7413a2", size = 32489, upload-time = "2025-12-18T00:38:01.546Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/c5/8a6625c8afd8b96865546310da0ac6b83a5700a9892c0e9b923b0ff1af61/smp-4.1.0-py3-none-any.whl", hash = "sha256:ca06376b130f028e02dc147a82f1f32bd1ce8e9397b23a0d6d391f7de76e883c", size = 32969, upload-time = "2026-06-03T02:00:00.014Z" },
 ]
 
 [[package]]
@@ -2842,7 +2842,7 @@ requires-dist = [
     { name = "platformdirs", marker = "extra == 'bumble'", specifier = ">=4,<5" },
     { name = "pyserial", marker = "extra == 'all'", specifier = ">=3.5" },
     { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
-    { name = "smp", specifier = ">=4.0.2" },
+    { name = "smp", specifier = ">=4.1.0" },
     { name = "zephyr-4-4-0-hci", marker = "extra == 'all'", specifier = ">=0.1.3,<1" },
     { name = "zephyr-4-4-0-hci", marker = "extra == 'hci-firmware'", specifier = ">=0.1.3,<1" },
 ]
@@ -2868,7 +2868,7 @@ doc = [
     { name = "mike", specifier = ">=2.1.3" },
     { name = "mkdocs-material", specifier = ">=9.5.38" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26.1" },
-    { name = "smp", specifier = ">=4.0.0" },
+    { name = "smp", specifier = ">=4.1.0" },
 ]
 
 [[package]]

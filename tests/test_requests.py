@@ -122,6 +122,20 @@ from smpclient.requests.zephyr_management import EraseStorage
             smpos.OSManagementErrorV2,
         ),
         (
+            smpos.ResetWriteRequest(boot_mode=smpos.BootMode.BOOTLOADER),
+            ResetWrite(boot_mode=smpos.BootMode.BOOTLOADER),
+            smpos.ResetWriteResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
+            smpos.ResetWriteRequest(force=1, boot_mode=1),
+            ResetWrite(force=1, boot_mode=1),
+            smpos.ResetWriteResponse,
+            smpos.OSManagementErrorV1,
+            smpos.OSManagementErrorV2,
+        ),
+        (
             smpsh.ExecuteRequest(argv=["echo", "Hello"]),
             Execute(argv=["echo", "Hello"]),
             smpsh.ExecuteResponse,
