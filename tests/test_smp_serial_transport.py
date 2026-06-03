@@ -26,10 +26,10 @@ def mock_serial() -> Generator[None, Any, None]:
 def test_constructor() -> None:
     # Test with Auto() (default)
     t = SMPSerialTransport()
-    assert t.mtu == 127  # Default for Auto without initialize
-    assert t._line_length == 127
+    assert t.mtu == 128  # Default for Auto without initialize
+    assert t._line_length == 128
     assert t._line_buffers == 1
-    assert t._max_smp_encoded_frame_size == 127
+    assert t._max_smp_encoded_frame_size == 128
 
     # Test with BufferParams
     t = SMPSerialTransport(
@@ -281,14 +281,14 @@ def test_initialize_with_auto() -> None:
     t = SMPSerialTransport()  # Uses Auto() by default
 
     # Before initialize, uses conservative defaults
-    assert t._line_length == 127
+    assert t._line_length == 128
     assert t._line_buffers == 1
-    assert t._max_smp_encoded_frame_size == 127
+    assert t._max_smp_encoded_frame_size == 128
 
     # After initialize with server buffer size
     t.initialize(512)
-    assert t._line_length == 127
-    assert t._line_buffers == 512 // 127  # 4
+    assert t._line_length == 128
+    assert t._line_buffers == 512 // 128  # 4
     assert t._max_smp_encoded_frame_size == 512
     assert t.mtu == 512
 

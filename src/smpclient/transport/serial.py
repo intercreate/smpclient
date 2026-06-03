@@ -63,7 +63,7 @@ class SMPSerialTransport(SMPTransport):
 
         On connect, queries the server's MCUMGR_PARAM for `buf_size`
         (CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE) and calculates:
-        - line_length: 127 (standard MTU for uart/usb/shell)
+        - line_length: 128 (standard MTU for uart/usb/shell)
         - line_buffers: buf_size / line_length
 
         Falls back to BufferParams() if server doesn't support MCUMGR_PARAM.
@@ -72,7 +72,7 @@ class SMPSerialTransport(SMPTransport):
     class BufferParams(NamedTuple):
         """Buffer parameters for the serial transport."""
 
-        line_length: int = 127
+        line_length: int = 128
         """The maximum SMP packet size."""
 
         line_buffers: int = 1
