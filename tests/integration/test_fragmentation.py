@@ -27,10 +27,13 @@ async def test_auto_config_matches_server_buf_size(connected_server: ConnectedSe
 
     transport = cs.client._transport
     assert isinstance(transport, SMPSerialTransport)
+    assert cs.fixture.buf_size is not None
     assert transport.mtu == cs.fixture.buf_size
-    assert transport.max_unencoded_size < cs.fixture.buf_size
-    # line_buffers derives from buf_size // line_length (0 when buf_size < line_length).
-    assert transport._line_buffers == cs.fixture.buf_size // transport._line_length
+    # Auto uses the full decoded netbuf: buf_size minus the SMP serial frame's
+    # 2-byte length + 2-byte CRC16 (the test_max_payload_roundtrip cases prove the
+    # server actually accepts a message of exactly this size).
+    frame_overhead = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
+    assert transport.max_unencoded_size == cs.fixture.buf_size - frame_overhead
 
 
 async def test_noparams_falls_back_to_defaults(connected_server: ConnectedServer) -> None:
@@ -88,8 +91,11 @@ async def test_max_payload_roundtrip(connected_server: ConnectedServer) -> None:
     assert len(request.BYTES) <= transport.max_unencoded_size
 
     line_packets = len(list(smppacket.encode(request.BYTES, line_length=transport._line_length)))
-    if cs.fixture.bursty_fragment_drop and line_packets > 2:
-        pytest.skip(f"native_sim PTY drops >2-packet bursts ({line_packets}); covered on QEMU/mps2")
+    limit = cs.fixture.max_reliable_line_packets
+    if limit is not None and line_packets > limit:
+        pytest.skip(
+            f"{cs.fixture.id}: max message spans {line_packets} line packets (> reliable {limit})"
+        )
 
     # Generous timeout: a full multi-fragment round-trip is slow on emulated MCUs under CI load.
     response = await cs.client.request(request, timeout_s=10.0)

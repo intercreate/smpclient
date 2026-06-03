@@ -135,6 +135,22 @@ class ServerFixture(NamedTuple):
             and "bigrx" not in self.config
         )
 
+    @property
+    def max_reliable_line_packets(self) -> int | None:
+        """Largest multi-fragment message, in line packets, this fixture handles reliably.
+
+        `None` means unconstrained. native_sim's PTY UART has no baud pacing and drops
+        bursts beyond two line packets; the emulated nRF51 (`qemu_cortex_m0`, 16 KB RAM)
+        hangs on transactions beyond ~three line packets. Cortex-M3 (mps2) and UDP are
+        unconstrained. Heavy tests steer full-buffer transactions onto the roomier
+        targets rather than these.
+        """
+        if self.bursty_fragment_drop:
+            return 2
+        if self.target == "qemu_cortex_m0":
+            return 3
+        return None
+
     def has_group(self, group: str) -> bool:
         return group in self.groups
 

@@ -416,17 +416,38 @@ class SMPSerialTransport(SMPTransport):
     @override
     @property
     def max_unencoded_size(self) -> int:
-        """The serial transport encodes each packet instead of sending SMP messages as raw bytes."""
-        # For each packet, AKA line_buffer, include the cost of the base64
-        # encoded frame_length and CRC16 and the start/continue delimiter.
-        # Add to that the cost of the stop delimiter.
-        packet_framing_size: Final = (
-            _base64_cost(smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size)
-            + smppacket.DELIMITER_SIZE
-        ) * self._line_buffers + len(smppacket.END_DELIMITER)
+        """The maximum unencoded SMP message size, in bytes.
 
-        # Get the number of unencoded bytes that can fit in self.mtu and
-        # subtract the cost of framing the separate packets.
-        # This is the maximum number of unencoded bytes that can be received by
-        # the SMP server with this transport configuration.
+        `Auto` (server `buf_size` known): `buf_size` is
+        `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`, which bounds the *decoded* SMP serial
+        frame `[length][message][CRC16]` reassembled into the server's netbuf -- the
+        base64/line framing is stripped before the netbuf.  So the message is bounded
+        by `buf_size` minus the 2-byte frame length and 2-byte CRC, and the full
+        netbuf is usable.  (Verified against native_sim/QEMU/mps2: a `buf_size - 4`
+        message round-trips; `buf_size - 3` is dropped.)
+
+        `BufferParams` (or `Auto` before initialization): the user specifies the
+        *encoded* line-buffer capacity (`line_length * line_buffers`, e.g. MCUboot's
+        128*8 UART buffer), so the limit is how many unencoded bytes survive base64
+        expansion and per-line framing within that encoded budget.
+
+        SMP serial framing (the 2-byte length + 2-byte CRC16):
+        https://docs.zephyrproject.org/latest/services/device_mgmt/smp_transport.html
+        """
+        # The SMP serial frame wraps the message as `uint16 length | message | uint16
+        # CRC16`; the server reassembles that decoded frame into one buf_size netbuf.
+        frame_overhead: Final = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
+
+        if (
+            isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto)
+            and self._smp_server_transport_buffer_size is not None
+        ):
+            return self._smp_server_transport_buffer_size - frame_overhead
+
+        # Encoded-budget model: subtract per-line framing (base64 frame_length + CRC16
+        # + start/continue delimiter, per line buffer) and the stop delimiter, then
+        # convert the remaining encoded budget to its unencoded capacity.
+        packet_framing_size: Final = (
+            _base64_cost(frame_overhead) + smppacket.DELIMITER_SIZE
+        ) * self._line_buffers + len(smppacket.END_DELIMITER)
         return _base64_max(self.mtu) - packet_framing_size

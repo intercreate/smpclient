@@ -291,6 +291,9 @@ def test_initialize_with_auto() -> None:
     assert t._line_buffers == 512 // 128  # 4
     assert t._max_smp_encoded_frame_size == 512
     assert t.mtu == 512
+    # Auto uses the full decoded netbuf: buf_size minus the 2-byte SMP serial frame
+    # length and 2-byte CRC16 (verified on native_sim/QEMU/mps2: buf_size-4 round-trips).
+    assert t.max_unencoded_size == 512 - 4
 
 
 def test_initialize_with_buffer_params() -> None:
