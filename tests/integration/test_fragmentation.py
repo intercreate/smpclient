@@ -9,6 +9,7 @@ unavailable, and fragmented messages reassemble correctly.
 from __future__ import annotations
 
 import pytest
+from smp import packet as smppacket
 
 from smpclient.generics import success
 from smpclient.requests.os_management import EchoWrite
@@ -68,17 +69,27 @@ async def test_two_fragment_roundtrip(connected_server: ConnectedServer) -> None
 
 
 async def test_max_payload_roundtrip(connected_server: ConnectedServer) -> None:
-    """The client's full advertised payload round-trips where the link sustains the burst."""
+    """A message at the client's advertised `max_unencoded_size` round-trips.
+
+    This guards the `Auto` buf_size math against *overestimating* the payload: if
+    `max_unencoded_size` were too large for the server's netbuf, this round-trip
+    would fail. It runs even on bursty native_sim fixtures when the message fits in
+    a 2-packet burst, so the sub-line-length (buf96) and non-multiple buffers are
+    actually exercised end-to-end, not just asserted on.
+    """
     cs = connected_server
     if cs.fixture.transport != "serial":
         pytest.skip("serial transport")
-    if cs.fixture.bursty_fragment_drop:
-        pytest.skip("native_sim PTY UART drops >2-fragment bursts; covered on QEMU + mps2")
 
     transport = cs.client._transport
+    assert isinstance(transport, SMPSerialTransport)
     text = "M" * (transport.max_unencoded_size - len(EchoWrite(d="").BYTES) - 4)
     request = EchoWrite(d=text)
     assert len(request.BYTES) <= transport.max_unencoded_size
+
+    line_packets = len(list(smppacket.encode(request.BYTES, line_length=transport._line_length)))
+    if cs.fixture.bursty_fragment_drop and line_packets > 2:
+        pytest.skip(f"native_sim PTY drops >2-packet bursts ({line_packets}); covered on QEMU/mps2")
 
     # Generous timeout: a full multi-fragment round-trip is slow on emulated MCUs under CI load.
     response = await cs.client.request(request, timeout_s=10.0)
