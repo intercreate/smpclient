@@ -61,7 +61,8 @@ async def test_two_fragment_roundtrip(connected_server: ConnectedServer) -> None
         pytest.skip("buf_size too small to span two line packets")
 
     text = "Z" * transport._line_length  # > one line packet, within a 2-fragment burst
-    response = await cs.client.request(EchoWrite(d=text))
+    # Generous timeout: a multi-fragment round-trip is slow on emulated MCUs under CI load.
+    response = await cs.client.request(EchoWrite(d=text), timeout_s=10.0)
     assert success(response)
     assert response.r == text
 
@@ -79,6 +80,7 @@ async def test_max_payload_roundtrip(connected_server: ConnectedServer) -> None:
     request = EchoWrite(d=text)
     assert len(request.BYTES) <= transport.max_unencoded_size
 
-    response = await cs.client.request(request)
+    # Generous timeout: a full multi-fragment round-trip is slow on emulated MCUs under CI load.
+    response = await cs.client.request(request, timeout_s=10.0)
     assert success(response)
     assert response.r == text
