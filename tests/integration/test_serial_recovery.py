@@ -28,7 +28,7 @@ from smpclient.exceptions import SMPBadSequence
 from smpclient.generics import success
 from smpclient.requests.image_management import ImageStatesRead
 from smpclient.requests.os_management import ResetWrite
-from smpclient.transport.serial import SMPSerialTransport
+from smpclient.transport.serial import BufferSize
 from tests.integration.conftest import (
     assert_chunks_maximized,
     connected,
@@ -41,7 +41,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 _BUFFER_CONFIGS = [
     pytest.param(None, id="auto-default"),
-    pytest.param(SMPSerialTransport.BufferSize(buf_size=1024), id="buffersize-1024"),
+    pytest.param(BufferSize(buf_size=1024), id="buffersize-1024"),
 ]
 
 
@@ -57,7 +57,7 @@ def _signed_image(fixture: ServerFixture) -> Path:
 @pytest.mark.parametrize("fixture", fixture_params(lambda f: f.config == "serial_recovery"))
 async def test_upload_to_mcuboot_recovery_smp_server(
     fixture: ServerFixture,
-    fragmentation: SMPSerialTransport.BufferSize | None,
+    fragmentation: BufferSize | None,
 ) -> None:
     signed = _signed_image(fixture).read_bytes()
 

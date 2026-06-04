@@ -18,7 +18,7 @@ from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, error_v1, er
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite
 from smpclient.requests.os_management import ResetWrite
-from smpclient.transport.serial import SMPSerialTransport
+from smpclient.transport.serial import BufferParams, SMPSerialTransport
 
 logging.basicConfig(
     format="%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s",
@@ -108,7 +108,7 @@ async def main() -> None:
     print("Connecting to SMP DUT...", end="", flush=True)
     async with SMPClient(
         SMPSerialTransport(
-            fragmentation_strategy=SMPSerialTransport.BufferParams(
+            fragmentation_strategy=BufferParams(
                 line_length=line_length,
                 line_buffers=line_buffers,
             )
@@ -188,7 +188,7 @@ async def main() -> None:
     print("Connecting to B SMP DUT...", end="", flush=True)
     async with SMPClient(
         SMPSerialTransport(
-            fragmentation_strategy=SMPSerialTransport.BufferParams(
+            fragmentation_strategy=BufferParams(
                 line_length=line_length,
                 line_buffers=line_buffers,
             )

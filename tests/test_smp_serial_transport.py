@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Generator
-from typing import Any
+import warnings
+from collections.abc import Callable, Generator
+from typing import Any, get_args
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -14,7 +15,13 @@ from smp import packet as smppacket
 
 from smpclient.requests.os_management import EchoWrite
 from smpclient.transport import SMPTransportDisconnected
-from smpclient.transport.serial import SMPSerialTransport
+from smpclient.transport.serial import (
+    Auto,
+    BufferParams,
+    BufferSize,
+    FragmentationStrategy,
+    SMPSerialTransport,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -32,9 +39,7 @@ def test_constructor() -> None:
     assert t._max_smp_encoded_frame_size == 128
 
     # Test with BufferParams
-    t = SMPSerialTransport(
-        fragmentation_strategy=SMPSerialTransport.BufferParams(line_length=128, line_buffers=4)
-    )
+    t = SMPSerialTransport(fragmentation_strategy=BufferParams(line_length=128, line_buffers=4))
     assert t.mtu == 512  # 128 * 4
     assert t._line_length == 128
     assert t._line_buffers == 4
@@ -42,7 +47,7 @@ def test_constructor() -> None:
     assert t.max_unencoded_size < 512
 
     # Test with BufferSize: fills the decoded buffer (buf_size - 4), like Auto
-    t = SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=1024))
+    t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=1024))
     assert t.mtu == 1024
     assert t._line_length == 128
     assert t._max_smp_encoded_frame_size == 1024
@@ -305,9 +310,7 @@ def test_initialize_with_auto() -> None:
 
 def test_initialize_with_buffer_params() -> None:
     """Test that BufferParams mode doesn't change user-specified parameters."""
-    t = SMPSerialTransport(
-        fragmentation_strategy=SMPSerialTransport.BufferParams(line_length=128, line_buffers=2)
-    )
+    t = SMPSerialTransport(fragmentation_strategy=BufferParams(line_length=128, line_buffers=2))
 
     # Before initialize
     assert t._line_length == 128
@@ -325,7 +328,7 @@ def test_initialize_with_buffer_params() -> None:
 def test_initialize_with_buffer_params_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Test that a warning is logged when user's params exceed server buffer size."""
     t = SMPSerialTransport(
-        fragmentation_strategy=SMPSerialTransport.BufferParams(
+        fragmentation_strategy=BufferParams(
             line_length=128,
             line_buffers=4,  # 128 * 4 = 512
         )
@@ -340,9 +343,7 @@ def test_initialize_with_buffer_params_warning(caplog: pytest.LogCaptureFixture)
 def test_buffer_size() -> None:
     """BufferSize fills the decoded reassembly buffer: max message == buf_size - 4."""
     for buf_size in (96, 256, 384, 512, 1024, 2048):
-        t = SMPSerialTransport(
-            fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=buf_size)
-        )
+        t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size))
         assert t.mtu == buf_size
         assert t._line_length == 128
         assert t.max_unencoded_size == buf_size - 4
@@ -352,7 +353,7 @@ def test_buffer_size_matches_initialized_auto() -> None:
     """BufferSize(n) is equivalent to Auto initialized with buf_size n."""
     auto = SMPSerialTransport()
     auto.initialize(1024)
-    told = SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=1024))
+    told = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=1024))
 
     assert told.max_unencoded_size == auto.max_unencoded_size == 1024 - 4
     assert told.mtu == auto.mtu == 1024
@@ -361,9 +362,7 @@ def test_buffer_size_matches_initialized_auto() -> None:
 
 def test_buffer_size_small_line_length() -> None:
     """A server with a sub-128 per-line buffer keeps the full decoded-buffer payload."""
-    t = SMPSerialTransport(
-        fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=384, line_length=64)
-    )
+    t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=384, line_length=64))
     assert t._line_length == 64
     assert t.max_unencoded_size == 384 - 4
 
@@ -394,9 +393,7 @@ async def test_decoded_buffer_strategies_put_full_encoded_frame_on_the_wire() ->
     """
     expected_encoded = {384: 527, 512: 702, 1024: 1404, 2048: 2801}
     for buf_size, encoded_size in expected_encoded.items():
-        told = SMPSerialTransport(
-            fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=buf_size)
-        )
+        told = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size))
         auto = SMPSerialTransport()
         auto.initialize(buf_size)
 
@@ -408,7 +405,7 @@ async def test_decoded_buffer_strategies_put_full_encoded_frame_on_the_wire() ->
 
 def test_initialize_with_buffer_size_warning(caplog: pytest.LogCaptureFixture) -> None:
     """A BufferSize larger than the server's advertised buffer warns; the manual size wins."""
-    t = SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=1024))
+    t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=1024))
 
     with caplog.at_level(logging.WARNING):
         t.initialize(512)
@@ -417,3 +414,99 @@ def test_initialize_with_buffer_size_warning(caplog: pytest.LogCaptureFixture) -
         "exceeds the server's advertised buffer size" in record.message for record in caplog.records
     )
     assert t.max_unencoded_size == 1024 - 4
+
+
+def test_fragmentation_strategy_alias() -> None:
+    """`FragmentationStrategy` is the union of the three strategy types."""
+    assert set(get_args(FragmentationStrategy)) == {Auto, BufferSize, BufferParams}
+
+
+@pytest.mark.parametrize(
+    "make, expected",
+    [
+        pytest.param(
+            lambda: SMPSerialTransport(
+                max_smp_encoded_frame_size=512, line_length=128, line_buffers=4
+            ),
+            BufferParams(line_length=128, line_buffers=4),
+            id="kw-frame-ll-lb",
+        ),
+        pytest.param(
+            lambda: SMPSerialTransport(line_length=64, line_buffers=4),
+            BufferParams(line_length=64, line_buffers=4),
+            id="kw-ll-lb-no-frame",
+        ),
+        # 7.1.0 positional layout was (max_smp_encoded_frame_size, line_length, line_buffers),
+        # with the line_length=128, line_buffers=2 defaults -> a 256-byte encoded budget.
+        pytest.param(
+            lambda: SMPSerialTransport(256),
+            BufferParams(line_length=128, line_buffers=2),
+            id="pos-frame",
+        ),
+        pytest.param(
+            lambda: SMPSerialTransport(256, 128, 2),
+            BufferParams(line_length=128, line_buffers=2),
+            id="pos-triple",
+        ),
+    ],
+)
+def test_deprecated_params_map_to_buffer_params(
+    make: Callable[[], SMPSerialTransport], expected: BufferParams
+) -> None:
+    """The deprecated 7.1.0 params still construct, warn, and map to the equivalent BufferParams."""
+    with pytest.warns(DeprecationWarning, match="fragmentation_strategy"):
+        t = make()
+    assert t._fragmentation_strategy == expected
+    assert t.mtu == expected.line_length * expected.line_buffers
+
+
+def test_deprecated_params_match_equivalent_buffer_params() -> None:
+    """A deprecated call is equivalent (mtu + unencoded budget) to the BufferParams it maps to."""
+    with pytest.warns(DeprecationWarning):
+        legacy = SMPSerialTransport(max_smp_encoded_frame_size=512, line_length=128, line_buffers=4)
+    modern = SMPSerialTransport(
+        fragmentation_strategy=BufferParams(line_length=128, line_buffers=4)
+    )
+
+    assert legacy.mtu == modern.mtu
+    assert legacy.max_unencoded_size == modern.max_unencoded_size
+    assert legacy._line_length == modern._line_length
+    assert legacy._line_buffers == modern._line_buffers
+
+
+def test_deprecated_frame_size_mismatch_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """A frame size disagreeing with line_length*line_buffers is logged, then ignored (as in 7.1.0)."""
+    with caplog.at_level(logging.WARNING), pytest.warns(DeprecationWarning):
+        t = SMPSerialTransport(max_smp_encoded_frame_size=512, line_length=128, line_buffers=2)
+
+    assert any("is not equal to" in record.message for record in caplog.records)
+    assert t._fragmentation_strategy == BufferParams(line_length=128, line_buffers=2)
+    assert t.mtu == 256  # line_length * line_buffers wins
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        pytest.param(lambda: SMPSerialTransport(), id="auto-default"),
+        pytest.param(lambda: SMPSerialTransport(fragmentation_strategy=Auto()), id="auto-explicit"),
+        pytest.param(lambda: SMPSerialTransport(BufferSize(buf_size=1024)), id="buffersize"),
+        pytest.param(
+            lambda: SMPSerialTransport(BufferParams(line_length=128, line_buffers=4)),
+            id="bufferparams",
+        ),
+    ],
+)
+def test_modern_constructors_do_not_warn(make: Callable[[], SMPSerialTransport]) -> None:
+    """The modern fragmentation_strategy API must never emit a DeprecationWarning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        make()
+
+
+def test_explicit_strategy_wins_over_stray_legacy_args() -> None:
+    """An explicit strategy is returned as-is, never reinterpreted via the legacy path."""
+    resolve = SMPSerialTransport._resolve_fragmentation_strategy
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)  # the explicit strategy must not warn
+        assert resolve(BufferSize(buf_size=1024), None, 64, None) == BufferSize(buf_size=1024)
+        assert resolve(Auto(), 999, 64, 8) == Auto()

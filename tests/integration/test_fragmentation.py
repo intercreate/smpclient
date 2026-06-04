@@ -14,7 +14,7 @@ from smp import packet as smppacket
 from smpclient import SMPClient
 from smpclient.generics import success
 from smpclient.requests.os_management import EchoWrite
-from smpclient.transport.serial import SMPSerialTransport
+from smpclient.transport.serial import BufferParams, SMPSerialTransport
 from tests.integration.conftest import ConnectedServer, _wait_until_answering, fixture_params
 from tests.integration.servers import PtyEndpoint, ServerFixture, serve
 
@@ -117,7 +117,7 @@ async def test_non_default_line_length(fixture: ServerFixture) -> None:
     async with serve(fixture) as endpoint:
         assert isinstance(endpoint, PtyEndpoint)
         transport = SMPSerialTransport(
-            fragmentation_strategy=SMPSerialTransport.BufferParams(line_length=512, line_buffers=1)
+            fragmentation_strategy=BufferParams(line_length=512, line_buffers=1)
         )
         client = SMPClient(transport, endpoint.pty)
         await client.connect()

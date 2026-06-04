@@ -39,7 +39,7 @@ from smp import packet as smppacket
 from typing_extensions import override
 
 from smpclient.transport import SMPTransportDisconnected
-from smpclient.transport.serial import SMPSerialTransport
+from smpclient.transport.serial import FragmentationStrategy, SMPSerialTransport
 
 logger = logging.getLogger(__name__)
 
@@ -242,10 +242,7 @@ class QemuSocketSerialTransport(SMPSerialTransport):
     def __init__(  # noqa: DOC301
         self,
         url: str,
-        fragmentation_strategy: SMPSerialTransport.Auto
-        | SMPSerialTransport.BufferSize
-        | SMPSerialTransport.BufferParams
-        | None = None,
+        fragmentation_strategy: FragmentationStrategy | None = None,
     ) -> None:
         if fragmentation_strategy is None:
             super().__init__()

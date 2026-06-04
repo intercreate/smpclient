@@ -36,7 +36,7 @@ from smpclient.generics import error, error_v1, error_v2, success
 from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
-from smpclient.transport.serial import SMPSerialTransport
+from smpclient.transport.serial import BufferParams, BufferSize, SMPSerialTransport
 
 
 class SMPMockTransport:
@@ -314,7 +314,7 @@ async def test_upload_hello_world_bin_encoded(
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
-        fragmentation_strategy=SMPSerialTransport.BufferParams(
+        fragmentation_strategy=BufferParams(
             line_length=line_length,
             line_buffers=line_buffers,
         )
@@ -549,7 +549,7 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
-        fragmentation_strategy=SMPSerialTransport.BufferParams(
+        fragmentation_strategy=BufferParams(
             line_length=line_length,
             line_buffers=line_buffers,
         )
@@ -916,7 +916,7 @@ def test_maximize_upload_packet_fills_decoded_buffer(
     lines arrive. The unified generic handles both `ImageUploadWrite` and `FileUpload`.
     """
     client = SMPClient(
-        SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=buf_size)),
+        SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size)),
         "address",
     )
     max_unencoded_size = client._transport.max_unencoded_size
