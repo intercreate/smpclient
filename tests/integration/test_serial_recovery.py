@@ -28,7 +28,12 @@ from smpclient.generics import success
 from smpclient.requests.image_management import ImageStatesRead
 from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import SMPSerialTransport
-from tests.integration.conftest import connected, fixture_params, upload_image
+from tests.integration.conftest import (
+    assert_chunks_maximized,
+    connected,
+    fixture_params,
+    upload_image,
+)
 from tests.integration.servers import QemuSocketSerialTransport, ServerFixture, SocketSerialEndpoint
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
@@ -43,8 +48,12 @@ def _signed_image(fixture: ServerFixture) -> Path:
     return fixture.path.with_name(re.sub(r"\.(merged\.)?hex$", ".signed.bin", fixture.artifact))
 
 
+# Only the canonical recovery image: the `serial_recovery_buf<N>` matrix varies the
+# *app's* netbuf, but they all drop into the same MCUboot recovery server (same line
+# buffers), so re-testing recovery on each adds nothing. Their buffer sizes are
+# exercised in app mode (echo/fs/img buffer-fill tests).
 @pytest.mark.parametrize("fragmentation, expected_line_buffers", _BUFFER_CONFIGS)
-@pytest.mark.parametrize("fixture", fixture_params(lambda f: f.serial_recovery))
+@pytest.mark.parametrize("fixture", fixture_params(lambda f: f.config == "serial_recovery"))
 async def test_reset_into_recovery_then_upload(
     fixture: ServerFixture,
     fragmentation: SMPSerialTransport.BufferParams | None,
@@ -89,10 +98,8 @@ async def test_reset_into_recovery_then_upload(
 
             offsets = await upload_image(bootloader, signed, max_bytes=4096)
             assert offsets[-1] >= 4096  # the bootloader reassembles the fragmented upload
-            # A 128x8 upload moves far more per request than 128x1 (8 line packets vs 1).
-            assert (
-                max(b - a for a, b in zip(offsets, offsets[1:]))
-                >= transport.max_unencoded_size // 2
-            )
+            # Each request fills the configured buffer: 128x8 moves ~8x the payload of
+            # 128x1 per request (the whole point of advertising a larger buffer).
+            assert_chunks_maximized(offsets, transport.max_unencoded_size)
         finally:
             await bootloader.disconnect()

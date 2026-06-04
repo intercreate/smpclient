@@ -5,7 +5,8 @@
 #
 # Pinned release (permanent, per-commit — NOT the rolling `latest` tag, which
 # can drift / be replaced):
-#   tag:      2ad0d6bf            https://github.com/intercreate/smp-server-fixtures/releases/tag/2ad0d6bf
+#   tag:      0eae053d            https://github.com/intercreate/smp-server-fixtures/releases/tag/0eae053d
+#   commit:   0eae053d6ae74cbbc28237d333737387ba9db899
 #   zephyr:   4.4.0
 #
 # The integration harness builds its fixture registry from the vendored

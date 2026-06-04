@@ -119,6 +119,33 @@ async def upload_image(
     return offsets
 
 
+def assert_chunks_maximized(
+    offsets: list[int], max_unencoded_size: int, *, overhead_budget: int = 48
+) -> None:
+    """Assert an upload packed near-maximal chunks — i.e. it maximizes link throughput.
+
+    Each offset stride is the payload one request carried; the largest is a full
+    (non-final) request. It must come within `overhead_budget` bytes of the
+    transport's `max_unencoded_size` (the slack is the SMP header + CBOR framing),
+    proving smpclient fills each packet to the buffer rather than under-fragmenting.
+
+    Args:
+        offsets: the cumulative offsets yielded by an upload (see `upload_image`).
+        max_unencoded_size: the transport's advertised max unencoded message size.
+        overhead_budget: the largest slack below `max_unencoded_size` accepted as
+            "maximized" (SMP header + CBOR keys; larger for requests that repeat a
+            file path).
+    """
+    strides = [b - a for a, b in zip([0, *offsets], offsets)]
+    assert len(strides) >= 2, "need >= 2 requests to measure a full (non-final) chunk"
+    biggest = max(strides)
+    assert biggest <= max_unencoded_size, f"chunk {biggest}B exceeds buffer {max_unencoded_size}B"
+    assert biggest >= max_unencoded_size - overhead_budget, (
+        f"largest chunk {biggest}B under-fills the {max_unencoded_size}B buffer by "
+        f">{overhead_budget}B — link throughput not maximized"
+    )
+
+
 @asynccontextmanager
 async def connected(fixture: ServerFixture) -> AsyncIterator[ConnectedServer]:
     """Launch `fixture`, connect an `SMPClient`, and wait until the server answers."""

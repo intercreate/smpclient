@@ -11,10 +11,12 @@ from __future__ import annotations
 import pytest
 from smp import packet as smppacket
 
+from smpclient import SMPClient
 from smpclient.generics import success
 from smpclient.requests.os_management import EchoWrite
 from smpclient.transport.serial import SMPSerialTransport
-from tests.integration.conftest import ConnectedServer
+from tests.integration.conftest import ConnectedServer, _wait_until_answering, fixture_params
+from tests.integration.servers import PtyEndpoint, ServerFixture, serve
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -101,3 +103,35 @@ async def test_max_payload_roundtrip(connected_server: ConnectedServer) -> None:
     response = await cs.client.request(request, timeout_s=10.0)
     assert success(response)
     assert response.r == text
+
+
+@pytest.mark.parametrize("fixture", fixture_params(lambda f: f.config == "serial_line512"))
+async def test_non_default_line_length(fixture: ServerFixture) -> None:
+    """Legacy interop: smpclient can still drive a device requiring a non-128 line length.
+
+    The SMP serial line length is 128 by convention and downstream users should never
+    change it. `serial_line512` exists only to grandfather in non-compliant devices
+    that accept a different length; this is the least important fixture, kept purely
+    for backward compatibility. It confirms a `line_length=512` client round-trips.
+    """
+    async with serve(fixture) as endpoint:
+        assert isinstance(endpoint, PtyEndpoint)
+        transport = SMPSerialTransport(
+            fragmentation_strategy=SMPSerialTransport.BufferParams(line_length=512, line_buffers=1)
+        )
+        client = SMPClient(transport, endpoint.pty)
+        await client.connect()
+        try:
+            await _wait_until_answering(client)
+            assert transport._line_length == 512
+
+            text = "L" * 200  # > one 128-byte line packet, so the 512 line length is in effect
+            request = EchoWrite(d=text)
+            assert len(list(smppacket.encode(request.BYTES, line_length=512))) < len(
+                list(smppacket.encode(request.BYTES, line_length=128))
+            )
+            response = await client.request(request, timeout_s=10.0)
+            assert success(response)
+            assert response.r == text
+        finally:
+            await client.disconnect()

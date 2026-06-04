@@ -16,7 +16,12 @@ from smp import packet as smppacket
 from smpclient.generics import success
 from smpclient.requests.image_management import ImageStatesRead
 from smpclient.transport.serial import SMPSerialTransport
-from tests.integration.conftest import connected, fixture_params, upload_image
+from tests.integration.conftest import (
+    assert_chunks_maximized,
+    connected,
+    fixture_params,
+    upload_image,
+)
 from tests.integration.servers import ServerFixture
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
@@ -58,6 +63,10 @@ async def test_dfu_upload(fixture: ServerFixture) -> None:
             )
 
         offsets = await upload_image(cs.client, image, max_bytes=cap)
+
+        # Every DFU chunk must fill the buffer: chunk size scales with buf_size, so a
+        # larger netbuf means proportionally fewer, larger requests (best throughput).
+        assert_chunks_maximized(offsets, transport.max_unencoded_size)
 
         if cap is None:
             assert offsets[-1] == len(image)  # ran to completion (incl. SHA match)
