@@ -41,7 +41,7 @@ import traceback
 from collections.abc import AsyncIterator
 from hashlib import sha256
 from types import TracebackType
-from typing import Final
+from typing import Final, TypeVar
 
 from pydantic import ValidationError
 from smp import header as smpheader
@@ -61,6 +61,9 @@ except ImportError:  # backport for Python3.10 and below
     from async_timeout import timeout  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+TUploadRequest = TypeVar("TUploadRequest", ImageUploadWrite, FileUpload)
+"""A single-shot upload request whose `data` field is filled to maximize throughput."""
 
 
 class SMPClient:
@@ -251,7 +254,7 @@ class SMPClient:
         )
 
         response = await self.request(
-            self._maximize_image_upload_write_packet(
+            self._maximize_upload_packet(
                 ImageUploadWrite(
                     off=0,
                     data=b"",
@@ -277,7 +280,7 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(image):
             response = await self.request(
-                self._maximize_image_upload_write_packet(
+                self._maximize_upload_packet(
                     ImageUploadWrite(
                         off=response.off,
                         data=b"",
@@ -329,7 +332,7 @@ class SMPClient:
         timeout_s = timeout_s if timeout_s is not None else self._timeout_s
 
         response = await self.request(
-            self._maximize_file_upload_packet(
+            self._maximize_upload_packet(
                 FileUpload(name=file_path, off=0, data=b"", len=len(file_data)),
                 file_data,
             ),
@@ -348,7 +351,7 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(file_data):
             response = await self.request(
-                self._maximize_file_upload_packet(
+                self._maximize_upload_packet(
                     FileUpload(name=file_path, off=response.off, data=b""), file_data
                 ),
                 timeout_s=timeout_s,
@@ -469,43 +472,28 @@ class SMPClient:
 
         return cbor_size, data_size
 
-    def _maximize_image_upload_write_packet(
-        self, request: ImageUploadWrite, image: bytes
-    ) -> ImageUploadWrite:
-        """Given an `ImageUploadWrite` with empty `data`, return the largest packet possible."""
+    def _maximize_upload_packet(self, request: TUploadRequest, data: bytes) -> TUploadRequest:
+        """Given an upload request with empty `data`, return the largest packet possible.
+
+        Fills the transport's `max_unencoded_size` so the encoded frame put on the wire
+        is as large as the server's reassembly buffer allows (best throughput).  Works
+        for any single-shot upload request (`ImageUploadWrite`, `FileUpload`): only
+        `header` (with the buffer-filling `length`) and `data` change; every other field
+        is carried over from `request`.
+        """
         h: Final = request.header
         cbor_size, data_size = self.get_max_cbor_and_data_size(request)
 
-        if data_size > len(image) - request.off:  # final packet
-            data_size = len(image) - request.off
-            cbor_size = h.length + data_size + self._cbor_integer_size(data_size)
-
-        return ImageUploadWrite(
-            header=smpheader.Header(
-                op=h.op,
-                version=h.version,
-                flags=h.flags,
-                length=cbor_size,
-                group_id=h.group_id,
-                sequence=h.sequence,
-                command_id=h.command_id,
-            ),
-            off=request.off,
-            data=image[request.off : request.off + data_size],
-            image=request.image,
-            len=request.len,
-            sha=request.sha,
-            upgrade=request.upgrade,
-        )
-
-    def _maximize_file_upload_packet(self, request: FileUpload, data: bytes) -> FileUpload:
-        """Given an `FileUpload` with empty `data`, return the largest packet possible."""
-        h: Final = request.header
-        cbor_size, data_size = self.get_max_cbor_and_data_size(request)
         if data_size > len(data) - request.off:  # final packet
             data_size = len(data) - request.off
             cbor_size = h.length + data_size + self._cbor_integer_size(data_size)
-        return FileUpload(
+
+        carried_over: Final = {
+            field: getattr(request, field)
+            for field in type(request).model_fields
+            if field not in ("header", "version", "sequence", "smp_data", "data")
+        }
+        return type(request)(
             header=smpheader.Header(
                 op=h.op,
                 version=h.version,
@@ -515,10 +503,8 @@ class SMPClient:
                 sequence=h.sequence,
                 command_id=h.command_id,
             ),
-            name=request.name,
-            off=request.off,
             data=data[request.off : request.off + data_size],
-            len=request.len,
+            **carried_over,
         )
 
     async def _initialize(self, timeout_s: float | None = None) -> None:

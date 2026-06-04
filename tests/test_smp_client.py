@@ -900,3 +900,41 @@ async def test_download_file_error_not_first() -> None:
     with pytest.raises(SMPUploadError) as e:
         await s.download_file("test.txt")
     assert e.value.args[0].err.rc == FS_MGMT_ERR.FILE_WRITE_FAILED
+
+
+@pytest.mark.parametrize(
+    "buf_size, encoded_frame_size", [(384, 527), (512, 702), (1024, 1404), (2048, 2801)]
+)
+def test_maximize_upload_packet_fills_decoded_buffer(
+    buf_size: int, encoded_frame_size: int
+) -> None:
+    """`_maximize_upload_packet` fills `max_unencoded_size` for image AND file uploads.
+
+    Filling the decoded reassembly buffer (`buf_size - 4`) is the whole point of the
+    maximizer: the resulting SMP message base64-encodes to a frame ~1.37x `buf_size` on
+    the wire -- larger than the buffer, which the server decodes incrementally as the
+    lines arrive. The unified generic handles both `ImageUploadWrite` and `FileUpload`.
+    """
+    client = SMPClient(
+        SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=buf_size)),
+        "address",
+    )
+    max_unencoded_size = client._transport.max_unencoded_size
+    assert max_unencoded_size == buf_size - 4
+
+    image = b"\xa5" * (4 * buf_size)  # plenty of source so the packet is never a short final
+    image_packet = client._maximize_upload_packet(
+        ImageUploadWrite(off=0, data=b"", image=0, len=len(image), sha=sha256(image).digest()),
+        image,
+    )
+    file_packet = client._maximize_upload_packet(
+        FileUpload(name="/lfs1/firmware.bin", off=0, data=b"", len=len(image)), image
+    )
+    for maximized in (image_packet, file_packet):
+        # the maximizer fills the decoded reassembly buffer exactly
+        assert len(maximized.BYTES) == max_unencoded_size
+
+        # ... so the encoded frame on the wire is ~1.37x buf_size -- bigger than the buffer
+        on_wire = b"".join(smppacket.encode(maximized.BYTES, line_length=128))
+        assert len(on_wire) == encoded_frame_size
+        assert len(on_wire) > buf_size

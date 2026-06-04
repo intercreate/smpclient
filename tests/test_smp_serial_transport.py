@@ -41,6 +41,13 @@ def test_constructor() -> None:
     assert t._max_smp_encoded_frame_size == 512
     assert t.max_unencoded_size < 512
 
+    # Test with BufferSize: fills the decoded buffer (buf_size - 4), like Auto
+    t = SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=1024))
+    assert t.mtu == 1024
+    assert t._line_length == 128
+    assert t._max_smp_encoded_frame_size == 1024
+    assert t.max_unencoded_size == 1024 - 4
+
 
 @pytest.mark.asyncio
 async def test_connect_disconnect() -> None:
@@ -328,3 +335,85 @@ def test_initialize_with_buffer_params_warning(caplog: pytest.LogCaptureFixture)
         t.initialize(256)  # Server buffer (256) is smaller than calculated size (512)
 
     assert any("exceeds server buffer size" in record.message for record in caplog.records)
+
+
+def test_buffer_size() -> None:
+    """BufferSize fills the decoded reassembly buffer: max message == buf_size - 4."""
+    for buf_size in (96, 256, 384, 512, 1024, 2048):
+        t = SMPSerialTransport(
+            fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=buf_size)
+        )
+        assert t.mtu == buf_size
+        assert t._line_length == 128
+        assert t.max_unencoded_size == buf_size - 4
+
+
+def test_buffer_size_matches_initialized_auto() -> None:
+    """BufferSize(n) is equivalent to Auto initialized with buf_size n."""
+    auto = SMPSerialTransport()
+    auto.initialize(1024)
+    told = SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=1024))
+
+    assert told.max_unencoded_size == auto.max_unencoded_size == 1024 - 4
+    assert told.mtu == auto.mtu == 1024
+    assert told._line_length == auto._line_length == 128
+
+
+def test_buffer_size_small_line_length() -> None:
+    """A server with a sub-128 per-line buffer keeps the full decoded-buffer payload."""
+    t = SMPSerialTransport(
+        fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=384, line_length=64)
+    )
+    assert t._line_length == 64
+    assert t.max_unencoded_size == 384 - 4
+
+
+async def _frame_on_the_wire(t: SMPSerialTransport, message: bytes) -> bytes:
+    """Return the exact bytes `t.send(message)` writes to the serial connection."""
+    written: list[bytes] = []
+
+    def capture(data: bytes) -> int:
+        written.append(bytes(data))
+        return len(data)
+
+    t._conn.write = capture  # type: ignore
+    t._conn.out_waiting = 0  # type: ignore
+    await t.send(message)
+    return b"".join(written)
+
+
+@pytest.mark.asyncio
+async def test_decoded_buffer_strategies_put_full_encoded_frame_on_the_wire() -> None:
+    """`BufferSize`/`Auto` transmit an encoded frame ~1.37x buf_size -- bigger than the buffer.
+
+    The server base64-decodes each line into its `buf_size` reassembly buffer as the line
+    arrives, so the client deliberately puts MORE than `buf_size` encoded bytes on the wire
+    (the whole point of filling the decoded buffer). This pins the on-wire frame size for
+    the largest message each decoded-buffer strategy will send, and that it exceeds the
+    buffer rather than fitting within it.
+    """
+    expected_encoded = {384: 527, 512: 702, 1024: 1404, 2048: 2801}
+    for buf_size, encoded_size in expected_encoded.items():
+        told = SMPSerialTransport(
+            fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=buf_size)
+        )
+        auto = SMPSerialTransport()
+        auto.initialize(buf_size)
+
+        for t in (told, auto):
+            on_wire = await _frame_on_the_wire(t, b"\x5a" * t.max_unencoded_size)
+            assert len(on_wire) == encoded_size
+            assert len(on_wire) > buf_size  # more encoded bytes on the wire than the buffer holds
+
+
+def test_initialize_with_buffer_size_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """A BufferSize larger than the server's advertised buffer warns; the manual size wins."""
+    t = SMPSerialTransport(fragmentation_strategy=SMPSerialTransport.BufferSize(buf_size=1024))
+
+    with caplog.at_level(logging.WARNING):
+        t.initialize(512)
+
+    assert any(
+        "exceeds the server's advertised buffer size" in record.message for record in caplog.records
+    )
+    assert t.max_unencoded_size == 1024 - 4

@@ -45,7 +45,7 @@ An online version is generated and available [here](https://intercreate.github.i
 
 ## Server Buffers & SMP Serial Fragmentation
 
-Choosing the right fragmentation for the **serial** transport (UART/USB) requires
+Choosing the right fragmentation for the **serial** transport (UART/USB/CAN/etc.) requires
 understanding the buffers in the firmware on the other end. The two SMP servers we
 target name the same concepts differently, and the docs/Kconfig on each side are
 easy to misread, so this section unifies the terminology. (BLE and UDP negotiate
@@ -124,18 +124,12 @@ so clients must fragment at ≤ 128 (smpclient's default). Don't change it.
 
 ### How smpclient targets these
 
-`SMPSerialTransport` takes a fragmentation strategy:
-
-- **`Auto`** (default) reads MCUmgr params and sets `max message = buf_size − 4`, i.e.
-  it fills the decoded reassembly buffer — the best-throughput choice. Use it whenever
-  the server supports the params command (Zephyr does; mcuboot serial recovery will
-  once [#2746](https://github.com/mcu-tools/mcuboot/pull/2746) lands).
-- **`BufferParams(line_length, line_buffers)`** models the *encoded* budget
-  (`mtu = line_length × line_buffers`) and back-computes a smaller unencoded payload,
-  so it **deliberately under-fills** the decoded buffer. Use it only when params is
-  unavailable. Note `line_buffers` here is an *encoded* line count and is unrelated to
-  the firmware's fragment-pool count — each added line buffer only buys ~86 B of
-  message, so matching a 1024-byte decoded netbuf needs ~12 line buffers, not 8.
+`SMPSerialTransport` fills the decoded reassembly buffer for best throughput. The
+`fragmentation_strategy` chooses how it learns the buffer size — `Auto` (default, from
+MCUmgr params), `BufferSize` (named directly, when params are unavailable such as mcuboot
+serial recovery), or `BufferParams` (a constrained encoded line-buffer budget). See the
+[Serial transport API docs](https://intercreate.github.io/smpclient/transport/serial/)
+for when to use each.
 
 This is exercised against real native_sim / QEMU / mps2 Zephyr servers in the
 integration suite (`tests/integration/`): a `buf_size − 4` message round-trips while

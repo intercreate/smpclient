@@ -1,6 +1,16 @@
-"""A serial SMPTransport.
+"""A serial `SMPTransport` for UART, USB CDC ACM, and CAN.
 
-In addition to UART, this transport can be used with USB CDC ACM and CAN.
+An SMP serial frame wraps the SMP message as `[uint16 length][message][uint16 CRC16]`,
+base64-encodes it, and splits it into lines (<= 128 bytes by convention) on the wire.
+The server base64-decodes each line as it arrives into one reassembly buffer, so the
+buffer that bounds a transaction holds the *decoded* frame: the largest message is
+`buf_size - 4` (the length and CRC16 share the buffer). That message becomes ~1.37x as
+many bytes once base64-encoded and line-framed, so the transport puts more than
+`buf_size` encoded bytes on the wire -- which the server decodes incrementally.
+
+The transport fills that decoded buffer for best throughput; how it learns the buffer
+size is the `fragmentation_strategy` -- see `SMPSerialTransport.Auto` (the default),
+`SMPSerialTransport.BufferSize`, and `SMPSerialTransport.BufferParams`.
 """
 
 import asyncio
@@ -19,7 +29,7 @@ except ModuleNotFoundError as e:
         ) from e
     raise
 from smp import packet as smppacket
-from typing_extensions import override
+from typing_extensions import assert_never, override
 
 from smpclient.transport import SMPTransport, SMPTransportDisconnected
 
@@ -42,6 +52,13 @@ def _base64_max(size: int) -> int:
     return math.floor(3 / 4 * size) - 2
 
 
+_DEFAULT_LINE_LENGTH: Final = 128
+"""The SMP serial line length convention: base64 chars per line on the wire."""
+
+_FRAME_OVERHEAD: Final = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
+"""The 2-byte frame length + 2-byte CRC16 that share the server's reassembly buffer."""
+
+
 class SMPSerialTransport(SMPTransport):
     _POLLING_INTERVAL_S = 0.005
     _CONNECTION_RETRY_INTERVAL_S = 0.500
@@ -59,28 +76,55 @@ class SMPSerialTransport(SMPTransport):
         """
 
     class Auto(NamedTuple):
-        """Automatically determine buffer parameters from the SMP server.
+        """Discover the server's reassembly buffer from its MCUmgr params.
 
-        On connect, queries the server's MCUMGR_PARAM for `buf_size`
-        (CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE) and calculates:
-        - line_length: 128 (standard MTU for uart/usb/shell)
-        - line_buffers: buf_size / line_length
-
-        Falls back to BufferParams() if server doesn't support MCUMGR_PARAM.
+        On connect the client reads the server's `buf_size`
+        (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`) -- the decoded SMP frame reassembly
+        buffer -- and sends messages up to `buf_size - 4` (the frame length and
+        CRC16 share that buffer), filling it for best throughput.  Before the
+        params are read, or when the server does not support the params command, a
+        single 128-byte line buffer is assumed.
         """
 
-    class BufferParams(NamedTuple):
-        """Buffer parameters for the serial transport."""
+    class BufferSize(NamedTuple):
+        """Manually specify the server's decoded reassembly buffer size.
 
-        line_length: int = 128
-        """The maximum SMP packet size."""
+        For servers that do not advertise MCUmgr params (e.g. MCUboot serial
+        recovery): behaves exactly like `Auto` once `buf_size` is known, sending
+        messages up to `buf_size - 4`.  Lower `line_length` only for a server whose
+        per-line input buffer is smaller than the 128-byte convention.
+        """
+
+        buf_size: int
+        """The decoded SMP frame reassembly buffer
+        (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE` / `BOOT_SERIAL_MAX_RECEIVE_SIZE`)."""
+
+        line_length: int = _DEFAULT_LINE_LENGTH
+        """The maximum length of one fragment (line) on the wire: a 2-byte
+        start/continue delimiter, the base64 payload, and a newline (so the base64
+        payload is ~3 bytes less).  128 by convention."""
+
+    class BufferParams(NamedTuple):
+        """Model the server's *encoded* line-buffer budget.
+
+        The message is bounded by how many unencoded bytes survive base64
+        expansion and per-line framing within `line_length * line_buffers` encoded
+        bytes.  This deliberately under-fills a larger decoded reassembly buffer;
+        prefer `Auto` or `BufferSize` unless the server's real constraint is a
+        small pool of short line buffers.
+        """
+
+        line_length: int = _DEFAULT_LINE_LENGTH
+        """The maximum length of one fragment (line) on the wire: a 2-byte
+        start/continue delimiter, the base64 payload, and a newline (so the base64
+        payload is ~3 bytes less).  128 by convention."""
 
         line_buffers: int = 1
-        """The number of line buffers in the serial buffer."""
+        """The number of encoded line buffers the budget spans."""
 
     def __init__(  # noqa: DOC301
         self,
-        fragmentation_strategy: Auto | BufferParams = Auto(),
+        fragmentation_strategy: Auto | BufferSize | BufferParams = Auto(),
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
@@ -96,10 +140,8 @@ class SMPSerialTransport(SMPTransport):
         """Initialize the serial transport.
 
         Args:
-            fragmentation_strategy: The fragmentation strategy to use.  Either
-                `SMPSerialTransport.Auto()` to automatically determine buffer
-                parameters from the SMP server, or `SMPSerialTransport.BufferParams`
-                to manually specify buffer parameters.
+            fragmentation_strategy: how to size SMP messages; one of `Auto`
+                (default), `BufferSize`, or `BufferParams`.
             baudrate: The baudrate of the serial connection.  OK to ignore for
                 USB CDC ACM.
             bytesize: The number of data bits.
@@ -149,33 +191,48 @@ class SMPSerialTransport(SMPTransport):
 
     @property
     def _line_length(self) -> int:
-        """The maximum SMP packet size."""
-        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
-            return self.BufferParams().line_length
-        else:
-            return self._fragmentation_strategy.line_length
+        """The base64 line length used to fragment outgoing frames."""
+        match self._fragmentation_strategy:
+            case SMPSerialTransport.Auto():
+                return _DEFAULT_LINE_LENGTH
+            case SMPSerialTransport.BufferSize(line_length=line_length):
+                return line_length
+            case SMPSerialTransport.BufferParams(line_length=line_length):
+                return line_length
+            case _ as unreachable:
+                assert_never(unreachable)
 
     @property
     def _line_buffers(self) -> int:
-        """The number of line buffers."""
-        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
-            if self._smp_server_transport_buffer_size is not None:
-                return self._smp_server_transport_buffer_size // self.BufferParams().line_length
-            return self.BufferParams().line_buffers
-        else:
-            return self._fragmentation_strategy.line_buffers
+        """The number of encoded line buffers spanned by the configured budget."""
+        match self._fragmentation_strategy:
+            case SMPSerialTransport.Auto():
+                if self._smp_server_transport_buffer_size is not None:
+                    return self._smp_server_transport_buffer_size // self._line_length
+                return 1
+            case SMPSerialTransport.BufferSize(buf_size=buf_size):
+                return buf_size // self._line_length
+            case SMPSerialTransport.BufferParams(line_buffers=line_buffers):
+                return line_buffers
+            case _ as unreachable:
+                assert_never(unreachable)
 
     @property
     def _max_smp_encoded_frame_size(self) -> int:
-        """The maximum encoded frame size (line_length * line_buffers)."""
-        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
-            if self._smp_server_transport_buffer_size is not None:
-                return self._smp_server_transport_buffer_size
-            return self._line_length * self._line_buffers
-        else:
-            return (
-                self._fragmentation_strategy.line_length * self._fragmentation_strategy.line_buffers
-            )
+        """The configured buffer size that the MTU reports."""
+        match self._fragmentation_strategy:
+            case SMPSerialTransport.Auto():
+                if self._smp_server_transport_buffer_size is not None:
+                    return self._smp_server_transport_buffer_size
+                return self._line_length * self._line_buffers
+            case SMPSerialTransport.BufferSize(buf_size=buf_size):
+                return buf_size
+            case SMPSerialTransport.BufferParams(
+                line_length=line_length, line_buffers=line_buffers
+            ):
+                return line_length * line_buffers
+            case _ as unreachable:
+                assert_never(unreachable)
 
     @override
     def initialize(self, smp_server_transport_buffer_size: int) -> None:
@@ -186,22 +243,30 @@ class SMPSerialTransport(SMPTransport):
         """
         super().initialize(smp_server_transport_buffer_size)
 
-        if isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto):
-            logger.info(
-                f"Auto-configured from server: {self._line_length=}, "
-                f"{self._line_buffers=}, mtu={self._max_smp_encoded_frame_size}"
-            )
-        else:
-            # Validate user's BufferParams against server capabilities
-            calculated_size = (
-                self._fragmentation_strategy.line_length * self._fragmentation_strategy.line_buffers
-            )
-            if calculated_size > smp_server_transport_buffer_size:
-                logger.warning(
-                    f"BufferParams (line_length={self._fragmentation_strategy.line_length} * "
-                    f"line_buffers={self._fragmentation_strategy.line_buffers} = {calculated_size}) "  # noqa: E501
-                    f"exceeds server buffer size ({smp_server_transport_buffer_size})"
+        match self._fragmentation_strategy:
+            case SMPSerialTransport.Auto():
+                logger.info(
+                    f"Auto-configured from server: {self._line_length=}, "
+                    f"{self._line_buffers=}, mtu={self._max_smp_encoded_frame_size}"
                 )
+            case SMPSerialTransport.BufferSize(buf_size=buf_size):
+                if buf_size > smp_server_transport_buffer_size:
+                    logger.warning(
+                        f"BufferSize buf_size ({buf_size}) exceeds the server's advertised "
+                        f"buffer size ({smp_server_transport_buffer_size})"
+                    )
+            case SMPSerialTransport.BufferParams(
+                line_length=line_length, line_buffers=line_buffers
+            ):
+                calculated_size = line_length * line_buffers
+                if calculated_size > smp_server_transport_buffer_size:
+                    logger.warning(
+                        f"BufferParams (line_length={line_length} * "
+                        f"line_buffers={line_buffers} = {calculated_size}) "
+                        f"exceeds server buffer size ({smp_server_transport_buffer_size})"
+                    )
+            case _ as unreachable:
+                assert_never(unreachable)
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
@@ -418,36 +483,40 @@ class SMPSerialTransport(SMPTransport):
     def max_unencoded_size(self) -> int:
         """The maximum unencoded SMP message size, in bytes.
 
-        `Auto` (server `buf_size` known): `buf_size` is
-        `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`, which bounds the *decoded* SMP serial
-        frame `[length][message][CRC16]` reassembled into the server's netbuf -- the
-        base64/line framing is stripped before the netbuf.  So the message is bounded
-        by `buf_size` minus the 2-byte frame length and 2-byte CRC, and the full
-        netbuf is usable.  (Verified against native_sim/QEMU/mps2: a `buf_size - 4`
-        message round-trips; `buf_size - 3` is dropped.)
+        `Auto` (once `buf_size` is known) and `BufferSize` fill the server's
+        decoded reassembly buffer: the message is `buf_size - 4`, where `buf_size`
+        is `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE` and 4 is the SMP serial frame's
+        2-byte length and 2-byte CRC16, which the server strips before the netbuf.
+        (Verified against native_sim/QEMU/mps2: a `buf_size - 4` message
+        round-trips; `buf_size - 3` is dropped.)
 
-        `BufferParams` (or `Auto` before initialization): the user specifies the
-        *encoded* line-buffer capacity (`line_length * line_buffers`, e.g. MCUboot's
-        128*8 UART buffer), so the limit is how many unencoded bytes survive base64
-        expansion and per-line framing within that encoded budget.
+        `BufferParams` (and `Auto` before initialization) instead bound the message
+        by an *encoded* line-buffer budget (`line_length * line_buffers`): how many
+        unencoded bytes survive base64 expansion and per-line framing.
 
         SMP serial framing (the 2-byte length + 2-byte CRC16):
         https://docs.zephyrproject.org/latest/services/device_mgmt/smp_transport.html
         """
-        # The SMP serial frame wraps the message as `uint16 length | message | uint16
-        # CRC16`; the server reassembles that decoded frame into one buf_size netbuf.
-        frame_overhead: Final = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
+        match self._fragmentation_strategy:
+            case SMPSerialTransport.Auto():
+                if self._smp_server_transport_buffer_size is not None:
+                    return self._smp_server_transport_buffer_size - _FRAME_OVERHEAD
+                return self._encoded_budget_max_unencoded_size()
+            case SMPSerialTransport.BufferSize(buf_size=buf_size):
+                return buf_size - _FRAME_OVERHEAD
+            case SMPSerialTransport.BufferParams():
+                return self._encoded_budget_max_unencoded_size()
+            case _ as unreachable:
+                assert_never(unreachable)
 
-        if (
-            isinstance(self._fragmentation_strategy, SMPSerialTransport.Auto)
-            and self._smp_server_transport_buffer_size is not None
-        ):
-            return self._smp_server_transport_buffer_size - frame_overhead
+    def _encoded_budget_max_unencoded_size(self) -> int:
+        """Unencoded capacity within the encoded line-buffer budget (`mtu`).
 
-        # Encoded-budget model: subtract per-line framing (base64 frame_length + CRC16
-        # + start/continue delimiter, per line buffer) and the stop delimiter, then
-        # convert the remaining encoded budget to its unencoded capacity.
+        Subtracts per-line framing (the base64-encoded frame length + CRC16 plus a
+        start/continue delimiter, per line buffer) and the stop delimiter, then
+        converts the remaining encoded budget to its unencoded capacity.
+        """
         packet_framing_size: Final = (
-            _base64_cost(frame_overhead) + smppacket.DELIMITER_SIZE
+            _base64_cost(_FRAME_OVERHEAD) + smppacket.DELIMITER_SIZE
         ) * self._line_buffers + len(smppacket.END_DELIMITER)
         return _base64_max(self.mtu) - packet_framing_size

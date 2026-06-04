@@ -243,6 +243,7 @@ class QemuSocketSerialTransport(SMPSerialTransport):
         self,
         url: str,
         fragmentation_strategy: SMPSerialTransport.Auto
+        | SMPSerialTransport.BufferSize
         | SMPSerialTransport.BufferParams
         | None = None,
     ) -> None:
