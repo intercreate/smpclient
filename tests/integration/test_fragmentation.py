@@ -46,9 +46,10 @@ async def test_noparams_falls_back_to_defaults(connected_server: ConnectedServer
 
     transport = cs.client._transport
     assert isinstance(transport, SMPSerialTransport)
-    # No buf_size from the server -> default BufferParams (one line buffer), not the server's 384.
-    assert transport._line_buffers == 1
-    assert transport.mtu == transport._line_length
+    # No buf_size from the server -> conservative 7.1.0-equivalent default (128 * 2),
+    # not the server's actual buffer.
+    assert transport._line_buffers == 2
+    assert transport.mtu == transport._line_length * transport._line_buffers
 
     response = await cs.client.request(EchoWrite(d="fallback works"))
     assert success(response)

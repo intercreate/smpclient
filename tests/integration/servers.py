@@ -253,7 +253,7 @@ class QemuSocketSerialTransport(SMPSerialTransport):
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
         self._reset_state()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout_s
         while True:
             try:
@@ -357,7 +357,7 @@ async def serve(
 
         ready_pattern = fixture.ready_pattern()
         endpoint_future: asyncio.Future[Endpoint] | None = (
-            None if ready_pattern is None else asyncio.get_event_loop().create_future()
+            None if ready_pattern is None else asyncio.get_running_loop().create_future()
         )
         pump = asyncio.ensure_future(
             _pump(proc, log, fixture, ready_pattern, port, endpoint_future)

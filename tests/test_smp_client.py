@@ -38,12 +38,12 @@ from smpclient.requests.image_management import ImageUploadWrite
 from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import BufferParams, BufferSize, SMPSerialTransport
 
+FRAME_OVERHEAD = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
+"""The SMP serial frame's 2-byte length + 2-byte CRC16 that share the decoded buffer."""
+
 
 class SMPMockTransport:
     """Satisfies the `SMPTransport` `Protocol`."""
-
-    mtu = PropertyMock()
-    max_unencoded_size = PropertyMock()
 
     def __init__(self) -> None:
         self.connect = AsyncMock()
@@ -52,6 +52,16 @@ class SMPMockTransport:
         self.receive = AsyncMock()
         self._smp_server_transport_buffer_size: int | None = None
         self.initialize = AsyncMock()
+        self._mtu = 0
+        self._max_unencoded_size = 0
+
+    @property
+    def mtu(self) -> int:
+        return self._mtu
+
+    @property
+    def max_unencoded_size(self) -> int:
+        return self._max_unencoded_size
 
     async def send_and_receive(self, data: bytes) -> bytes:
         await self.send(data)
@@ -162,9 +172,8 @@ async def test_upload() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    # refer to: https://docs.python.org/3/library/unittest.mock.html#unittest.mock.PropertyMock
-    type(m).mtu = PropertyMock(return_value=498)
-    type(m).max_unencoded_size = PropertyMock(return_value=498)
+    m._mtu = 498
+    m._max_unencoded_size = 498
 
     chunk_size = 415  # max chunk given MTU
 
@@ -377,9 +386,8 @@ async def test_upload_file() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    # refer to: https://docs.python.org/3/library/unittest.mock.html#unittest.mock.PropertyMock
-    type(m).mtu = PropertyMock(return_value=498)
-    type(m).max_unencoded_size = PropertyMock(return_value=498)
+    m._mtu = 498
+    m._max_unencoded_size = 498
 
     chunk_size = 455  # max chunk given MTU
 
@@ -612,9 +620,8 @@ async def test_download_file() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    # refer to: https://docs.python.org/3/library/unittest.mock.html#unittest.mock.PropertyMock
-    type(m).mtu = PropertyMock(return_value=498)
-    type(m).max_unencoded_size = PropertyMock(return_value=498)
+    m._mtu = 498
+    m._max_unencoded_size = 498
 
     data = bytes([i % 255 for i in range(4097)])
     s.request.side_effect = [
@@ -920,7 +927,7 @@ def test_maximize_upload_packet_fills_decoded_buffer(
         "address",
     )
     max_unencoded_size = client._transport.max_unencoded_size
-    assert max_unencoded_size == buf_size - 4
+    assert max_unencoded_size == buf_size - FRAME_OVERHEAD
 
     image = b"\xa5" * (4 * buf_size)  # plenty of source so the packet is never a short final
     image_packet = client._maximize_upload_packet(

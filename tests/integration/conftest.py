@@ -68,13 +68,22 @@ def fixture_params(
     ]
 
 
+_SMP_UDP_DEFAULT_PORT = 1337
+"""`SMPUDPTransport.connect`'s default port; `SMPClient.connect` cannot override it."""
+
+
 def _build_transport(endpoint: Endpoint) -> tuple[SMPTransport, str]:
     match endpoint:
         case PtyEndpoint(pty):
             return SMPSerialTransport(), pty
         case SocketSerialEndpoint(url):
             return QemuSocketSerialTransport(url), url
-        case UdpEndpoint(host, _):
+        case UdpEndpoint(host, port):
+            if port != _SMP_UDP_DEFAULT_PORT:
+                pytest.skip(
+                    f"UDP fixture port {port} is unreachable: SMPClient.connect cannot pass a "
+                    f"non-default UDP port (only {_SMP_UDP_DEFAULT_PORT})"
+                )
             return SMPUDPTransport(), host
         case _:
             assert_never(endpoint)

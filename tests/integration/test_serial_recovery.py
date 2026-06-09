@@ -9,7 +9,7 @@ The recovery server does not advertise MCUmgr params, so the client must be told
 its buffer size. We upload at two configurations to exercise the recovery server's
 reassembly across very different transaction sizes:
 
-- `auto-default` (no params -> conservative Auto): ~83 B payloads, one line packet.
+- `auto-default` (no params -> conservative Auto): ~169 B payloads, two line packets.
 - `buffersize-1024` (MCUboot's decoded recovery buffer, BOOT_SERIAL_MAX_RECEIVE_SIZE
   default 1024): ~1020 B payloads filling the buffer, ~9 line packets each.
 """
