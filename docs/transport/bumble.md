@@ -158,7 +158,7 @@ transport = SMPBumbleTransport(hci="usb:0", pair_on_connect=KeyboardOnly(prompt_
 ```
 
 Bond keys are stored via the `keystore` strategy — see `smpclient.transport.bumble.keystore` for
-the options (`Tempfile`, `Local`, `Custom`, `Memory`).
+the options (`Tempfile`, `Local`, `Custom`, `ExistingCustom`, `InMemory`).
 
 ## API Reference
 
