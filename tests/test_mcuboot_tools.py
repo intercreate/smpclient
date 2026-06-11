@@ -230,3 +230,25 @@ def test_tlv_value_str_unknown() -> None:
     tlv_header = ImageTLV(type=0x99, len=4)
     tlv_value = ImageTLVValue(header=tlv_header, value=b"\xde\xad\xbe\xef")
     assert str(tlv_value) == "0x99=deadbeef"
+
+
+def test_protected_tlv_parsing() -> None:
+    """Test that protected TLVs are parsed correctly when present."""
+    # tfm_s_signed.bin generated via https://docs.zephyrproject.org/latest/samples/tfm_integration/tfm_ipc/README.html#tfm_ipc
+    image_info = ImageInfo.load_file(
+        str(Path("tests", "fixtures", "tf-m-9a4cb1a28", "tfm_s_signed.bin"))
+    )
+
+    assert image_info.protected_tlv_info is not None
+    assert len(image_info.protected_tlvs) == 3
+    assert len(image_info.tlvs) == 3
+
+    # imgtool should put these three regular TLVs in the image
+    image_info.get_tlv(IMAGE_TLV.SHA256)
+    image_info.get_tlv(IMAGE_TLV.KEYHASH)
+    image_info.get_tlv(IMAGE_TLV.ECDSA_SIG)
+
+    # and these three protected TLVs
+    image_info.get_tlv(IMAGE_TLV.SEC_CNT)
+    image_info.get_tlv(IMAGE_TLV.BOOT_RECORD)
+    image_info.get_tlv(IMAGE_TLV.DEPENDENCY)

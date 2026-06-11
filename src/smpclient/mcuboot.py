@@ -235,22 +235,34 @@ class ImageTLVInfo:
     tlv_tot: int
     """size of TLV area (including tlv_info header)"""
 
-    def __post_init__(self) -> None:
-        """Do initial validation of the header."""
-        if self.magic != IMAGE_TLV_INFO_MAGIC:
+    REGION_SIZE = IMAGE_TLV_INFO_STRUCT.size
+
+    @staticmethod
+    def loads(data: bytes, protected: bool = False) -> 'ImageTLVInfo':
+        """Load an `ImageTLVInfo` from bytes."""
+        info = ImageTLVInfo(*IMAGE_TLV_INFO_STRUCT.unpack(data))
+
+        if protected and info.magic != IMAGE_TLV_PROT_INFO_MAGIC:
             raise MCUBootImageError(
-                f"TLV info magic is {hex(self.magic)}, expected {hex(IMAGE_TLV_INFO_MAGIC)}"
+                f"Expected protected TLV info magic {hex(IMAGE_TLV_PROT_INFO_MAGIC)}, got {hex(info.magic)}"
             )
 
-    @staticmethod
-    def loads(data: bytes) -> 'ImageTLVInfo':
-        """Load an `ImageTLVInfo` from bytes."""
-        return ImageTLVInfo(*IMAGE_TLV_INFO_STRUCT.unpack(data))
+        if not protected and info.magic != IMAGE_TLV_INFO_MAGIC:
+            raise MCUBootImageError(
+                f"Expected TLV info magic {hex(IMAGE_TLV_INFO_MAGIC)}, got {hex(info.magic)}"
+            )
+
+        if info.tlv_tot < ImageTLVInfo.REGION_SIZE:
+            raise MCUBootImageError(
+                f"TLV total size must be at least {ImageTLVInfo.REGION_SIZE}, got {info.tlv_tot}"
+            )
+
+        return info
 
     @staticmethod
-    def load_from(file: BytesIO | BufferedReader) -> 'ImageTLVInfo':
+    def load_from(file: BytesIO | BufferedReader, protected: bool = False) -> 'ImageTLVInfo':
         """Load an `ImageTLVInfo` from a file."""
-        return ImageTLVInfo.loads(file.read(IMAGE_TLV_INFO_STRUCT.size))
+        return ImageTLVInfo.loads(file.read(IMAGE_TLV_INFO_STRUCT.size), protected=protected)
 
 
 @dataclass(frozen=True)
@@ -292,6 +304,8 @@ class ImageInfo:
     header: ImageHeader
     tlv_info: ImageTLVInfo
     tlvs: list[ImageTLVValue]
+    protected_tlv_info: ImageTLVInfo | None = None
+    protected_tlvs: list[ImageTLVValue] = Field(default_factory=lambda: [])
     file: str | None = None
 
     def get_tlv(self, tlv: ImageTLVType) -> ImageTLVValue:
@@ -300,6 +314,17 @@ class ImageInfo:
             return self._map_tlv_type_to_value[tlv]
         else:
             raise TLVNotFound(f"{tlv} not found in image.")
+
+    @staticmethod
+    def parse_tlvs(region: bytes) -> list[ImageTLVValue]:
+        """Parse TLVs from a byte sequence."""
+        tlvs: list[ImageTLVValue] = []
+        f = BytesIO(region)
+        while f.tell() < len(region):
+            tlv_header = ImageTLV.load_from(f)
+            tlvs.append(ImageTLVValue(header=tlv_header, value=f.read(tlv_header.len)))
+
+        return tlvs
 
     @staticmethod
     def load_file(path: str) -> 'ImageInfo':
@@ -325,18 +350,37 @@ class ImageInfo:
         tlv_offset = image_header.hdr_size + image_header.img_size
 
         f.seek(tlv_offset)  # move to the start of the TLV area
+
+        # The mcuboot design doc says that optional protected TLV entries come before regular TLV entries
+        protected_tlvs: list[ImageTLVValue] = []
+        protected_tlv_info: ImageTLVInfo | None = None
+        if image_header.protect_tlv_size > 0:
+            protected_tlv_info = ImageTLVInfo.load_from(f, protected=True)
+
+            if protected_tlv_info.tlv_tot != image_header.protect_tlv_size:
+                raise MCUBootImageError(
+                    f"Protected TLV info total size {protected_tlv_info.tlv_tot} does not match header value {image_header.protect_tlv_size}"
+                )
+
+            protected_tlvs = ImageInfo.parse_tlvs(
+                f.read(protected_tlv_info.tlv_tot - ImageTLVInfo.REGION_SIZE)
+            )
+
         tlv_info = ImageTLVInfo.load_from(f)
+        tlvs = ImageInfo.parse_tlvs(f.read(tlv_info.tlv_tot - ImageTLVInfo.REGION_SIZE))
 
-        tlvs: list[ImageTLVValue] = []
-        while f.tell() < tlv_offset + tlv_info.tlv_tot:
-            tlv_header = ImageTLV.load_from(f)
-            tlvs.append(ImageTLVValue(header=tlv_header, value=f.read(tlv_header.len)))
-
-        return ImageInfo(file=path, header=image_header, tlv_info=tlv_info, tlvs=tlvs)
+        return ImageInfo(
+            file=path,
+            header=image_header,
+            tlv_info=tlv_info,
+            tlvs=tlvs,
+            protected_tlv_info=protected_tlv_info,
+            protected_tlvs=protected_tlvs,
+        )
 
     @cached_property
     def _map_tlv_type_to_value(self) -> dict[int, ImageTLVValue]:
-        return {tlv.header.type: tlv for tlv in self.tlvs}
+        return {tlv.header.type: tlv for tlv in (*self.tlvs, *self.protected_tlvs)}
 
     def __str__(self) -> str:
         rep = (
@@ -347,6 +391,12 @@ class ImageInfo:
 
         for tlv in self.tlvs:
             rep += f"  {str(tlv)}\n"
+
+        if self.protected_tlv_info:
+            rep += f"{self.protected_tlv_info}\n"
+
+            for tlv in self.protected_tlvs:
+                rep += f"  {str(tlv)}\n"
 
         return rep
 
