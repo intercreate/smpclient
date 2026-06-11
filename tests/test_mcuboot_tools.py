@@ -45,7 +45,6 @@ class SIGNED_HEX(_HELLO_WORLD_SIGNED_BASE):
         "46d0c082b77b48a70af315db284beaf4cedae49a51f1aa935df934a2e14a6762773c43c926809cf0bd83b2e944c06d2666617083cdc7afbd358070e207759a6100997602e63313c2d3dcd68f7d8c04ab381751f3d96e7908076fee25b157c9d5922ddd2007c1a2f9104d1196dc7d702ee64b27db710f043d80c3e371e84682c0de402b7e3447a34900c71da3ba3bc7681c7cd28273b6e6f7c99bd731bd289d1710e0fbeb4619556ab0e4f343b09c394993e745acc450ef58589148d9daf8a63214d66ad09186503dd07a9c110f6c5cad2f3075838806c42c78c431454c947186e09f969f9564f1ba30771dc9df76985b2dbc47a7fe2bd2c2436b8c890b8e0de8"  # noqa
     )
 
-
 @pytest.mark.parametrize("image", [SIGNED_BIN, SIGNED_HEX])
 def test_ImageInfo(image: _ImageFileFixture) -> None:
     image_info = ImageInfo.load_file(str(image.PATH))
@@ -230,3 +229,25 @@ def test_tlv_value_str_unknown() -> None:
     tlv_header = ImageTLV(type=0x99, len=4)
     tlv_value = ImageTLVValue(header=tlv_header, value=b"\xde\xad\xbe\xef")
     assert str(tlv_value) == "0x99=deadbeef"
+
+def test_protected_tlv_parsing() -> None:
+    """Test that protected TLVs are parsed correctly when present."""
+
+    # tfm_s_signed.bin generated via https://docs.zephyrproject.org/latest/samples/tfm_integration/tfm_ipc/README.html#tfm_ipc
+    image_info = ImageInfo.load_file(str(Path("tests", "fixtures", "tf-m-9a4cb1a28", "tfm_s_signed.bin")))
+
+    assert image_info.protected_tlv_info is not None
+    assert len(image_info.protected_tlvs) == 3
+    assert len(image_info.tlvs) == 3
+
+    # imgtool should put these three regular TLVs in the image
+    image_info.get_tlv(IMAGE_TLV.SHA256)
+    image_info.get_tlv(IMAGE_TLV.KEYHASH)
+    image_info.get_tlv(IMAGE_TLV.ECDSA_SIG)
+
+    # and these three protected TLVs
+    image_info.get_tlv(IMAGE_TLV.SEC_CNT)
+    image_info.get_tlv(IMAGE_TLV.BOOT_RECORD)
+    image_info.get_tlv(IMAGE_TLV.DEPENDENCY)
+
+    
