@@ -232,7 +232,6 @@ def test_tlv_value_str_unknown() -> None:
 
 def test_protected_tlv_parsing() -> None:
     """Test that protected TLVs are parsed correctly when present."""
-
     # tfm_s_signed.bin generated via https://docs.zephyrproject.org/latest/samples/tfm_integration/tfm_ipc/README.html#tfm_ipc
     image_info = ImageInfo.load_file(str(Path("tests", "fixtures", "tf-m-9a4cb1a28", "tfm_s_signed.bin")))
 
