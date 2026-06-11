@@ -238,7 +238,7 @@ class ImageTLVInfo:
     REGION_SIZE = IMAGE_TLV_INFO_STRUCT.size
 
     @staticmethod
-    def loads(data: bytes, protected=False) -> 'ImageTLVInfo':
+    def loads(data: bytes, protected: bool = False) -> 'ImageTLVInfo':
         """Load an `ImageTLVInfo` from bytes."""
         info = ImageTLVInfo(*IMAGE_TLV_INFO_STRUCT.unpack(data))
 
@@ -260,7 +260,7 @@ class ImageTLVInfo:
         return info
 
     @staticmethod
-    def load_from(file: BytesIO | BufferedReader, protected=False) -> 'ImageTLVInfo':
+    def load_from(file: BytesIO | BufferedReader, protected: bool = False) -> 'ImageTLVInfo':
         """Load an `ImageTLVInfo` from a file."""
         return ImageTLVInfo.loads(file.read(IMAGE_TLV_INFO_STRUCT.size), protected=protected)
 
