@@ -237,22 +237,32 @@ class ImageTLVInfo:
 
     REGION_SIZE = IMAGE_TLV_INFO_STRUCT.size
 
-    def __post_init__(self) -> None:
-        """Do initial validation of the header."""
-        if self.magic not in (IMAGE_TLV_INFO_MAGIC, IMAGE_TLV_PROT_INFO_MAGIC):
+    @staticmethod
+    def loads(data: bytes, protected=False) -> 'ImageTLVInfo':
+        """Load an `ImageTLVInfo` from bytes."""
+        info = ImageTLVInfo(*IMAGE_TLV_INFO_STRUCT.unpack(data))
+
+        if protected and info.magic != IMAGE_TLV_PROT_INFO_MAGIC:
             raise MCUBootImageError(
-                f"TLV info magic is {hex(self.magic)}, expected {hex(IMAGE_TLV_INFO_MAGIC)} or {hex(IMAGE_TLV_PROT_INFO_MAGIC)}"
+                f"Expected protected TLV info magic {hex(IMAGE_TLV_PROT_INFO_MAGIC)}, got {hex(info.magic)}"
             )
 
-    @staticmethod
-    def loads(data: bytes) -> 'ImageTLVInfo':
-        """Load an `ImageTLVInfo` from bytes."""
-        return ImageTLVInfo(*IMAGE_TLV_INFO_STRUCT.unpack(data))
+        if not protected and info.magic != IMAGE_TLV_INFO_MAGIC:
+            raise MCUBootImageError(
+                f"Expected TLV info magic {hex(IMAGE_TLV_INFO_MAGIC)}, got {hex(info.magic)}"
+            )
+
+        if info.tlv_tot < ImageTLVInfo.REGION_SIZE:
+            raise MCUBootImageError(
+                f"TLV total size must be at least {ImageTLVInfo.REGION_SIZE}, got {info.tlv_tot}"
+            )
+
+        return info
 
     @staticmethod
-    def load_from(file: BytesIO | BufferedReader) -> 'ImageTLVInfo':
+    def load_from(file: BytesIO | BufferedReader, protected=False) -> 'ImageTLVInfo':
         """Load an `ImageTLVInfo` from a file."""
-        return ImageTLVInfo.loads(file.read(IMAGE_TLV_INFO_STRUCT.size))
+        return ImageTLVInfo.loads(file.read(IMAGE_TLV_INFO_STRUCT.size), protected=protected)
 
 
 @dataclass(frozen=True)
@@ -345,20 +355,18 @@ class ImageInfo:
         protected_tlvs: list[ImageTLVValue] = []
         protected_tlv_info: ImageTLVInfo | None = None
         if image_header.protect_tlv_size > 0:
-            protected_tlv_info = ImageTLVInfo.load_from(f)
-            if protected_tlv_info.magic != IMAGE_TLV_PROT_INFO_MAGIC:
+            protected_tlv_info = ImageTLVInfo.load_from(f, protected=True)
+
+            if protected_tlv_info.tlv_tot != image_header.protect_tlv_size:
                 raise MCUBootImageError(
-                    f"Protected TLV info magic is {hex(protected_tlv_info.magic)}, expected {hex(IMAGE_TLV_PROT_INFO_MAGIC)}"
+                    f"Protected TLV info total size {protected_tlv_info.tlv_tot} does not match header value {image_header.protect_tlv_size}"
                 )
+
             protected_tlvs = ImageInfo.parse_tlvs(
                 f.read(protected_tlv_info.tlv_tot - ImageTLVInfo.REGION_SIZE)
             )
 
         tlv_info = ImageTLVInfo.load_from(f)
-        if tlv_info.magic != IMAGE_TLV_INFO_MAGIC:
-            raise MCUBootImageError(
-                f"TLV info magic is {hex(tlv_info.magic)}, expected {hex(IMAGE_TLV_INFO_MAGIC)}"
-            )
         tlvs = ImageInfo.parse_tlvs(f.read(tlv_info.tlv_tot - ImageTLVInfo.REGION_SIZE))
 
         return ImageInfo(
