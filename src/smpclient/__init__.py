@@ -44,11 +44,12 @@ from types import TracebackType
 from typing import Final, TypeVar
 
 from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 from smp import header as smpheader
 from smp import message as smpmsg
 from typing_extensions import assert_never
 
-from smpclient.exceptions import SMPBadSequence, SMPUploadError
+from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
 from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
 from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
@@ -64,6 +65,51 @@ logger = logging.getLogger(__name__)
 
 TUploadRequest = TypeVar("TUploadRequest", ImageUploadWrite, FileUpload)
 """A single-shot upload request whose `data` field is filled to maximize throughput."""
+
+
+def _hexdump(frame: bytes) -> str:
+    """Format `frame` as an offset/hex/printable-ASCII dump for readable debug logging."""
+
+    def row(offset: int) -> str:
+        chunk: Final = frame[offset : offset + 16]
+        columns: Final = " ".join(f"{byte:02x}" for byte in chunk)
+        printable: Final = "".join(chr(byte) if 0x20 <= byte <= 0x7E else "." for byte in chunk)
+        return f"\t{offset:04x}  {columns:<47}  {printable}"
+
+    return "\n".join(row(offset) for offset in range(0, len(frame), 16))
+
+
+def _format_validation_error(error: ValidationError) -> str:
+    def row(detail: ErrorDetails) -> str:
+        location: Final = ".".join(str(part) for part in detail["loc"])
+        return f"\t\t[{detail['type']}] {detail['msg']}: {location}; input: {detail['input']}"
+
+    return "\n".join(row(detail) for detail in error.errors())
+
+
+def _validation_failure(
+    header: smpheader.Header,
+    frame: bytes,
+    errors: tuple[tuple[type[smpmsg.Response], ValidationError], ...],
+) -> tuple[str, str]:
+    """Return the `(summary, details)` describing why `frame` matched none of `errors`' types."""
+    summary: Final = (
+        "\nFrame could not be parsed as any of:\n"
+        f"\t{[response.__name__ for response, _ in errors]}\n"
+    )
+    details: Final = "\n".join(
+        (
+            f"Header:\n\t{header}",
+            f"Frame:\n{_hexdump(frame)}",
+            "Errors:",
+            *(
+                f"\tCould not be parsed as {response.__name__} because "
+                f"{len(error.errors())} error(s):\n{_format_validation_error(error)}"
+                for response, error in errors
+            ),
+        )
+    )
+    return summary, details
 
 
 class SMPClient:
@@ -137,7 +183,7 @@ class SMPClient:
         Raises:
             TimeoutError: if the request times out
             SMPBadSequence: if the response sequence does not match the request sequence
-            ValidationError: if the response cannot be parsed as a Response or Error
+            SMPValidationException: if the response cannot be parsed as a Response or Error
 
         Examples:
         Usage:
@@ -194,23 +240,23 @@ class SMPClient:
                 f"Bad sequence {header.sequence}, expected {request.header.sequence}"
             )
 
+        errors: list[tuple[type[smpmsg.Response], ValidationError]] = []
         try:
-            return request._Response.loads(frame)  # type: ignore
-        except ValidationError:
-            pass
+            return request._Response.loads(frame)  # type: ignore[return-value]
+        except ValidationError as error:
+            errors.append((request._Response, error))
         try:
             return request._ErrorV1.loads(frame)
-        except ValidationError:
-            pass
+        except ValidationError as error:
+            errors.append((request._ErrorV1, error))
         try:
             return request._ErrorV2.loads(frame)
-        except ValidationError:
-            error_message = (
-                f"Response could not by parsed as one of {request._Response}, "
-                f"{request._ErrorV1}, or {request._ErrorV2}. {header=} {frame=}"
-            )
-            logger.error(error_message)
-            raise ValidationError(error_message)
+        except ValidationError as error:
+            errors.append((request._ErrorV2, error))
+
+        summary, details = _validation_failure(header, frame, tuple(errors))
+        logger.error(summary + details)
+        raise SMPValidationException(summary, details) from None
 
     async def upload(
         self,
