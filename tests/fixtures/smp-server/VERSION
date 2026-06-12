@@ -1,0 +1,19 @@
+# Vendored SMP server fixtures
+#
+# Prebuilt Zephyr SMP servers used by the integration suite (tests/integration/).
+# Source: https://github.com/intercreate/smp-server-fixtures
+#
+# Pinned release (permanent, per-commit — NOT the rolling `latest` tag, which
+# can drift / be replaced):
+#   tag:      0eae053d            https://github.com/intercreate/smp-server-fixtures/releases/tag/0eae053d
+#   commit:   0eae053d6ae74cbbc28237d333737387ba9db899
+#   zephyr:   4.4.0
+#
+# The integration harness builds its fixture registry from the vendored
+# `manifest.json` (also from this release) and verifies each artifact against
+# `SHA256SUMS` before launch; see tests/integration/servers.py. Only the subset
+# of artifacts actually committed here become live fixtures — the manifest lists
+# the full release so adding one is just `gh release download <tag> --pattern ...`.
+#
+# To bump: re-download the artifacts + SHA256SUMS + manifest.json from a newer
+# per-commit release and update the `tag` above.

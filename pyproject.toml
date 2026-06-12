@@ -79,8 +79,9 @@ format = "ruff format ."
 lint = "ruff check . && pydoclint src/smpclient"
 fix = "ruff check --fix . && ruff format ."
 typecheck = "mypy ."
-test = "pytest --maxfail=1"
-coverage = "pytest --cov --cov-report=xml --cov-report=term-missing"
+test = "pytest --maxfail=1 --ignore=tests/integration"
+test-integration = "pytest tests/integration --log-file=integration-tests.log --log-file-level=DEBUG --log-cli-level=INFO -o log_cli=true"
+coverage = "pytest --cov --cov-report=xml --cov-report=term-missing --ignore=tests/integration"
 all = "task format && task lint && task typecheck && task test"
 matrix = """
     UV_PROJECT_ENVIRONMENT=.venv-3.10 uv run --python 3.10 task all &&
@@ -118,10 +119,14 @@ check-yield-types = false
 [tool.pytest.ini_options]
 norecursedirs = ["dutfirmware/*", ".claude/*"]
 filterwarnings = ["ignore:The --rsyncdir:DeprecationWarning"]
+markers = [
+"integration: end-to-end tests against real SMP servers (Linux only); see tests/integration/",
+]
 
 [tool.coverage.run]
 source = ["smpclient", "tests"]
 branch = true
+omit = ["tests/integration/*"]
 
 [tool.coverage.report]
 fail_under = 91
