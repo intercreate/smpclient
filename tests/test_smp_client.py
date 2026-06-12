@@ -31,7 +31,7 @@ from smp.os_management import (
 )
 
 from smpclient import SMPClient
-from smpclient.exceptions import SMPBadSequence, SMPUploadError
+from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
 from smpclient.generics import error, error_v1, error_v2, success
 from smpclient.requests.file_management import FileDownload, FileUpload
 from smpclient.requests.image_management import ImageUploadWrite
@@ -163,6 +163,26 @@ async def test_request() -> None:
         assert rep.err.rc == OS_MGMT_RET_RC.UNKNOWN
     else:
         raise AssertionError(f"Unexpected response type: {type(rep)}")
+
+
+@pytest.mark.asyncio
+async def test_request_unparseable_frame() -> None:
+    """A frame matching none of the Response/ErrorV1/ErrorV2 types raises with diagnostics."""
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    req = ResetWrite()
+    # A frame from a different group/command can be parsed as none of `ResetWrite`'s types.
+    m.receive.return_value = ImageUploadWriteResponse(sequence=req.header.sequence, off=0).BYTES
+
+    with pytest.raises(SMPValidationException) as exc_info:
+        await s.request(req)
+
+    assert req._Response.__name__ in exc_info.value.msg
+    assert "Header:" in exc_info.value.details
+    assert "Frame:" in exc_info.value.details
+    assert req._ErrorV1.__name__ in exc_info.value.details
+    assert req._ErrorV2.__name__ in exc_info.value.details
 
 
 @pytest.mark.asyncio

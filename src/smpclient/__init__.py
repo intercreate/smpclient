@@ -41,9 +41,10 @@ import traceback
 from collections.abc import AsyncIterator
 from hashlib import sha256
 from types import TracebackType
-from typing import Final, Type, TypeVar
+from typing import Final, TypeVar
 
 from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 from smp import header as smpheader
 from smp import message as smpmsg
 from typing_extensions import assert_never
@@ -66,44 +67,49 @@ TUploadRequest = TypeVar("TUploadRequest", ImageUploadWrite, FileUpload)
 """A single-shot upload request whose `data` field is filled to maximize throughput."""
 
 
-def _hexdump_ascii(data: bytes) -> str:
-    """Python 3.12+ has builtint hexdump, prior to that we need to reinvent the wheel."""
-    lines = []
-    for i in range(0, len(data), 16):
-        chunk = data[i : i + 16]
-        hexpart = " ".join(f"{b:02x}" for b in chunk)
-        ascpart = "".join(chr(b) if 32 <= b <= 126 else "." for b in chunk)
-        lines.append(f"\t{i:04x}  {hexpart:<47}  {ascpart}")
-    return "\n".join(lines)
+def _hexdump(frame: bytes) -> str:
+    """Format `frame` as an offset/hex/printable-ASCII dump for readable debug logging."""
+
+    def row(offset: int) -> str:
+        chunk: Final = frame[offset : offset + 16]
+        columns: Final = " ".join(f"{byte:02x}" for byte in chunk)
+        printable: Final = "".join(chr(byte) if 0x20 <= byte <= 0x7E else "." for byte in chunk)
+        return f"\t{offset:04x}  {columns:<47}  {printable}"
+
+    return "\n".join(row(offset) for offset in range(0, len(frame), 16))
 
 
-def _prettify_validation_error(exc: ValidationError) -> str:
-    lines: list[str] = []
-    for err in exc.errors():
-        err_type = err["type"]
-        msg = err["msg"]
-        loc = ".".join(str(x) for x in err["loc"])
-        lines.append(f"\t\t[{err_type}] {msg}: {loc}; input: {err['input']})")
-    return "\n".join(lines)
+def _format_validation_error(error: ValidationError) -> str:
+    def row(detail: ErrorDetails) -> str:
+        location: Final = ".".join(str(part) for part in detail["loc"])
+        return f"\t\t[{detail['type']}] {detail['msg']}: {location}; input: {detail['input']}"
+
+    return "\n".join(row(detail) for detail in error.errors())
 
 
-def _create_smp_validation_exception(
+def _validation_failure(
     header: smpheader.Header,
     frame: bytes,
-    errs: dict[type[smpmsg.Response], ValidationError],
-) -> SMPValidationException:
-    msg: str = (
-        f"\nFrame could not be parsed as any of:\n\t{[str(t.__name__) for t in errs.keys()]}\n"
+    errors: tuple[tuple[type[smpmsg.Response], ValidationError], ...],
+) -> tuple[str, str]:
+    """Return the `(summary, details)` describing why `frame` matched none of `errors`' types."""
+    summary: Final = (
+        "\nFrame could not be parsed as any of:\n"
+        f"\t{[response.__name__ for response, _ in errors]}\n"
     )
-
-    details = ""
-    details += f"Header:\n\t{header}\n"
-    details += f"Frame:\n{_hexdump_ascii(frame)}\n"
-    details += "Errors:\n"
-    for cls, exc in errs.items():
-        details += f"\tCould not be parsed as {cls.__name__} because {len(exc.errors())} errors:\n{_prettify_validation_error(exc)}\n"
-
-    return SMPValidationException(msg=msg, details=details)
+    details: Final = "\n".join(
+        (
+            f"Header:\n\t{header}",
+            f"Frame:\n{_hexdump(frame)}",
+            "Errors:",
+            *(
+                f"\tCould not be parsed as {response.__name__} because "
+                f"{len(error.errors())} error(s):\n{_format_validation_error(error)}"
+                for response, error in errors
+            ),
+        )
+    )
+    return summary, details
 
 
 class SMPClient:
@@ -234,22 +240,23 @@ class SMPClient:
                 f"Bad sequence {header.sequence}, expected {request.header.sequence}"
             )
 
-        errs: dict[Type, ValidationError] = {}
+        errors: list[tuple[type[smpmsg.Response], ValidationError]] = []
         try:
-            return request._Response.loads(frame)  # type: ignore
-        except ValidationError as e:
-            errs[request._Response] = e
+            return request._Response.loads(frame)  # type: ignore[return-value]
+        except ValidationError as error:
+            errors.append((request._Response, error))
         try:
             return request._ErrorV1.loads(frame)
-        except ValidationError as e:
-            errs[request._ErrorV1] = e
+        except ValidationError as error:
+            errors.append((request._ErrorV1, error))
         try:
             return request._ErrorV2.loads(frame)
-        except ValidationError as e:
-            errs[request._ErrorV2] = e
-            exc = _create_smp_validation_exception(header, frame, errs)
-            logger.error(exc.msg + exc.details)
-            raise exc from None
+        except ValidationError as error:
+            errors.append((request._ErrorV2, error))
+
+        summary, details = _validation_failure(header, frame, tuple(errors))
+        logger.error(summary + details)
+        raise SMPValidationException(summary, details) from None
 
     async def upload(
         self,
