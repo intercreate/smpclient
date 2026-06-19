@@ -18,10 +18,10 @@ fix = Sequential(
 
 typecheck = Task("mypy .")
 
-test = Task("pytest --maxfail=1 --ignore=tests/integration")
+test = Task("pytest -v --ignore=tests/integration")
 
 test_integration = Task(
-    "pytest tests/integration --log-file=integration-tests.log "
+    "pytest tests/integration -v --log-file=integration-tests.log "
     "--log-file-level=DEBUG --log-cli-level=INFO -o log_cli=true"
 )
 
