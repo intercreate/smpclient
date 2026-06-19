@@ -6,7 +6,7 @@ from camas import Config, Parallel, Sequential, Task
 
 format = Task("ruff format .", mutates=True)
 
-lint = Sequential(
+lint = Parallel(
     Task("ruff check ."),
     Task("pydoclint src/smpclient"),
 )
@@ -35,15 +35,9 @@ all = Sequential(format, check)
 
 _PYTHONS = (Path(__file__).parent / ".python-version").read_text().split()
 
-matrix = Sequential(
-    *(
-        Task(
-            f"uv run --python {v} camas all",
-            name=f"all-{v}",
-            env={"UV_PROJECT_ENVIRONMENT": f".venv-{v}"},
-        )
-        for v in _PYTHONS
-    )
+matrix = Parallel(
+    Task("uv run --python {PY} camas check", env={"UV_PROJECT_ENVIRONMENT": ".venv-{PY}"}),
+    matrix={"PY": tuple(_PYTHONS)},
 )
 
 _ = Config(default_task=all, github_task=check)
