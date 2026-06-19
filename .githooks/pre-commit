@@ -2,4 +2,4 @@
 
 set -eo pipefail
 
-uv run task fix
+uv run camas --under 2s
