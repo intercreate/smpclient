@@ -139,9 +139,11 @@ putting ~1.37× `buf_size` encoded bytes on the wire, across the buffer-size mat
 
 > Assumes that you've already [setup your development environment](#development-environment-setup).
 
+Tasks are defined in [`tasks.py`](tasks.py) and run with [camas](https://github.com/JPHutchins/camas) — the same definitions drive local development and CI, so running a task locally reproduces CI exactly. Run `uv run camas --list` to see every task.
+
 1. run `uv sync` when pulling in new changes
-2. run `uv run task fix` after making changes (fast)
-3. run `uv run task all` after making changes (thorough)
+2. run `uv run camas fix` after making changes (fast)
+3. run `uv run camas all` after making changes (thorough)
 4. add library dependencies with `uv`:
    ```
    uv add <my_new_dependency>
@@ -152,7 +154,7 @@ putting ~1.37× `buf_size` encoded bytes on the wire, across the buffer-size mat
    ```
 6. run tests for all supported python versions:
    ```
-   uv run task matrix
+   uv run camas matrix
    ```
 
 ## Development Environment Setup
@@ -170,7 +172,7 @@ uv sync
 ### Verify Your Setup
 
 ```
-uv run task all
+uv run camas all
 ```
 
 ### Enable the githooks

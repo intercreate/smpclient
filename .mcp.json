@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "camas": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "camas",
+        "mcp",
+        "--rich"
+      ]
+    }
+  }
+}

@@ -20,11 +20,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
 
-      - run: uv run --python ${{ matrix.python-version }} task lint
-
-      - run: uv run --python ${{ matrix.python-version }} task typecheck
-
-      - run: uv run --python ${{ matrix.python-version }} task test
+      - run: uv run --python ${{ matrix.python-version }} camas
 
       - run: uv build
 
@@ -130,7 +126,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
 
-      - run: uv run task coverage
+      - run: uv run camas coverage
 
   integration:
     name: integration (native_sim + qemu)
@@ -147,7 +143,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-system-arm libc6:i386
 
-      - run: uv run task test-integration
+      - run: uv run camas test-integration
 
       - name: Upload integration test logs
         if: always()
