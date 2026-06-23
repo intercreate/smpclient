@@ -716,5 +716,30 @@
     "target": "qemu_cortex_m0",
     "transport": "serial",
     "udp_port": null
+  },
+  {
+    "artifact": "zephyr_f33aa2bc4a43_smp_server_c8f44c41_mps2_an385_serial_recovery_raw.hex",
+    "buf_count": 4,
+    "buf_size": 384,
+    "config": "serial_recovery_raw",
+    "groups": [
+      "os",
+      "img",
+      "stat",
+      "settings",
+      "fs",
+      "shell",
+      "enum",
+      "zbasic"
+    ],
+    "ip_family": null,
+    "line_length_max": 128,
+    "mcuboot": true,
+    "qemu_cmd": "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -chardev socket,id=con,host=127.0.0.1,port=<PORT>,server=on,wait=off -serial chardev:con -serial null -monitor none -device loader,file=zephyr_f33aa2bc4a43_smp_server_c8f44c41_mps2_an385_serial_recovery_raw.hex -device loader,file=zephyr_f33aa2bc4a43_smp_server_c8f44c41_mps2_an385_serial_recovery_raw.signed.bin,addr=0x20050000",
+    "run": null,
+    "serial_recovery": true,
+    "target": "mps2_an385",
+    "transport": "serial_raw",
+    "udp_port": null
   }
 ]

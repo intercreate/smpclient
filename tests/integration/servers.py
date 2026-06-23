@@ -35,11 +35,14 @@ from pathlib import Path
 from typing import Final, Literal, NamedTuple
 
 import serial as pyserial
-from smp import packet as smppacket
 from typing_extensions import override
 
 from smpclient.transport import SMPTransportDisconnected
-from smpclient.transport.serial import FragmentationStrategy, SMPSerialTransport
+from smpclient.transport.serial import (
+    FragmentationStrategy,
+    SMPSerialRawTransport,
+    SMPSerialTransport,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -224,12 +227,50 @@ def _load_fixtures() -> tuple[ServerFixture, ...]:
 FIXTURES: Final = _load_fixtures()
 
 
+async def _connect_socket_chardev(
+    transport: SMPSerialTransport | SMPSerialRawTransport, url: str, timeout_s: float
+) -> None:
+    """Back `transport` with an emulator's `socket://` serial chardev, retrying until it accepts.
+
+    Replaces the `Final` pyserial `_conn` with a socket-backed `Serial`, sidestepping the
+    PTY held-byte quirk of an emulated UART.  Shared by the encoded and raw socket
+    transports, which differ only in their on-wire framing.
+
+    Args:
+        transport: the socket-backed serial transport whose `_conn` to (re)bind.
+        url: the emulator's `socket://host:port` chardev URL.
+        timeout_s: how long to keep retrying before the socket must have accepted.
+
+    Raises:
+        TimeoutError: if the emulator's serial socket never accepts within `timeout_s`.
+    """
+    transport._reset_state()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
+    while True:
+        try:
+            conn = pyserial.serial_for_url(url, timeout=0, write_timeout=0)
+        except (OSError, pyserial.SerialException) as e:
+            if loop.time() >= deadline:
+                raise TimeoutError(f"emulator serial socket {url} never accepted: {e}")
+            await asyncio.sleep(transport._CONNECTION_RETRY_INTERVAL_S)
+            continue
+        # `_conn` is `Final` on the base class; replace it for the socket backend.
+        object.__setattr__(transport, "_conn", conn)
+        # A socket chardev has no host-side TX buffer; pyserial omits `out_waiting` for it.
+        # Supply 0 so the inherited `send`'s `_drain_tx` poll is a no-op (nothing to drain).
+        object.__setattr__(conn, "out_waiting", 0)
+        logger.debug(f"Connected to {url}")
+        return
+
+
 class QemuSocketSerialTransport(SMPSerialTransport):
     """`SMPSerialTransport` whose byte pipe is a TCP socket (an emulator's serial chardev).
 
-    Identical SMP framing and fragmentation to `SMPSerialTransport`; only the
-    underlying connection differs, sidestepping the PTY held-byte quirk of an
-    emulated UART.  The socket has no `out_waiting`, so `send()` omits that drain.
+    Only `connect` differs -- it binds a `socket://` chardev instead of a local serial
+    port, sidestepping the PTY held-byte quirk of an emulated UART.  Framing,
+    fragmentation, `send`, and `receive` are inherited unchanged, so the suite exercises
+    the real transport rather than a copy of it.
     """
 
     def __init__(  # noqa: DOC301
@@ -245,34 +286,24 @@ class QemuSocketSerialTransport(SMPSerialTransport):
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
-        self._reset_state()
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout_s
-        while True:
-            try:
-                conn = pyserial.serial_for_url(self._url, timeout=0, write_timeout=0)
-            except (OSError, pyserial.SerialException) as e:
-                if loop.time() >= deadline:
-                    raise TimeoutError(f"emulator serial socket {self._url} never accepted: {e}")
-                await asyncio.sleep(SMPSerialTransport._CONNECTION_RETRY_INTERVAL_S)
-                continue
-            # `_conn` is `Final` on the base class; replace it for the socket backend.
-            object.__setattr__(self, "_conn", conn)
-            logger.debug(f"Connected to {self._url}")
-            return
+        await _connect_socket_chardev(self, self._url, timeout_s)
+
+
+class QemuSocketSerialRawTransport(SMPSerialRawTransport):
+    """`SMPSerialRawTransport` whose byte pipe is a TCP socket (an emulator's serial chardev).
+
+    The raw counterpart of `QemuSocketSerialTransport`: only `connect` differs; the raw
+    `[header][payload]` framing, `send`, and `receive` are inherited from
+    `SMPSerialRawTransport` unchanged.
+    """
+
+    def __init__(self, url: str, mtu: int = 384) -> None:  # noqa: DOC301
+        super().__init__(mtu=mtu)
+        self._url: Final = url
 
     @override
-    async def send(self, data: bytes) -> None:
-        if len(data) > self.max_unencoded_size:
-            raise ValueError(
-                f"Data size {len(data)} exceeds maximum unencoded size {self.max_unencoded_size}"
-            )
-        try:
-            for packet in smppacket.encode(data, line_length=self._line_length):
-                self._conn.write(packet)
-        except pyserial.SerialException as e:
-            raise SMPTransportDisconnected(f"{self.__class__.__name__} disconnected: {e}")
-        await asyncio.sleep(0)
+    async def connect(self, address: str, timeout_s: float) -> None:
+        await _connect_socket_chardev(self, self._url, timeout_s)
 
 
 def _verify_sha256(artifact: Path) -> str | None:

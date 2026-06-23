@@ -17,8 +17,6 @@ reassembly across very different transaction sizes:
 from __future__ import annotations
 
 import asyncio
-import re
-from pathlib import Path
 
 import pytest
 from smp.os_management import BootMode
@@ -33,6 +31,7 @@ from tests.integration.conftest import (
     assert_chunks_maximized,
     connected,
     fixture_params,
+    signed_image,
     upload_image,
 )
 from tests.integration.servers import QemuSocketSerialTransport, ServerFixture, SocketSerialEndpoint
@@ -45,10 +44,6 @@ _BUFFER_CONFIGS = [
 ]
 
 
-def _signed_image(fixture: ServerFixture) -> Path:
-    return fixture.path.with_name(re.sub(r"\.(merged\.)?hex$", ".signed.bin", fixture.artifact))
-
-
 # Only the canonical recovery image: the `serial_recovery_buf<N>` matrix varies the
 # *app's* netbuf, but they all drop into the same MCUboot recovery server (same line
 # buffers), so re-testing recovery on each adds nothing. Their buffer sizes are
@@ -59,7 +54,7 @@ async def test_upload_to_mcuboot_recovery_smp_server(
     fixture: ServerFixture,
     fragmentation: BufferSize | None,
 ) -> None:
-    signed = _signed_image(fixture).read_bytes()
+    signed = signed_image(fixture).read_bytes()
 
     async with connected(fixture) as cs:
         # The app serves the img group before we drop into recovery.
