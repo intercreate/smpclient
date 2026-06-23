@@ -29,7 +29,7 @@ FRAME_OVERHEAD = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.siz
 
 @pytest.fixture(autouse=True)
 def mock_serial() -> Generator[None, Any, None]:
-    with patch("smpclient.transport.serial.Serial"):
+    with patch("smpclient.transport.serial.common.Serial"):
         yield
 
 

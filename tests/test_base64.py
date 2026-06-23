@@ -3,7 +3,7 @@
 import random
 from base64 import b64encode
 
-from smpclient.transport.serial import _base64_cost, _base64_max
+from smpclient.transport.serial.encoded import _base64_cost, _base64_max
 
 if not hasattr(random, 'randbytes'):
     from os import urandom

@@ -25,7 +25,7 @@ from smpclient.exceptions import SMPBadSequence
 from smpclient.generics import success
 from smpclient.requests.os_management import EchoWrite
 from smpclient.transport import SMPTransport
-from smpclient.transport.serial import SMPSerialTransport
+from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.udp import SMPUDPTransport
 from tests.integration.servers import (
     FIXTURES,
@@ -72,10 +72,18 @@ _SMP_UDP_DEFAULT_PORT = 1337
 """`SMPUDPTransport.connect`'s default port; `SMPClient.connect` cannot override it."""
 
 
-def _build_transport(endpoint: Endpoint) -> tuple[SMPTransport, str]:
+def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> tuple[SMPTransport, str]:
     match endpoint:
         case PtyEndpoint(pty):
-            return SMPSerialTransport(), pty
+            match fixture.transport:
+                case "serial" | "shell":
+                    return SMPSerialTransport(), pty
+                case "serial_raw":
+                    return SMPSerialRawTransport(), pty
+                case "udp":
+                    pytest.fail("UDP fixtures do not present as a PTY serial endpoint")
+                case _ as unreachable:
+                    assert_never(unreachable)
         case SocketSerialEndpoint(url):
             return QemuSocketSerialTransport(url), url
         case UdpEndpoint(host, port):
@@ -159,7 +167,7 @@ def assert_chunks_maximized(
 async def connected(fixture: ServerFixture) -> AsyncIterator[ConnectedServer]:
     """Launch `fixture`, connect an `SMPClient`, and wait until the server answers."""
     async with serve(fixture) as endpoint:
-        transport, address = _build_transport(endpoint)
+        transport, address = _build_transport(fixture, endpoint)
         client = SMPClient(transport, address)
         await client.connect()
         await _wait_until_answering(client)

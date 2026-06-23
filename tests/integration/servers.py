@@ -112,11 +112,6 @@ class ServerFixture(NamedTuple):
         return self.qemu_cmd is not None
 
     @property
-    def client_supported(self) -> bool:
-        """`False` when smpclient has no transport that speaks this server's protocol."""
-        return self.transport != "serial_raw"
-
-    @property
     def params_supported(self) -> bool:
         """`False` for builds with the MCUmgr params command disabled (`noparams`)."""
         return "noparams" not in self.config
@@ -156,8 +151,6 @@ class ServerFixture(NamedTuple):
 
     def unavailable_reason(self) -> str | None:
         """Return why this fixture cannot run on this host, or `None` if it can."""
-        if not self.client_supported:
-            return "smpclient has no raw-UART (CONFIG_MCUMGR_TRANSPORT_RAW_UART) transport yet"
         if platform.system() != "Linux":
             return "SMP server fixtures run on Linux only"
         if not self.path.is_file():
