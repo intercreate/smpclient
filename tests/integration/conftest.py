@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import NamedTuple
@@ -110,16 +110,45 @@ def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> tuple[SMPTra
             assert_never(endpoint)
 
 
-async def _wait_until_answering(client: SMPClient, *, attempts: int = 30) -> None:
-    """Round-trip an echo until the server answers, tolerating boot-time stalls."""
+async def _poll_until_answering(
+    client: SMPClient,
+    probe: Callable[[SMPClient], Awaitable[bool]],
+    *,
+    attempts: int = 30,
+    interval_s: float = 0.1,
+) -> bool:
+    """Retry `probe(client)` until it returns `True`, tolerating boot-time stalls.
+
+    A server still booting answers with a timeout or an out-of-sequence frame; both are
+    swallowed between attempts. Returns whether the probe succeeded within `attempts`.
+
+    Args:
+        client: the connected client to probe.
+        probe: an awaitable that issues one request and reports whether it answered.
+        attempts: how many times to probe before giving up.
+        interval_s: how long to wait after a stalled attempt.
+
+    Returns:
+        `True` once the probe answered, `False` if it never did.
+    """
     for _ in range(attempts):
         try:
-            response = await client.request(EchoWrite(d=_READY_PROBE), timeout_s=1.0)
-            if success(response) and response.r == _READY_PROBE:
-                return
+            if await probe(client):
+                return True
         except (TimeoutError, SMPBadSequence):
-            await asyncio.sleep(0.1)
-    raise TimeoutError(f"{client.address} never answered an echo")
+            await asyncio.sleep(interval_s)
+    return False
+
+
+async def _wait_until_answering(client: SMPClient, *, attempts: int = 30) -> None:
+    """Round-trip an echo until the server answers, tolerating boot-time stalls."""
+
+    async def echoes(c: SMPClient) -> bool:
+        response = await c.request(EchoWrite(d=_READY_PROBE), timeout_s=1.0)
+        return success(response) and response.r == _READY_PROBE
+
+    if not await _poll_until_answering(client, echoes, attempts=attempts):
+        raise TimeoutError(f"{client.address} never answered an echo")
 
 
 def signed_image(fixture: ServerFixture) -> Path:
@@ -226,16 +255,13 @@ async def reboot_into_recovery(
     await app_client.disconnect()
     await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
 
+    async def lists_images(c: SMPClient) -> bool:
+        return success(await c.request(ImageStatesRead(), timeout_s=1.0))
+
     bootloader = SMPClient(transport, address)
     await bootloader.connect()
     try:
-        for _ in range(30):
-            try:
-                if success(await bootloader.request(ImageStatesRead(), timeout_s=1.0)):
-                    break
-            except (TimeoutError, SMPBadSequence):
-                await asyncio.sleep(0.2)
-        else:
+        if not await _poll_until_answering(bootloader, lists_images, interval_s=0.2):
             pytest.fail("MCUboot serial recovery SMP server never answered")
         yield bootloader
     finally:
