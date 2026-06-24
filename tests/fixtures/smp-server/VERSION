@@ -10,10 +10,23 @@
 #   zephyr:   4.4.0
 #
 # The integration harness builds its fixture registry from the vendored
-# `manifest.json` (also from this release) and verifies each artifact against
-# `SHA256SUMS` before launch; see tests/integration/servers.py. Only the subset
-# of artifacts actually committed here become live fixtures — the manifest lists
-# the full release so adding one is just `gh release download <tag> --pattern ...`.
+# `manifest.json` and verifies each artifact against `SHA256SUMS` before launch;
+# see tests/integration/servers.py. Only the subset of artifacts actually
+# committed here become live fixtures — the manifest lists the full release so
+# adding one is just `gh release download <tag> --pattern ...`.
+#
+# Additional pin (one fixture only) — `serial_recovery_raw`:
+#   tag:      c8f44c41            https://github.com/intercreate/smp-server-fixtures/releases/tag/c8f44c41
+#   commit:   c8f44c4179... (smp-server-fixtures); zephyr: main f33aa2bc (post-4.4.0)
+#
+# MCUboot's raw (non-console) serial-recovery protocol (BOOT_SERIAL_RAW_PROTOCOL,
+# mcu-tools/mcuboot#2755) merged after 4.4.0's MCUboot pin, so this one fixture is
+# built from a post-4.4.0 Zephyr `main` commit. Its artifact name carries the
+# c8f44c41 release hash and so does not collide with the 0eae053d set. `manifest.json`
+# and `SHA256SUMS` are therefore a local merge: the 0eae053d baseline plus this
+# fixture's manifest entry + digests (the `manifest.json` digest line was refreshed
+# to match the merge). When 0eae053d's Zephyr next includes #2755, re-vendor the whole
+# set from a single release and drop this note.
 #
 # To bump: re-download the artifacts + SHA256SUMS + manifest.json from a newer
 # per-commit release and update the `tag` above.

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import NamedTuple
 
 import pytest
@@ -31,6 +33,7 @@ from tests.integration.servers import (
     FIXTURES,
     Endpoint,
     PtyEndpoint,
+    QemuSocketSerialRawTransport,
     QemuSocketSerialTransport,
     ServerFixture,
     SocketSerialEndpoint,
@@ -85,7 +88,15 @@ def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> tuple[SMPTra
                 case _ as unreachable:
                     assert_never(unreachable)
         case SocketSerialEndpoint(url):
-            return QemuSocketSerialTransport(url), url
+            match fixture.transport:
+                case "serial" | "shell":
+                    return QemuSocketSerialTransport(url), url
+                case "serial_raw":
+                    return QemuSocketSerialRawTransport(url), url
+                case "udp":
+                    pytest.fail("UDP fixtures do not present as a socket serial endpoint")
+                case _ as unreachable:
+                    assert_never(unreachable)
         case UdpEndpoint(host, port):
             if port != _SMP_UDP_DEFAULT_PORT:
                 pytest.skip(
@@ -107,6 +118,21 @@ async def _wait_until_answering(client: SMPClient, *, attempts: int = 30) -> Non
         except (TimeoutError, SMPBadSequence):
             await asyncio.sleep(0.1)
     raise TimeoutError(f"{client.address} never answered an echo")
+
+
+def signed_image(fixture: ServerFixture) -> Path:
+    """The signed image paired with `fixture` -- its `.hex` artifact's sibling `.signed.bin`.
+
+    This is the DFU payload an img-group server accepts, and what an MCUboot serial-recovery
+    server reassembles.
+
+    Args:
+        fixture: the fixture whose paired signed image to locate.
+
+    Returns:
+        The path to the fixture's signed image.
+    """
+    return fixture.path.with_name(re.sub(r"\.(merged\.)?hex$", ".signed.bin", fixture.artifact))
 
 
 async def upload_image(
