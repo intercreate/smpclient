@@ -20,12 +20,14 @@ from typing import NamedTuple
 import pytest
 import pytest_asyncio
 from _pytest.mark.structures import ParameterSet
+from smp.os_management import BootMode
 from typing_extensions import assert_never
 
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence
 from smpclient.generics import success
-from smpclient.requests.os_management import EchoWrite
+from smpclient.requests.image_management import ImageStatesRead
+from smpclient.requests.os_management import EchoWrite, ResetWrite
 from smpclient.transport import SMPTransport
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.udp import SMPUDPTransport
@@ -136,7 +138,11 @@ def signed_image(fixture: ServerFixture) -> Path:
 
 
 async def upload_image(
-    client: SMPClient, image: bytes, *, max_bytes: int | None = None
+    client: SMPClient,
+    image: bytes,
+    *,
+    max_bytes: int | None = None,
+    subsequent_timeout_s: float = 5.0,
 ) -> list[int]:
     """Upload `image` via the img group, asserting monotonic offsets.
 
@@ -148,12 +154,16 @@ async def upload_image(
         client: a connected `SMPClient`.
         image: the signed image bytes to upload.
         max_bytes: stop early once the offset reaches this many bytes.
+        subsequent_timeout_s: per-chunk response timeout after the first chunk. Raise it
+            for slower servers (MCUboot recovery erases flash as it writes).
 
     Returns:
         The offsets yielded by the upload, in order.
     """
     offsets: list[int] = []
-    async for offset in client.upload(image, first_timeout_s=30.0, subsequent_timeout_s=5.0):
+    async for offset in client.upload(
+        image, first_timeout_s=30.0, subsequent_timeout_s=subsequent_timeout_s
+    ):
         assert offset >= (offsets[-1] if offsets else 0), "offsets must be non-decreasing"
         offsets.append(offset)
         if max_bytes is not None and offset >= min(max_bytes, len(image)):
@@ -187,6 +197,49 @@ def assert_chunks_maximized(
         f"largest chunk {biggest}B under-fills the {max_unencoded_size}B buffer by "
         f">{overhead_budget}B — link throughput not maximized"
     )
+
+
+RECOVERY_UPLOAD_TIMEOUT_S = 15.0
+"""Per-chunk upload timeout for MCUboot recovery, which erases flash as it writes -- more
+generous than the app-mode default to absorb erase latency under emulation and host load."""
+
+
+@asynccontextmanager
+async def reboot_into_recovery(
+    app_client: SMPClient,
+    transport: SMPSerialTransport | SMPSerialRawTransport,
+    address: str,
+) -> AsyncIterator[SMPClient]:
+    """Reboot the device into MCUboot serial recovery and yield a recovery-connected client.
+
+    The app at `app_client` reboots via `os reset boot_mode=BOOTLOADER` (smp 4.1.0);
+    `transport` then connects to the bootloader on the same serial endpoint, probed until
+    it answers (the recovery server speaks the img group, not echo).
+    """
+    assert success(await app_client.request(ImageStatesRead()))
+    try:
+        assert success(
+            await app_client.request(ResetWrite(boot_mode=BootMode.BOOTLOADER), timeout_s=3.0)
+        )
+    except TimeoutError:
+        pass  # some servers reset before sending the response
+    await app_client.disconnect()
+    await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
+
+    bootloader = SMPClient(transport, address)
+    await bootloader.connect()
+    try:
+        for _ in range(30):
+            try:
+                if success(await bootloader.request(ImageStatesRead(), timeout_s=1.0)):
+                    break
+            except (TimeoutError, SMPBadSequence):
+                await asyncio.sleep(0.2)
+        else:
+            pytest.fail("MCUboot serial recovery SMP server never answered")
+        yield bootloader
+    finally:
+        await bootloader.disconnect()
 
 
 @asynccontextmanager

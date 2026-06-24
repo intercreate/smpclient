@@ -93,6 +93,8 @@ class ServerFixture(NamedTuple):
     transport: Transport
     buf_size: int | None
     buf_count: int | None
+    recovery_buf_size: int | None
+    recovery_buf_count: int | None
     groups: tuple[str, ...]
     line_length_max: int | None
     ip_family: str | None
@@ -207,6 +209,11 @@ def _load_fixtures() -> tuple[ServerFixture, ...]:
             transport=e["transport"],
             buf_size=e["buf_size"],
             buf_count=e["buf_count"],
+            # Present only on serial-recovery entries re-vendored from a release that
+            # carries the field (intercreate/smp-server-fixtures#10); .get() tolerates
+            # the older baseline entries that predate it.
+            recovery_buf_size=e.get("recovery_buf_size"),
+            recovery_buf_count=e.get("recovery_buf_count"),
             groups=tuple(e["groups"]),
             line_length_max=e["line_length_max"],
             ip_family=e["ip_family"],

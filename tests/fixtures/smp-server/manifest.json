@@ -24,7 +24,7 @@
     "udp_port": null
   },
   {
-    "artifact": "zephyr_4.4.0_smp_server_0eae053d_mps2_an385_serial_recovery.hex",
+    "artifact": "zephyr_f33aa2bc4a43_smp_server_27c54835_mps2_an385_serial_recovery.hex",
     "buf_count": 4,
     "buf_size": 384,
     "config": "serial_recovery",
@@ -41,7 +41,9 @@
     "ip_family": null,
     "line_length_max": 128,
     "mcuboot": true,
-    "qemu_cmd": "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -chardev socket,id=con,host=127.0.0.1,port=<PORT>,server=on,wait=off -serial chardev:con -serial null -monitor none -device loader,file=zephyr_4.4.0_smp_server_0eae053d_mps2_an385_serial_recovery.hex -device loader,file=zephyr_4.4.0_smp_server_0eae053d_mps2_an385_serial_recovery.signed.bin,addr=0x20050000",
+    "qemu_cmd": "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -chardev socket,id=con,host=127.0.0.1,port=<PORT>,server=on,wait=off -serial chardev:con -serial null -monitor none -device loader,file=zephyr_f33aa2bc4a43_smp_server_27c54835_mps2_an385_serial_recovery.hex -device loader,file=zephyr_f33aa2bc4a43_smp_server_27c54835_mps2_an385_serial_recovery.signed.bin,addr=0x20050000",
+    "recovery_buf_count": 1,
+    "recovery_buf_size": 1024,
     "run": null,
     "serial_recovery": true,
     "target": "mps2_an385",
@@ -718,7 +720,7 @@
     "udp_port": null
   },
   {
-    "artifact": "zephyr_f33aa2bc4a43_smp_server_c8f44c41_mps2_an385_serial_recovery_raw.hex",
+    "artifact": "zephyr_f33aa2bc4a43_smp_server_27c54835_mps2_an385_serial_recovery_raw.hex",
     "buf_count": 4,
     "buf_size": 384,
     "config": "serial_recovery_raw",
@@ -735,7 +737,9 @@
     "ip_family": null,
     "line_length_max": 128,
     "mcuboot": true,
-    "qemu_cmd": "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -chardev socket,id=con,host=127.0.0.1,port=<PORT>,server=on,wait=off -serial chardev:con -serial null -monitor none -device loader,file=zephyr_f33aa2bc4a43_smp_server_c8f44c41_mps2_an385_serial_recovery_raw.hex -device loader,file=zephyr_f33aa2bc4a43_smp_server_c8f44c41_mps2_an385_serial_recovery_raw.signed.bin,addr=0x20050000",
+    "qemu_cmd": "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -chardev socket,id=con,host=127.0.0.1,port=<PORT>,server=on,wait=off -serial chardev:con -serial null -monitor none -device loader,file=zephyr_f33aa2bc4a43_smp_server_27c54835_mps2_an385_serial_recovery_raw.hex -device loader,file=zephyr_f33aa2bc4a43_smp_server_27c54835_mps2_an385_serial_recovery_raw.signed.bin,addr=0x20050000",
+    "recovery_buf_count": 1,
+    "recovery_buf_size": 1024,
     "run": null,
     "serial_recovery": true,
     "target": "mps2_an385",
