@@ -110,10 +110,10 @@ class Auto(NamedTuple):
 class BufferSize(NamedTuple):
     """Manually specify the server's decoded reassembly buffer size.
 
-    For servers that do not advertise MCUmgr params (e.g. MCUboot serial recovery):
-    behaves exactly like `Auto` once `buf_size` is known, sending messages up to
-    `buf_size - 4`.  Lower `line_length` only for a server whose per-line input
-    buffer is smaller than the 128-byte convention.
+    For a server that does not advertise MCUmgr params, or to override the advertised
+    size: behaves exactly like `Auto` once `buf_size` is known, sending messages up to
+    `buf_size - 4`.  Lower `line_length` only for a server whose per-line input buffer
+    is smaller than the 128-byte convention.
     """
 
     buf_size: int

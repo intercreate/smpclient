@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import NamedTuple
@@ -20,12 +20,14 @@ from typing import NamedTuple
 import pytest
 import pytest_asyncio
 from _pytest.mark.structures import ParameterSet
+from smp.os_management import BootMode
 from typing_extensions import assert_never
 
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence
 from smpclient.generics import success
-from smpclient.requests.os_management import EchoWrite
+from smpclient.requests.image_management import ImageStatesRead
+from smpclient.requests.os_management import EchoWrite, ResetWrite
 from smpclient.transport import SMPTransport
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.udp import SMPUDPTransport
@@ -108,16 +110,45 @@ def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> tuple[SMPTra
             assert_never(endpoint)
 
 
-async def _wait_until_answering(client: SMPClient, *, attempts: int = 30) -> None:
-    """Round-trip an echo until the server answers, tolerating boot-time stalls."""
+async def _poll_until_answering(
+    client: SMPClient,
+    probe: Callable[[SMPClient], Awaitable[bool]],
+    *,
+    attempts: int = 30,
+    interval_s: float = 0.1,
+) -> bool:
+    """Retry `probe(client)` until it returns `True`, tolerating boot-time stalls.
+
+    A server still booting answers with a timeout or an out-of-sequence frame; both are
+    swallowed between attempts. Returns whether the probe succeeded within `attempts`.
+
+    Args:
+        client: the connected client to probe.
+        probe: an awaitable that issues one request and reports whether it answered.
+        attempts: how many times to probe before giving up.
+        interval_s: how long to wait after a stalled attempt.
+
+    Returns:
+        `True` once the probe answered, `False` if it never did.
+    """
     for _ in range(attempts):
         try:
-            response = await client.request(EchoWrite(d=_READY_PROBE), timeout_s=1.0)
-            if success(response) and response.r == _READY_PROBE:
-                return
+            if await probe(client):
+                return True
         except (TimeoutError, SMPBadSequence):
-            await asyncio.sleep(0.1)
-    raise TimeoutError(f"{client.address} never answered an echo")
+            await asyncio.sleep(interval_s)
+    return False
+
+
+async def _wait_until_answering(client: SMPClient, *, attempts: int = 30) -> None:
+    """Round-trip an echo until the server answers, tolerating boot-time stalls."""
+
+    async def echoes(c: SMPClient) -> bool:
+        response = await c.request(EchoWrite(d=_READY_PROBE), timeout_s=1.0)
+        return success(response) and response.r == _READY_PROBE
+
+    if not await _poll_until_answering(client, echoes, attempts=attempts):
+        raise TimeoutError(f"{client.address} never answered an echo")
 
 
 def signed_image(fixture: ServerFixture) -> Path:
@@ -136,7 +167,11 @@ def signed_image(fixture: ServerFixture) -> Path:
 
 
 async def upload_image(
-    client: SMPClient, image: bytes, *, max_bytes: int | None = None
+    client: SMPClient,
+    image: bytes,
+    *,
+    max_bytes: int | None = None,
+    subsequent_timeout_s: float = 5.0,
 ) -> list[int]:
     """Upload `image` via the img group, asserting monotonic offsets.
 
@@ -148,12 +183,16 @@ async def upload_image(
         client: a connected `SMPClient`.
         image: the signed image bytes to upload.
         max_bytes: stop early once the offset reaches this many bytes.
+        subsequent_timeout_s: per-chunk response timeout after the first chunk. Raise it
+            for slower servers (MCUboot recovery erases flash as it writes).
 
     Returns:
         The offsets yielded by the upload, in order.
     """
     offsets: list[int] = []
-    async for offset in client.upload(image, first_timeout_s=30.0, subsequent_timeout_s=5.0):
+    async for offset in client.upload(
+        image, first_timeout_s=30.0, subsequent_timeout_s=subsequent_timeout_s
+    ):
         assert offset >= (offsets[-1] if offsets else 0), "offsets must be non-decreasing"
         offsets.append(offset)
         if max_bytes is not None and offset >= min(max_bytes, len(image)):
@@ -187,6 +226,46 @@ def assert_chunks_maximized(
         f"largest chunk {biggest}B under-fills the {max_unencoded_size}B buffer by "
         f">{overhead_budget}B — link throughput not maximized"
     )
+
+
+RECOVERY_UPLOAD_TIMEOUT_S = 15.0
+"""Per-chunk upload timeout for MCUboot recovery, which erases flash as it writes -- more
+generous than the app-mode default to absorb erase latency under emulation and host load."""
+
+
+@asynccontextmanager
+async def reboot_into_recovery(
+    app_client: SMPClient,
+    transport: SMPSerialTransport | SMPSerialRawTransport,
+    address: str,
+) -> AsyncIterator[SMPClient]:
+    """Reboot the device into MCUboot serial recovery and yield a recovery-connected client.
+
+    The app at `app_client` reboots via `os reset boot_mode=BOOTLOADER` (smp 4.1.0);
+    `transport` then connects to the bootloader on the same serial endpoint, probed until
+    it answers (the recovery server speaks the img group, not echo).
+    """
+    assert success(await app_client.request(ImageStatesRead()))
+    try:
+        assert success(
+            await app_client.request(ResetWrite(boot_mode=BootMode.BOOTLOADER), timeout_s=3.0)
+        )
+    except TimeoutError:
+        pass  # some servers reset before sending the response
+    await app_client.disconnect()
+    await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
+
+    async def lists_images(c: SMPClient) -> bool:
+        return success(await c.request(ImageStatesRead(), timeout_s=1.0))
+
+    bootloader = SMPClient(transport, address)
+    await bootloader.connect()
+    try:
+        if not await _poll_until_answering(bootloader, lists_images, interval_s=0.2):
+            pytest.fail("MCUboot serial recovery SMP server never answered")
+        yield bootloader
+    finally:
+        await bootloader.disconnect()
 
 
 @asynccontextmanager

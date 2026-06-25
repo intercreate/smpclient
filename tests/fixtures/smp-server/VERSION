@@ -15,18 +15,23 @@
 # committed here become live fixtures — the manifest lists the full release so
 # adding one is just `gh release download <tag> --pattern ...`.
 #
-# Additional pin (one fixture only) — `serial_recovery_raw`:
-#   tag:      c8f44c41            https://github.com/intercreate/smp-server-fixtures/releases/tag/c8f44c41
-#   commit:   c8f44c4179... (smp-server-fixtures); zephyr: main f33aa2bc (post-4.4.0)
+# Additional pin — the MCUboot serial-recovery fixtures `serial_recovery` and
+# `serial_recovery_raw` (mps2):
+#   tag:      27c54835            https://github.com/intercreate/smp-server-fixtures/releases/tag/27c54835
+#   commit:   27c54835b6fab1809b37d29624669234a21257e2 (smp-server-fixtures)
+#   zephyr:   main f33aa2bc (post-4.4.0)
 #
-# MCUboot's raw (non-console) serial-recovery protocol (BOOT_SERIAL_RAW_PROTOCOL,
-# mcu-tools/mcuboot#2755) merged after 4.4.0's MCUboot pin, so this one fixture is
-# built from a post-4.4.0 Zephyr `main` commit. Its artifact name carries the
-# c8f44c41 release hash and so does not collide with the 0eae053d set. `manifest.json`
-# and `SHA256SUMS` are therefore a local merge: the 0eae053d baseline plus this
-# fixture's manifest entry + digests (the `manifest.json` digest line was refreshed
-# to match the merge). When 0eae053d's Zephyr next includes #2755, re-vendor the whole
-# set from a single release and drop this note.
+# Two MCUboot recovery features landed after 4.4.0's MCUboot pin: the raw
+# (non-console) protocol (BOOT_SERIAL_RAW_PROTOCOL, mcu-tools/mcuboot#2755) and the
+# serial-recovery MCUmgr params command (BOOT_MGMT_MCUMGR_PARAMS, mcu-tools/mcuboot#2746,
+# intercreate/smp-server-fixtures#10), so both recovery fixtures are built from a
+# post-4.4.0 Zephyr `main` commit. Their artifact names carry the 27c54835 release hash
+# and so do not collide with the 0eae053d set. `manifest.json` and `SHA256SUMS` are
+# therefore a local merge: the 0eae053d baseline with these two recovery entries (+
+# digests) swapped in. The `serial_recovery_buf<N>` matrix stays on 0eae053d (it is
+# exercised in app mode, where recovery params do not apply). When 0eae053d's Zephyr
+# next includes #2755 and #2746, re-vendor the whole set from a single release and drop
+# this note.
 #
 # To bump: re-download the artifacts + SHA256SUMS + manifest.json from a newer
 # per-commit release and update the `tag` above.

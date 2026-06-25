@@ -1,36 +1,32 @@
 """Reset-into-bootloader (MCUboot serial recovery) integration test.
 
-Exercises the smp 4.1.0 `boot_mode` field (PR #113): a fully-featured app reboots
-into MCUboot serial recovery via `os reset boot_mode=BOOTLOADER`, and the
-bootloader's SMP server then accepts a fragmented image upload. This is the path a
-client uses to recover a device that can't otherwise be updated from the app.
+A fully-featured app reboots into MCUboot serial recovery via `os reset
+boot_mode=BOOTLOADER` (smp 4.1.0, PR #113), and the bootloader's SMP server accepts a
+fragmented image upload -- the path a client uses to recover a device that can't be
+updated from the app.
 
-The recovery server does not advertise MCUmgr params, so the client must be told
-its buffer size. We upload at two configurations to exercise the recovery server's
-reassembly across very different transaction sizes:
-
-- `auto-default` (no params -> conservative Auto): ~169 B payloads, two line packets.
-- `buffersize-1024` (MCUboot's decoded recovery buffer, BOOT_SERIAL_MAX_RECEIVE_SIZE
-  default 1024): ~1020 B payloads filling the buffer, ~9 line packets each.
+Recovery advertises MCUmgr params (`CONFIG_BOOT_MGMT_MCUMGR_PARAMS`,
+mcu-tools/mcuboot#2746), so the client negotiates the decoded reassembly buffer (`Auto`)
+rather than being told it out of band. An explicit `BufferSize` that caps below the
+advertised buffer covers the override path a client uses when it opts out of negotiation.
 """
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
-from smp.os_management import BootMode
+from smp import packet as smppacket
+from typing_extensions import assert_never
 
-from smpclient import SMPClient
-from smpclient.exceptions import SMPBadSequence
 from smpclient.generics import success
-from smpclient.requests.image_management import ImageStatesRead
-from smpclient.requests.os_management import ResetWrite
-from smpclient.transport.serial import BufferSize
+from smpclient.requests.os_management import MCUMgrParametersRead
+from smpclient.transport.serial import Auto, BufferSize
+from smpclient.transport.serial.encoded import _FRAME_OVERHEAD
 from tests.integration.conftest import (
+    RECOVERY_UPLOAD_TIMEOUT_S,
     assert_chunks_maximized,
     connected,
     fixture_params,
+    reboot_into_recovery,
     signed_image,
     upload_image,
 )
@@ -38,61 +34,63 @@ from tests.integration.servers import QemuSocketSerialTransport, ServerFixture, 
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
-_BUFFER_CONFIGS = [
-    pytest.param(None, id="auto-default"),
-    pytest.param(BufferSize(buf_size=1024), id="buffersize-1024"),
+_RecoveryBuffer = Auto | BufferSize
+"""How the client sizes recovery uploads: negotiate from params, or cap explicitly."""
+
+_BUFFERS = [
+    pytest.param(Auto(), id="negotiated"),
+    pytest.param(BufferSize(buf_size=256), id="buffersize-256"),
 ]
 
 
-# Only the canonical recovery image: the `serial_recovery_buf<N>` matrix varies the
-# *app's* netbuf, but they all drop into the same MCUboot recovery server (same line
-# buffers), so re-testing recovery on each adds nothing. Their buffer sizes are
-# exercised in app mode (echo/fs/img buffer-fill tests).
-@pytest.mark.parametrize("fragmentation", _BUFFER_CONFIGS)
+# Only the canonical recovery image: the `serial_recovery_buf<N>` matrix varies the app's
+# netbuf but drops into the same MCUboot recovery server, so its buffers are exercised in
+# app mode (echo/fs/img buffer-fill tests), not here.
+@pytest.mark.parametrize("buffer", _BUFFERS)
 @pytest.mark.parametrize("fixture", fixture_params(lambda f: f.config == "serial_recovery"))
 async def test_upload_to_mcuboot_recovery_smp_server(
-    fixture: ServerFixture,
-    fragmentation: BufferSize | None,
+    fixture: ServerFixture, buffer: _RecoveryBuffer
 ) -> None:
-    signed = signed_image(fixture).read_bytes()
+    advertised = fixture.recovery_buf_size
+    assert advertised is not None, "serial_recovery fixture must advertise recovery params"
 
     async with connected(fixture) as cs:
-        # The app serves the img group before we drop into recovery.
-        assert success(await cs.client.request(ImageStatesRead()))
-
-        # Reboot into MCUboot serial recovery (smp 4.1.0 boot_mode).
-        try:
-            reset = await cs.client.request(
-                ResetWrite(boot_mode=BootMode.BOOTLOADER), timeout_s=3.0
-            )
-            assert success(reset)
-        except TimeoutError:
-            pass  # some servers reset before sending the response
-        await cs.client.disconnect()
-        await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
-
-        # Reconnect to the bootloader's SMP server on the same serial socket, at the
-        # buffer geometry under test (recovery does not advertise MCUmgr params).
         assert isinstance(cs.endpoint, SocketSerialEndpoint)
-        transport = QemuSocketSerialTransport(cs.endpoint.url, fragmentation_strategy=fragmentation)
-        bootloader = SMPClient(transport, cs.endpoint.url)
-        await bootloader.connect()
-        try:
-            # The recovery SMP server speaks img (not echo), so probe with image-list.
-            for _ in range(30):
-                try:
-                    state = await bootloader.request(ImageStatesRead(), timeout_s=1.0)
-                    if success(state):
-                        break
-                except (TimeoutError, SMPBadSequence):
-                    await asyncio.sleep(0.2)
-            else:
-                pytest.fail("MCUboot serial recovery SMP server never answered")
+        transport = QemuSocketSerialTransport(cs.endpoint.url, fragmentation_strategy=buffer)
 
-            offsets = await upload_image(bootloader, signed, max_bytes=4096)
+        async with reboot_into_recovery(cs.client, transport, cs.endpoint.url) as bootloader:
+            await bootloader._initialize()  # negotiate buf_size (a no-op for explicit BufferSize)
+
+            params = await bootloader.request(MCUMgrParametersRead(), timeout_s=2.0)
+            assert success(params)
+            assert (params.buf_count, params.buf_size) == (1, advertised)
+
+            match buffer:
+                case Auto():
+                    target = advertised
+                case BufferSize(buf_size=override):
+                    target = override
+                case _ as unreachable:
+                    assert_never(unreachable)
+
+            # The decoded payload fills the buffer minus the 2-byte frame length + 2-byte
+            # CRC16 that share it; base64 + 128-byte line framing then expands it ~1.37x on
+            # the wire (the negotiated 1024 B buffer -> ~1400 B per message), which the
+            # server decodes incrementally back into the buffer.
+            assert transport.max_unencoded_size == target - _FRAME_OVERHEAD
+            wire = sum(
+                len(packet)
+                for packet in smppacket.encode(
+                    bytes(transport.max_unencoded_size), transport._line_length
+                )
+            )
+            assert target < wire < 2 * target
+
+            offsets = await upload_image(
+                bootloader,
+                signed_image(fixture).read_bytes(),
+                max_bytes=4096,
+                subsequent_timeout_s=RECOVERY_UPLOAD_TIMEOUT_S,
+            )
             assert offsets[-1] >= 4096  # the bootloader reassembles the fragmented upload
-            # Each request fills the configured buffer: buffersize-1024 moves ~12x the
-            # payload of the conservative default (the point of naming the larger buffer).
             assert_chunks_maximized(offsets, transport.max_unencoded_size)
-        finally:
-            await bootloader.disconnect()
