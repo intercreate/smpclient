@@ -33,5 +33,14 @@
 # next includes #2755 and #2746, re-vendor the whole set from a single release and drop
 # this note.
 #
+# Additional pin — the COBS raw serial-recovery fixture `serial_recovery_raw_cobs` (mps2):
+#   tag:      fa39f8c2            https://github.com/intercreate/smp-server-fixtures/releases/tag/fa39f8c2
+#   commit:   fa39f8c2ce1bacf9907af8df4b04c397be2763cb (smp-server-fixtures)
+#   zephyr:   main f33aa2bc (post-4.4.0)
+#
+# COBS+CRC16 framing (CONFIG_BOOT_SERIAL_RAW_PROTOCOL_COBS) is not upstream MCUboot
+# (intercreate/mcuboot#5); the fixtures repo's build-patched job applies it to this one
+# fixture, whose artifacts carry the fa39f8c2 hash and so do not collide with the others.
+#
 # To bump: re-download the artifacts + SHA256SUMS + manifest.json from a newer
 # per-commit release and update the `tag` above.

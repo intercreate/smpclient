@@ -20,6 +20,7 @@ from typing_extensions import override
 
 from smpclient.exceptions import SMPClientException
 from smpclient.transport.serial.common import _SerialTransportBase
+from smpclient.transport.serial.framing import SerialFraming
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ class SMPSerialRawTransport(_SerialTransportBase):
     def __init__(
         self,
         mtu: int = 384,
+        *,
+        framing: SerialFraming | None = None,
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
@@ -47,6 +50,8 @@ class SMPSerialRawTransport(_SerialTransportBase):
                 bytes.  A serial link has no MTU of its own, but the SMP
                 server's receive buffer does -- this should match the server's
                 `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE` (Zephyr default 384).
+            framing: optional wire framing for each SMP message (e.g. `Cobs()`);
+                `None` sends the bare `[header][payload]`.
             baudrate: The baudrate of the serial connection.  OK to ignore for
                 USB CDC ACM.
             bytesize: The number of data bits.
@@ -76,8 +81,15 @@ class SMPSerialRawTransport(_SerialTransportBase):
             exclusive=exclusive,
         )
         self._mtu: Final = mtu
+        self._framing: Final = framing
 
         logger.debug(f"Initialized {self.__class__.__name__}")
+
+    @override
+    def _reset_state(self) -> None:
+        """Clear the framing's reassembly buffer so a (re)connection starts clean."""
+        if self._framing is not None:
+            self._framing.reset()
 
     @override
     async def send(self, data: bytes) -> None:
@@ -87,12 +99,41 @@ class SMPSerialRawTransport(_SerialTransportBase):
             )
         logger.debug(f"Sending {len(data)} bytes")
         with self._serial_exception_to_disconnected():
-            self._conn.write(data)
+            if self._framing is None:
+                self._conn.write(data)
+            else:
+                for frame in self._framing.encode(data):
+                    self._conn.write(frame)
             await self._drain_tx()
         logger.debug(f"Sent {len(data)} bytes")
 
     @override
     async def receive(self) -> bytes:
+        if self._framing is None:
+            return await self._receive_length_prefixed()
+        return await self._receive_framed(self._framing)
+
+    async def _receive_framed(self, framing: SerialFraming) -> bytes:
+        """Return the next message from `framing`, reading more bytes as needed.
+
+        `framing` owns the buffer, so a read that spanned into the next frame -- or that
+        delivered several frames at once -- is drained from it before any further read.
+        """
+        logger.debug("Waiting for framed response")
+        while (message := framing.take()) is None:
+            data = await self._read_all()
+            if data:
+                framing.feed(data)
+                # `_read_all` does not await (pyserial is synchronous), so yield each
+                # iteration -- otherwise a non-stop non-framing stream would spin without
+                # ever suspending, and an outer request timeout could never fire.
+                await asyncio.sleep(0)
+            else:
+                await asyncio.sleep(self._POLLING_INTERVAL_S)
+        logger.debug(f"Finished receiving framed {len(message)} B response")
+        return bytes(message)
+
+    async def _receive_length_prefixed(self) -> bytes:
         logger.debug("Waiting for response")
         message = bytearray()
 
