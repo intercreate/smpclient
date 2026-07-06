@@ -11,6 +11,7 @@ import pytest
 from smp import packet as smppacket
 
 from smpclient.generics import success
+from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.requests.image_management import ImageStatesRead
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from tests.integration.conftest import (
@@ -70,7 +71,12 @@ async def test_dfu_upload(fixture: ServerFixture) -> None:
             assert offsets[-1] == len(image)  # ran to completion (incl. SHA match)
             states = await cs.client.request(ImageStatesRead())
             assert success(states)
-            assert any(not im.confirmed for im in states.images)  # landed in a second slot
+            uploaded_hash = (
+                ImageInfo.load_file(str(signed_image(fixture))).get_tlv(IMAGE_TLV.SHA256).value
+            )
+            assert any(im.hash == uploaded_hash for im in states.images), (
+                "the uploaded image's SHA256 must land in a slot"
+            )
         else:
             assert (
                 offsets[-1] >= cap

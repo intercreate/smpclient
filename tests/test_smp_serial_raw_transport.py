@@ -10,11 +10,13 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 from serial import SerialException
 from smp import header as smphdr
+from smp.packet import CRC16_STRUCT, crc16_func
 
 from smpclient.exceptions import SMPClientException
 from smpclient.requests.os_management import EchoWrite
 from smpclient.transport import SMPTransportDisconnected
-from smpclient.transport.serial import SMPSerialRawTransport
+from smpclient.transport.serial import Cobs, SMPSerialRawTransport
+from smpclient.transport.serial.framing.cobs import cobs_encode
 
 
 @pytest.fixture(autouse=True)
@@ -252,3 +254,110 @@ async def test_send_and_receive() -> None:
 
     t.send.assert_awaited_once_with(b"some data")
     t.receive.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_send_with_cobs_framing_encodes() -> None:
+    t = SMPSerialRawTransport(framing=Cobs())
+    t._conn.write = MagicMock()  # type: ignore
+    p = PropertyMock(return_value=0)
+    type(t._conn).out_waiting = p  # type: ignore
+
+    msg = EchoWrite(d="Hello pytest!").BYTES
+    await t.send(msg)
+
+    expected = cobs_encode(msg + CRC16_STRUCT.pack(crc16_func(msg))) + b"\x00"
+    t._conn.write.assert_called_once_with(expected)
+
+
+@pytest.mark.asyncio
+async def test_receive_with_cobs_framing_decodes() -> None:
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect("/dev/ttyUSB0", timeout_s=1.0)
+
+    m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
+    (wire,) = Cobs().encode(m.BYTES)
+    t._conn.read_all = MagicMock(side_effect=[wire])  # type: ignore
+
+    assert await t.receive() == m.BYTES
+
+    await t.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_receive_with_cobs_framing_fragmented() -> None:
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect("/dev/ttyUSB0", timeout_s=1.0)
+
+    m = EchoWrite._Response.get_default()(sequence=0, r="fragment me across reads")  # type: ignore
+    (wire,) = Cobs().encode(m.BYTES)
+    t._conn.read_all = MagicMock(side_effect=[wire[:5], b"", wire[5:]])  # type: ignore
+
+    assert await t.receive() == m.BYTES
+
+    await t.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_receive_two_cobs_frames_in_one_read() -> None:
+    """Two frames in one read: the second is drained from the persisted decoder buffer.
+
+    The next receive returns it without consulting read_all again.
+    """
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect("/dev/ttyUSB0", timeout_s=1.0)
+
+    m1 = EchoWrite._Response.get_default()(sequence=0, r="first")  # type: ignore
+    m2 = EchoWrite._Response.get_default()(sequence=1, r="second")  # type: ignore
+    (w1,) = Cobs().encode(m1.BYTES)
+    (w2,) = Cobs().encode(m2.BYTES)
+    t._conn.read_all = MagicMock(side_effect=[w1 + w2])  # type: ignore
+
+    assert await t.receive() == m1.BYTES
+    assert await t.receive() == m2.BYTES  # from leftover; read_all not consulted again
+    assert t._conn.read_all.call_count == 1
+
+    await t.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_receive_cobs_framing_resyncs_past_corrupt_frame() -> None:
+    """A corrupt frame ahead of a good one is dropped; receive resyncs to the good frame.
+
+    The two frames carry *different* payloads, so a decoder that wrongly accepted the
+    corrupt frame would surface `dropped`, not `recovered`.
+    """
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect("/dev/ttyUSB0", timeout_s=1.0)
+
+    dropped = EchoWrite._Response.get_default()(sequence=0, r="dropped")  # type: ignore
+    recovered = EchoWrite._Response.get_default()(sequence=1, r="recovered")  # type: ignore
+    corrupt = (
+        cobs_encode(dropped.BYTES + CRC16_STRUCT.pack(crc16_func(dropped.BYTES) ^ 0xFFFF)) + b"\x00"
+    )
+    (good,) = Cobs().encode(recovered.BYTES)
+    t._conn.read_all = MagicMock(side_effect=[corrupt + good])  # type: ignore
+
+    assert await t.receive() == recovered.BYTES
+
+    await t.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_receive_framed_yields_so_an_outer_timeout_can_fire() -> None:
+    """A non-stop stream that never forms a valid frame must not wedge the loop.
+
+    `_read_all` is synchronous, so the loop must yield each iteration; otherwise an outer
+    `asyncio.timeout` could never fire on a wrong-baud / wrong-protocol / noisy peer.
+    """
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect("/dev/ttyUSB0", timeout_s=1.0)
+
+    m = EchoWrite._Response.get_default()(sequence=0, r="never valid")  # type: ignore
+    corrupt = cobs_encode(m.BYTES + CRC16_STRUCT.pack(crc16_func(m.BYTES) ^ 0xFFFF)) + b"\x00"
+    t._conn.read_all = MagicMock(return_value=corrupt)  # type: ignore  # endless, never valid
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(t.receive(), timeout=0.2)
+
+    await t.disconnect()
