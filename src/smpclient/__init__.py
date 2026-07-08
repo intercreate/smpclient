@@ -266,6 +266,7 @@ class SMPClient:
         first_timeout_s: float = 40.0,
         subsequent_timeout_s: float | None = None,
         use_sha: bool = True,
+        attempts: int = 3,
     ) -> AsyncIterator[int]:
         """Iteratively upload an `image` to `slot`, yielding the offset.
 
@@ -288,6 +289,7 @@ class SMPClient:
                 Zephyr's SMP server will fail with `MGMT_ERR.EINVAL` if the
                 MTU is too small to include both the SHA256 and the first 32-bytes
                 of the image.  Increase the MTU or set `use_sha=False` in this case.
+            attempts: Maximum number of attempts per chunk.
 
         Yields:
             the offset of the image upload
@@ -324,20 +326,33 @@ class SMPClient:
             assert_never(response)  # pragma: no cover
 
         # send chunks until the SMP server reports that the offset is at the end of the image
+        current_attempt = 0
         while response.off != len(image):
-            response = await self.request(
-                self._maximize_upload_packet(
-                    ImageUploadWrite(
-                        off=response.off,
-                        data=b"",
-                        len=len(image) if response.off == 0 else None,
-                        image=slot if response.off == 0 else None,
-                        upgrade=upgrade if response.off == 0 else None,
+            if current_attempt >= attempts:
+                raise SMPUploadError(f"Timed out {attempts} times")
+
+            try:
+                response = await self.request(
+                    self._maximize_upload_packet(
+                        ImageUploadWrite(
+                            off=response.off,
+                            data=b"",
+                            len=len(image) if response.off == 0 else None,
+                            image=slot if response.off == 0 else None,
+                            upgrade=upgrade if response.off == 0 else None,
+                        ),
+                        image,
                     ),
-                    image,
-                ),
-                timeout_s=subsequent_timeout_s,
-            )
+                    timeout_s=subsequent_timeout_s,
+                )
+                current_attempt = 0
+            except TimeoutError:
+                current_attempt += 1
+                continue
+            except SMPBadSequence:
+                current_attempt += 1
+                continue
+
             if error(response):
                 raise SMPUploadError(response)
             elif success(response):
