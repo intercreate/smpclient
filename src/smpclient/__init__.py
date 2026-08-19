@@ -266,6 +266,7 @@ class SMPClient:
         first_timeout_s: float = 40.0,
         subsequent_timeout_s: float | None = None,
         use_sha: bool = True,
+        version: smpheader.Version = smpheader.Version.V2,
     ) -> AsyncIterator[int]:
         """Iteratively upload an `image` to `slot`, yielding the offset.
 
@@ -288,6 +289,9 @@ class SMPClient:
                 Zephyr's SMP server will fail with `MGMT_ERR.EINVAL` if the
                 MTU is too small to include both the SHA256 and the first 32-bytes
                 of the image.  Increase the MTU or set `use_sha=False` in this case.
+            version: the SMP version of the requests sent by this routine.  The
+                default, `Version.V2`, is what current SMP servers expect; pass
+                `Version.V1` for servers that predate SMP version 2.
 
         Yields:
             the offset of the image upload
@@ -308,6 +312,7 @@ class SMPClient:
                     len=len(image),
                     sha=sha256(image).digest() if use_sha else None,
                     upgrade=upgrade,
+                    version=version,
                 ),
                 image,
             ),
@@ -333,6 +338,7 @@ class SMPClient:
                         len=len(image) if response.off == 0 else None,
                         image=slot if response.off == 0 else None,
                         upgrade=upgrade if response.off == 0 else None,
+                        version=version,
                     ),
                     image,
                 ),
@@ -361,6 +367,7 @@ class SMPClient:
         file_data: bytes,
         file_path: str,
         timeout_s: float | None = None,
+        version: smpheader.Version = smpheader.Version.V2,
     ) -> AsyncIterator[int]:
         """Iteratively upload a `file_data` to `file_path`, yielding the offset.
 
@@ -368,6 +375,9 @@ class SMPClient:
             file_data: the `bytes` to upload
             file_path: the path to upload to
             timeout_s: the timeout for each `FileUpload` request
+            version: the SMP version of the requests sent by this routine.  The
+                default, `Version.V2`, is what current SMP servers expect; pass
+                `Version.V1` for servers that predate SMP version 2.
 
         Yields:
             int: the offset of the file upload
@@ -379,7 +389,7 @@ class SMPClient:
 
         response = await self.request(
             self._maximize_upload_packet(
-                FileUpload(name=file_path, off=0, data=b"", len=len(file_data)),
+                FileUpload(name=file_path, off=0, data=b"", len=len(file_data), version=version),
                 file_data,
             ),
             timeout_s=timeout_s,
@@ -398,7 +408,8 @@ class SMPClient:
         while response.off != len(file_data):
             response = await self.request(
                 self._maximize_upload_packet(
-                    FileUpload(name=file_path, off=response.off, data=b""), file_data
+                    FileUpload(name=file_path, off=response.off, data=b"", version=version),
+                    file_data,
                 ),
                 timeout_s=timeout_s,
             )
@@ -415,12 +426,16 @@ class SMPClient:
         self,
         file_path: str,
         timeout_s: float | None = None,
+        version: smpheader.Version = smpheader.Version.V2,
     ) -> bytes:
         """Download a file from the SMP server.
 
         Args:
             file_path: the path to download
             timeout_s: the timeout for each `FileDownload` request
+            version: the SMP version of the requests sent by this routine.  The
+                default, `Version.V2`, is what current SMP servers expect; pass
+                `Version.V1` for servers that predate SMP version 2.
 
         Returns:
             The downloaded file as `bytes`
@@ -430,7 +445,9 @@ class SMPClient:
         """
         timeout_s = timeout_s if timeout_s is not None else self._timeout_s
 
-        response = await self.request(FileDownload(off=0, name=file_path), timeout_s=timeout_s)
+        response = await self.request(
+            FileDownload(off=0, name=file_path, version=version), timeout_s=timeout_s
+        )
         file_length = 0
 
         if error(response):
@@ -447,7 +464,9 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off + len(response.data) != file_length:
             response = await self.request(
-                FileDownload(off=response.off + len(response.data), name=file_path),
+                FileDownload(
+                    off=response.off + len(response.data), name=file_path, version=version
+                ),
                 timeout_s=timeout_s,
             )
             if error(response):
@@ -549,6 +568,7 @@ class SMPClient:
                 sequence=h.sequence,
                 command_id=h.command_id,
             ),
+            version=h.version,
             data=data[request.off : request.off + data_size],
             **carried_over,
         )

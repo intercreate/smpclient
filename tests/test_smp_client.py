@@ -1017,3 +1017,158 @@ def test_maximize_upload_packet_fills_decoded_buffer(
         on_wire = b"".join(smppacket.encode(maximized.BYTES, line_length=128))
         assert len(on_wire) == encoded_frame_size
         assert len(on_wire) > buf_size
+
+
+def _smp_versions_sent(frames: list[bytes]) -> set[smphdr.Version]:
+    """The SMP versions of every request frame put on the wire."""
+    return {smphdr.Header.loads(frame[: smphdr.Header.SIZE]).version for frame in frames}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [smphdr.Version.V1, smphdr.Version.V2])
+async def test_upload_uses_the_requested_smp_version(version: smphdr.Version) -> None:
+    """Every chunk that `upload()` sends carries the requested SMP version."""
+    m = SMPMockTransport()
+    m._mtu = 498
+    m._max_unencoded_size = 498
+    s = SMPClient(m, "address", 2.5)
+
+    image = bytes([i % 255 for i in range(4097)])
+    sent: list[bytes] = []
+
+    async def send(data: bytes) -> None:
+        sent.append(data)
+
+    async def receive() -> bytes:
+        request = ImageUploadWrite.loads(sent[-1])
+        return ImageUploadWriteResponse(
+            sequence=request.header.sequence, off=request.off + len(request.data)
+        ).BYTES
+
+    m.send = send  # type: ignore[assignment]
+    m.receive = receive  # type: ignore[assignment]
+
+    async for _ in s.upload(image, version=version):
+        pass
+
+    assert len(sent) > 1, "the image should not fit in a single chunk"
+    assert _smp_versions_sent(sent) == {version}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [smphdr.Version.V1, smphdr.Version.V2])
+async def test_upload_file_uses_the_requested_smp_version(version: smphdr.Version) -> None:
+    """Every chunk that `upload_file()` sends carries the requested SMP version."""
+    m = SMPMockTransport()
+    m._mtu = 498
+    m._max_unencoded_size = 498
+    s = SMPClient(m, "address", 2.5)
+
+    data = bytes([i % 255 for i in range(4097)])
+    sent: list[bytes] = []
+
+    async def send(frame: bytes) -> None:
+        sent.append(frame)
+
+    async def receive() -> bytes:
+        request = FileUpload.loads(sent[-1])
+        return FileUploadResponse(
+            sequence=request.header.sequence, off=request.off + len(request.data)
+        ).BYTES
+
+    m.send = send  # type: ignore[assignment]
+    m.receive = receive  # type: ignore[assignment]
+
+    async for _ in s.upload_file(data, file_path="test.txt", version=version):
+        pass
+
+    assert len(sent) > 1, "the file should not fit in a single chunk"
+    assert _smp_versions_sent(sent) == {version}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [smphdr.Version.V1, smphdr.Version.V2])
+async def test_download_file_uses_the_requested_smp_version(version: smphdr.Version) -> None:
+    """Every request that `download_file()` sends carries the requested SMP version."""
+    m = SMPMockTransport()
+    m._mtu = 498
+    m._max_unencoded_size = 498
+    s = SMPClient(m, "address", 2.5)
+
+    data = bytes([i % 255 for i in range(4097)])
+    sent: list[bytes] = []
+
+    async def send(frame: bytes) -> None:
+        sent.append(frame)
+
+    async def receive() -> bytes:
+        request = FileDownload.loads(sent[-1])
+        chunk = data[request.off : request.off + 456]
+        if request.off == 0:
+            return FileDownloadResponse(
+                sequence=request.header.sequence, off=0, data=chunk, len=len(data)
+            ).BYTES
+        return FileDownloadResponse(
+            sequence=request.header.sequence, off=request.off, data=chunk
+        ).BYTES
+
+    m.send = send  # type: ignore[assignment]
+    m.receive = receive  # type: ignore[assignment]
+
+    assert await s.download_file(file_path="test.txt", version=version) == data
+
+    assert len(sent) > 1, "the file should not fit in a single response"
+    assert _smp_versions_sent(sent) == {version}
+
+
+@pytest.mark.asyncio
+async def test_convenience_methods_default_to_smp_version_2() -> None:
+    """Callers that do not ask for a version keep getting SMP version 2."""
+    m = SMPMockTransport()
+    m._mtu = 498
+    m._max_unencoded_size = 498
+    s = SMPClient(m, "address", 2.5)
+
+    data = bytes([i % 255 for i in range(4097)])
+    sent: list[bytes] = []
+
+    async def send(frame: bytes) -> None:
+        sent.append(frame)
+
+    async def receive_upload() -> bytes:
+        request = ImageUploadWrite.loads(sent[-1])
+        return ImageUploadWriteResponse(
+            sequence=request.header.sequence, off=request.off + len(request.data)
+        ).BYTES
+
+    async def receive_upload_file() -> bytes:
+        request = FileUpload.loads(sent[-1])
+        return FileUploadResponse(
+            sequence=request.header.sequence, off=request.off + len(request.data)
+        ).BYTES
+
+    async def receive_download_file() -> bytes:
+        request = FileDownload.loads(sent[-1])
+        chunk = data[request.off : request.off + 456]
+        if request.off == 0:
+            return FileDownloadResponse(
+                sequence=request.header.sequence, off=0, data=chunk, len=len(data)
+            ).BYTES
+        return FileDownloadResponse(
+            sequence=request.header.sequence, off=request.off, data=chunk
+        ).BYTES
+
+    m.send = send  # type: ignore[assignment]
+
+    m.receive = receive_upload  # type: ignore[assignment]
+    async for _ in s.upload(data):
+        pass
+
+    m.receive = receive_upload_file  # type: ignore[assignment]
+    async for _ in s.upload_file(data, file_path="test.txt"):
+        pass
+
+    m.receive = receive_download_file  # type: ignore[assignment]
+    assert await s.download_file(file_path="test.txt") == data
+
+    assert _smp_versions_sent(sent) == {smphdr.Version.V2}
