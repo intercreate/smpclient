@@ -119,20 +119,20 @@ class SMPUDPTransport(SMPTransport):
                 raise SMPClientException(error)
 
         logger.debug(f"Finished receiving message of length {message_length} B")
-        return message
+        return bytes(message)
 
     @override
     async def send_and_receive(self, data: bytes) -> bytes:
         await self.send(data)
         return await self.receive()
 
-    @override
     @property
+    @override
     def mtu(self) -> int:
         return self._mtu
 
-    @override
     @property
+    @override
     def max_unencoded_size(self) -> int:
         """Maximum UDP payload size (MSS) to avoid fragmentation.
 

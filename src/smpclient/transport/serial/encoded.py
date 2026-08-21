@@ -709,13 +709,13 @@ class SMPSerialTransport(_SerialTransportBase):
         """Return True if the given byte value matches the start of any SMP packet delimiter."""
         return byte == smppacket.START_DELIMITER[0] or byte == smppacket.CONTINUE_DELIMITER[0]
 
-    @override
     @property
+    @override
     def mtu(self) -> int:
         return self._max_smp_encoded_frame_size
 
-    @override
     @property
+    @override
     def max_unencoded_size(self) -> int:
         """The maximum unencoded SMP message size, in bytes.
 

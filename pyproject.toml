@@ -63,7 +63,8 @@ dev = [
 "pytest-cov>=7.0.0",
 "pytest-asyncio>=0.23.2",
 "ruff>=0.12.0",
-"camas[mcp,check]==0.1.14",
+"camas[mcp]==0.1.29",
+"pyright>=1.1,<2",
 ]
 doc = [
 "mkdocstrings[python]>=0.26.1",
@@ -123,3 +124,7 @@ exclude_lines = [
 ':\s*\.\.\.\s*$',
 '^\s*\.\.\.\s*$',
 ]
+
+[tool.pyright]
+include = ["src", "tests", "examples"]
+typeCheckingMode = "standard"

@@ -13,9 +13,11 @@ class SerialFraming(Protocol):
 
     def encode(self, data: bytes) -> Iterator[bytes]:  # pragma: no cover
         """Yield the wire bytes framing the SMP message `data`."""
+        ...
 
     def feed(self, data: bytes) -> None:  # pragma: no cover
         """Buffer received bytes for decoding."""
+        ...
 
     def take(self) -> bytes | None:  # pragma: no cover
         """Return the next decoded SMP message, or `None` if no complete frame is buffered.
@@ -23,6 +25,8 @@ class SerialFraming(Protocol):
         Unconsumed bytes persist for the next call (a read may span frame boundaries), and a
         framing that can detect corruption drops the damaged frame and resynchronises.
         """
+        ...
 
     def reset(self) -> None:  # pragma: no cover
         """Discard buffered bytes so a new connection starts clean."""
+        ...

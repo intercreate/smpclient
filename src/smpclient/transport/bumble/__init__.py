@@ -298,7 +298,7 @@ class SMPBumbleTransport(SMPTransport):
 
         while len(buffer) < smphdr.Header.SIZE:
             buffer.extend(await self._next_chunk())
-        header: Final = smphdr.Header.loads(buffer[: smphdr.Header.SIZE])
+        header: Final = smphdr.Header.loads(bytes(buffer[: smphdr.Header.SIZE]))
         logger.debug(f"Received {header=}")
 
         message_length: Final = header.length + smphdr.Header.SIZE
@@ -428,8 +428,8 @@ class SMPBumbleTransport(SMPTransport):
             case _:
                 assert_never(self._state)
 
-    @override
     @property
+    @override
     def mtu(self) -> int:
         return self._require_connected("mtu").max_write
 
