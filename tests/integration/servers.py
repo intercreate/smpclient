@@ -28,13 +28,15 @@ import shlex
 import shutil
 import socket
 import tempfile
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, closing
 from hashlib import sha256
 from pathlib import Path
-from typing import Final, Literal, NamedTuple
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 import serial as pyserial
+from serial.urlhandler.protocol_socket import Serial as _SocketSerial
 from typing_extensions import override
 
 from smpclient.transport import SMPTransportDisconnected
@@ -44,6 +46,9 @@ from smpclient.transport.serial import (
     SMPSerialRawTransport,
     SMPSerialTransport,
 )
+
+if TYPE_CHECKING:
+    from _typeshed import ReadableBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +237,60 @@ def _load_fixtures() -> tuple[ServerFixture, ...]:
     return tuple(sorted(fixtures, key=lambda f: f.id))
 
 
+_WRITE_CHUNK_BYTES: Final = 64
+_WRITE_CHUNK_PAUSE_S: Final = 0.001
+_WRITE_TIMEOUT_S: Final = 5.0
+"""Bounds a chunk write, and must be non-zero.
+
+pyserial reads a zero `write_timeout` as "non-blocking": its socket `write()` issues a
+single `socket.send()` and returns that count without looping, silently dropping any
+remainder.  Any positive value makes it loop -- via `select` -- until the chunk is out.
+"""
+
+
+class _SocketChardev(_SocketSerial):
+    """pyserial's `socket://` chardev, supplying what `_SerialTransportBase` expects of it."""
+
+    out_waiting = 0
+    """pyserial omits this for a socket chardev; there is no host-side TX buffer to drain."""
+
+
+class _PacedSocketChardev(_SocketChardev):
+    """A socket chardev that paces its writes the way a real serial link does.
+
+    A real UART paces the client -- bytes leave at the baud rate, so the server's RX pool
+    drains about as fast as it fills.  A socket chardev has no pacing at all: an SMP
+    message arrives as one instant burst, and a server still busy flashing the previous
+    chunk silently drops the overflow.  The raw protocol is length-prefixed with no
+    delimiter or CRC, so nothing recovers -- the server waits forever for a message whose
+    tail never arrived and the request times out.
+
+    Only the raw transport wants this.  `SMPSerialTransport` already writes one small
+    base64 line packet at a time, which paces it well enough, and pacing it *further*
+    measurably destabilised `qemu_cortex_m0` (2/15 failures against 0/15 unpaced) -- that
+    16 KB target is fragile once a transaction stays open too long.
+
+    The pause must be wall-clock: an `asyncio.sleep(0)` yield between chunks measured no
+    better than no pacing at all, because the guest needs real time on a real CPU.
+    """
+
+    @override
+    def write(self, b: ReadableBuffer, /) -> int:
+        data = bytes(b)
+        for start in range(0, len(data), _WRITE_CHUNK_BYTES):
+            super().write(data[start : start + _WRITE_CHUNK_BYTES])
+            time.sleep(_WRITE_CHUNK_PAUSE_S)
+        return len(data)
+
+
 FIXTURES: Final = _load_fixtures()
 
 
 async def _connect_socket_chardev(
-    transport: SMPSerialTransport | SMPSerialRawTransport, url: str, timeout_s: float
+    transport: SMPSerialTransport | SMPSerialRawTransport,
+    url: str,
+    timeout_s: float,
+    chardev: type[_SocketChardev] = _SocketChardev,
 ) -> None:
     """Back `transport` with an emulator's `socket://` serial chardev, retrying until it accepts.
 
@@ -248,6 +302,7 @@ async def _connect_socket_chardev(
         transport: the socket-backed serial transport whose `_conn` to (re)bind.
         url: the emulator's `socket://host:port` chardev URL.
         timeout_s: how long to keep retrying before the socket must have accepted.
+        chardev: the chardev class to bind; `_PacedSocketChardev` for the raw transport.
 
     Raises:
         TimeoutError: if the emulator's serial socket never accepts within `timeout_s`.
@@ -257,7 +312,7 @@ async def _connect_socket_chardev(
     deadline = loop.time() + timeout_s
     while True:
         try:
-            conn = pyserial.serial_for_url(url, timeout=0, write_timeout=0)
+            conn = chardev(url, timeout=0, write_timeout=_WRITE_TIMEOUT_S)
         except (OSError, pyserial.SerialException) as e:
             if loop.time() >= deadline:
                 raise TimeoutError(f"emulator serial socket {url} never accepted: {e}")
@@ -265,9 +320,6 @@ async def _connect_socket_chardev(
             continue
         # `_conn` is `Final` on the base class; replace it for the socket backend.
         object.__setattr__(transport, "_conn", conn)
-        # A socket chardev has no host-side TX buffer; pyserial omits `out_waiting` for it.
-        # Supply 0 so the inherited `send`'s `_drain_tx` poll is a no-op (nothing to drain).
-        object.__setattr__(conn, "out_waiting", 0)
         logger.debug(f"Connected to {url}")
         return
 
@@ -311,7 +363,7 @@ class QemuSocketSerialRawTransport(SMPSerialRawTransport):
 
     @override
     async def connect(self, address: str, timeout_s: float) -> None:
-        await _connect_socket_chardev(self, self._url, timeout_s)
+        await _connect_socket_chardev(self, self._url, timeout_s, _PacedSocketChardev)
 
 
 def _verify_sha256(artifact: Path) -> str | None:
