@@ -2,21 +2,23 @@
 
 from pathlib import Path
 
-from camas import Config, Parallel, Sequential, Task
+from camas import Claude, Config, Parallel, Sequential, Task
 
-format = Task("ruff format .", mutates=True)
+format = Task("ruff format {paths}", mutates=True, paths=".")
 
 lint = Parallel(
-    Task("ruff check ."),
-    Task("pydoclint src/smpclient"),
+    Task("ruff check {paths}", paths="."),
+    Task("pydoclint {paths}", paths="src/smpclient"),
 )
 
 fix = Sequential(
-    Task("ruff check --fix .", mutates=True),
-    Task("ruff format .", mutates=True),
+    Task("ruff check --fix {paths}", mutates=True, paths="."),
+    Task("ruff format {paths}", mutates=True, paths="."),
 )
 
-typecheck = Task("mypy .")
+mypy = Task("mypy .")
+pyright = Task("pyright")
+typecheck = Parallel(mypy, pyright)
 
 test = Task("pytest -v --ignore=tests/integration")
 
@@ -40,4 +42,8 @@ matrix = Parallel(
     matrix={"PY": tuple(_PYTHONS)},
 )
 
-_ = Config(default_task=all, github_task=check)
+_ = Config(
+    default_task=all,
+    github_task=check,
+    agent=Claude(fix=fix, check=Parallel(lint, typecheck)),
+)

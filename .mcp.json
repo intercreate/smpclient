@@ -3,12 +3,7 @@
     "camas": {
       "type": "stdio",
       "command": "uv",
-      "args": [
-        "run",
-        "camas",
-        "mcp",
-        "--rich"
-      ]
+      "args": ["run", "camas", "mcp"]
     }
   }
 }

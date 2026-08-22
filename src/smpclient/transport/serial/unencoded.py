@@ -173,7 +173,7 @@ class SMPSerialRawTransport(_SerialTransportBase):
         else:
             await asyncio.sleep(self._POLLING_INTERVAL_S)
 
-    @override
     @property
+    @override
     def mtu(self) -> int:
         return self._mtu

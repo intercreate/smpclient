@@ -29,9 +29,11 @@ class SMPTransport(Protocol):
             address: The SMP server address.
             timeout_s: The connection timeout in seconds.
         """
+        ...
 
     async def disconnect(self) -> None:  # pragma: no cover
         """Disconnect the `SMPTransport`."""
+        ...
 
     async def send(self, data: bytes) -> None:  # pragma: no cover
         """Send the encoded `SMPRequest` `data`.
@@ -39,6 +41,7 @@ class SMPTransport(Protocol):
         Args:
             data: The encoded `SMPRequest`.
         """
+        ...
 
     async def receive(self) -> bytes:  # pragma: no cover
         """Receive the decoded `SMPResponse` data.
@@ -46,6 +49,7 @@ class SMPTransport(Protocol):
         Returns:
             The `SMPResponse` bytes.
         """
+        ...
 
     async def send_and_receive(self, data: bytes) -> bytes:  # pragma: no cover
         """Send the encoded `SMPRequest` `data` and receive the decoded `SMPResponse`.
@@ -56,6 +60,7 @@ class SMPTransport(Protocol):
         Returns:
             The `SMPResponse` bytes.
         """
+        ...
 
     def initialize(self, smp_server_transport_buffer_size: int) -> None:  # pragma: no cover
         """Initialize the `SMPTransport` with the server transport buffer size.
@@ -68,6 +73,7 @@ class SMPTransport(Protocol):
     @property
     def mtu(self) -> int:  # pragma: no cover
         """The Maximum Transmission Unit (MTU) in 8-bit bytes."""
+        ...
 
     @property
     def max_unencoded_size(self) -> int:  # pragma: no cover

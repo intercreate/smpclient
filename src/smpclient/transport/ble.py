@@ -5,12 +5,13 @@ import logging
 import re
 import sys
 from collections.abc import Coroutine
-from typing import Any, Final, Protocol, TypeGuard, TypeVar
+from typing import Any, Final, Protocol, TypeAlias, TypeGuard, TypeVar
 from uuid import UUID
 
 try:
-    from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
+    from bleak import BleakClient, BleakScanner
     from bleak.args.winrt import WinRTClientArgs
+    from bleak.backends.characteristic import BleakGATTCharacteristic
     from bleak.backends.client import BaseBleakClient
     from bleak.backends.device import BLEDevice
 except ModuleNotFoundError as e:
@@ -46,6 +47,15 @@ else:  # stub for mypy
     class BleakClientWinRT(Protocol):
         @property
         def _session(self) -> GattSession: ...
+
+
+_ClientBackend: TypeAlias = BaseBleakClient | BleakClientBlueZDBus | BleakClientWinRT
+"""Any `BleakClient._backend`: the platform's real backend, plus the off-platform stubs.
+
+On each platform one of `BleakClientBlueZDBus`/`BleakClientWinRT` is bleak's real
+`BaseBleakClient` subclass and the other is the local `Protocol` stub, so the backend
+predicates below must accept the union to narrow either one.
+"""
 
 
 MAC_ADDRESS_PATTERN: Final = re.compile(r"([0-9A-F]{2}[:]){5}[0-9A-F]{2}$", flags=re.IGNORECASE)
@@ -135,7 +145,7 @@ class SMPBLETransport(SMPTransport):
                 "The SMP characteristic MTU is 20 bytes, possibly a Windows bug, checking again"
             )
             await asyncio.sleep(2)
-            smp_characteristic._max_write_without_response_size = (
+            smp_characteristic._max_write_without_response_size = (  # pyright: ignore[reportAttributeAccessIssue]
                 self._client._backend._session.max_pdu_size - 3  # type: ignore
             )
             self._max_write_without_response_size = (
@@ -182,7 +192,7 @@ class SMPBLETransport(SMPTransport):
                 logger.debug(f"Waiting for notify on {SMP_CHARACTERISTIC_UUID=}")
                 await self._notify_or_disconnect()
 
-            header: Final = smphdr.Header.loads(self._buffer[: smphdr.Header.SIZE])
+            header: Final = smphdr.Header.loads(bytes(self._buffer[: smphdr.Header.SIZE]))
             logger.debug(f"Received {header=}")
 
         message_length: Final = header.length + header.SIZE
@@ -199,7 +209,7 @@ class SMPBLETransport(SMPTransport):
                     raise SMPBLETransportException("Length of buffer passed expected message size.")
                 await self._notify_or_disconnect()
 
-    async def _notify_callback(self, sender: BleakGATTCharacteristic, data: bytes) -> None:
+    async def _notify_callback(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
         if sender.uuid != str(SMP_CHARACTERISTIC_UUID):  # pragma: no cover
             raise SMPBLETransportException(f"Unexpected notify from {sender}; {data=}")
         async with self._notify_condition:
@@ -211,8 +221,8 @@ class SMPBLETransport(SMPTransport):
         await self.send(data)
         return await self.receive()
 
-    @override
     @property
+    @override
     def mtu(self) -> int:
         return self._max_write_without_response_size
 
@@ -230,11 +240,11 @@ class SMPBLETransport(SMPTransport):
         return smp_servers
 
     @staticmethod
-    def _bluez_backend(client_backend: BaseBleakClient) -> TypeGuard[BleakClientBlueZDBus]:
+    def _bluez_backend(client_backend: _ClientBackend) -> TypeGuard[BleakClientBlueZDBus]:
         return client_backend.__class__.__name__ == "BleakClientBlueZDBus"
 
     @staticmethod
-    def _winrt_backend(client_backend: BaseBleakClient) -> TypeGuard[BleakClientWinRT]:
+    def _winrt_backend(client_backend: _ClientBackend) -> TypeGuard[BleakClientWinRT]:
         return client_backend.__class__.__name__ == "BleakClientWinRT"
 
     def _set_disconnected_event(self, client: BleakClient) -> None:

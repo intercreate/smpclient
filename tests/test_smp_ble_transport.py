@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
-from bleak import BleakClient, BleakGATTCharacteristic
+from bleak import BleakClient
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 
 from smpclient.requests.os_management import EchoWrite
