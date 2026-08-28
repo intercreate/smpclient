@@ -36,12 +36,13 @@ or in your local clone at `examples/`.
 """
 
 import asyncio
+import itertools
 import logging
 import traceback
 from collections.abc import AsyncIterator
 from hashlib import sha256
 from types import TracebackType
-from typing import Any, Final, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Final, TypeVar, Union, cast
 
 import msgspec
 from smp import SMPRequest
@@ -56,6 +57,9 @@ from typing_extensions import TypeIs, assert_never
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
 from smpclient.transport import SMPTransport
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 try:
     from asyncio import timeout  # type: ignore
@@ -211,6 +215,16 @@ class SMPClient:
         self._transport: Final = transport
         self._address: Final = address
         self._timeout_s = timeout_s
+        self._counter: Final = itertools.count()
+        """This client's own SMP sequence space, one counter per connection."""
+
+    def _next_sequence(self) -> "u8":
+        """Take the next sequence from this client's own counter.
+
+        `u8` is a `Literal[0..255]` alias with no runtime constructor, so a masked `int`
+        does not satisfy it; narrow once here rather than at every call site.
+        """
+        return cast("u8", next(self._counter) % 0x100)
 
     async def connect(self, connect_timeout_s: float | None = None) -> None:
         """Connect to the SMP server.
@@ -284,7 +298,7 @@ class SMPClient:
         """
         timeout_s = timeout_s if timeout_s is not None else self._timeout_s
 
-        request_frame: Final = request.to_frame()
+        request_frame: Final = request.to_frame(self._next_sequence())
 
         try:
             async with timeout(timeout_s):

@@ -71,7 +71,7 @@ async def test_send() -> None:
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
 
-    r = EchoWriteRequest(d="Hello pytest!").to_frame()
+    r = EchoWriteRequest(d="Hello pytest!").to_frame(sequence=0)
     await t.send(bytes(r))
 
     # Raw transport writes the bytes verbatim - no encoding.
@@ -86,7 +86,7 @@ async def test_send_waits_for_tx_drain() -> None:
     p = PropertyMock(side_effect=(1, 0))
     type(t._conn).out_waiting = p  # type: ignore
 
-    await t.send(bytes(EchoWriteRequest(d="x").to_frame()))
+    await t.send(bytes(EchoWriteRequest(d="x").to_frame(sequence=0)))
     assert p.call_count == 2
 
 
@@ -103,7 +103,7 @@ async def test_send_disconnected_raises() -> None:
     t._conn.write = MagicMock(side_effect=SerialException("disconnected"))  # type: ignore
 
     with pytest.raises(SMPTransportDisconnected):
-        await t.send(bytes(EchoWriteRequest(d="x").to_frame()))
+        await t.send(bytes(EchoWriteRequest(d="x").to_frame(sequence=0)))
 
 
 @pytest.mark.asyncio
@@ -263,7 +263,7 @@ async def test_send_with_cobs_framing_encodes() -> None:
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
 
-    msg = bytes(EchoWriteRequest(d="Hello pytest!").to_frame())
+    msg = bytes(EchoWriteRequest(d="Hello pytest!").to_frame(sequence=0))
     await t.send(msg)
 
     expected = cobs_encode(msg + CRC16_STRUCT.pack(crc16_func(msg))) + b"\x00"

@@ -42,7 +42,7 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
     async def mock_request(request: ic.ImageUploadWriteRequest) -> smpic.ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
-        await s._transport.send(bytes(request.to_frame()))
+        await s._transport.send(bytes(request.to_frame(sequence=0)))
         return ic.ImageUploadWriteResponse(off=request.off + len(request.data))
 
     s.request = mock_request  # type: ignore

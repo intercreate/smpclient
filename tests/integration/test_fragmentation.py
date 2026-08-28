@@ -88,12 +88,18 @@ async def test_max_payload_roundtrip(connected_server: ConnectedServer) -> None:
 
     transport = cs.client._transport
     assert isinstance(transport, SMPSerialTransport)
-    text = "M" * (transport.max_unencoded_size - len(bytes(EchoWriteRequest(d="").to_frame())) - 4)
+    text = "M" * (
+        transport.max_unencoded_size - len(bytes(EchoWriteRequest(d="").to_frame(sequence=0))) - 4
+    )
     request = EchoWriteRequest(d=text)
-    assert len(bytes(request.to_frame())) <= transport.max_unencoded_size
+    assert len(bytes(request.to_frame(sequence=0))) <= transport.max_unencoded_size
 
     line_packets = len(
-        list(smppacket.encode(bytes(request.to_frame()), line_length=transport._line_length))
+        list(
+            smppacket.encode(
+                bytes(request.to_frame(sequence=0)), line_length=transport._line_length
+            )
+        )
     )
     limit = cs.fixture.max_reliable_line_packets
     if limit is not None and line_packets > limit:
@@ -129,9 +135,9 @@ async def test_non_default_line_length(fixture: ServerFixture) -> None:
 
             text = "L" * 200  # > one 128-byte line packet, so the 512 line length is in effect
             request = EchoWriteRequest(d=text)
-            assert len(list(smppacket.encode(bytes(request.to_frame()), line_length=512))) < len(
-                list(smppacket.encode(bytes(request.to_frame()), line_length=128))
-            )
+            assert len(
+                list(smppacket.encode(bytes(request.to_frame(sequence=0)), line_length=512))
+            ) < len(list(smppacket.encode(bytes(request.to_frame(sequence=0)), line_length=128)))
             response = await client.request(request, timeout_s=10.0)
             assert success(response)
             assert response.r == text

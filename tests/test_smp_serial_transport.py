@@ -83,7 +83,7 @@ async def test_send() -> None:
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
 
-    r = EchoWriteRequest(d="Hello pytest!").to_frame()
+    r = EchoWriteRequest(d="Hello pytest!").to_frame(sequence=0)
     await t.send(bytes(r))
     t._conn.write.assert_called_once()
     p.assert_called_once_with()

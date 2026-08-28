@@ -148,7 +148,7 @@ async def test_request() -> None:
     s = SMPClient(m, "address")
 
     req = ResetWriteRequest()
-    m.receive.return_value = bytes(ResetWriteResponse().to_frame())
+    m.receive.return_value = bytes(ResetWriteResponse().to_frame(sequence=0))
     rep = await s.request(req)
     assert ResetWriteRequest.loads(sent_frame(m)).data == req
     m.receive.assert_awaited()
@@ -159,7 +159,7 @@ async def test_request() -> None:
     assert error_v2(rep) is False
 
     # test that a bad sequence raises `SMPBadSequence`
-    m.receive.return_value = bytes(ResetWriteResponse().to_frame())
+    m.receive.return_value = bytes(ResetWriteResponse().to_frame(sequence=0))
     m.sequence_offset = 1
     with pytest.raises(SMPBadSequence):
         await s.request(req)
@@ -214,7 +214,7 @@ async def test_request_unparseable_frame() -> None:
     req = ResetWriteRequest()
     # Same group, so the frame reaches the decoders -- but `r` is a field of none of
     # `ResetWriteRequest`'s three response types, so every one of them rejects it.
-    m.receive.return_value = bytes(EchoWriteResponse(r="not a reset response").to_frame())
+    m.receive.return_value = bytes(EchoWriteResponse(r="not a reset response").to_frame(sequence=0))
 
     with pytest.raises(SMPValidationException) as exc_info:
         await s.request(req)
@@ -236,7 +236,7 @@ async def test_request_mismatched_group_propagates() -> None:
     m = SMPMockTransport()
     s = SMPClient(m, "address")
 
-    m.receive.return_value = bytes(ImageUploadWriteResponse(off=0).to_frame())
+    m.receive.return_value = bytes(ImageUploadWriteResponse(off=0).to_frame(sequence=0))
 
     with pytest.raises(SMPMismatchedGroupId):
         await s.request(ResetWriteRequest())
@@ -409,7 +409,7 @@ async def test_upload_hello_world_bin_encoded(
     ) -> ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
-        await s._transport.send(bytes(request.to_frame()))
+        await s._transport.send(bytes(request.to_frame(sequence=0)))
         return ImageUploadWriteResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
@@ -467,7 +467,7 @@ async def test_upload_hello_world_bin_raw(mtu: int) -> None:
     ) -> ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this provides coverage for the MTU-limited chunking done by SMPClient.upload
-        await s._transport.send(bytes(request.to_frame()))
+        await s._transport.send(bytes(request.to_frame(sequence=0)))
         return ImageUploadWriteResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
@@ -654,7 +654,7 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
     ) -> ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
-        await s._transport.send(bytes(request.to_frame()))
+        await s._transport.send(bytes(request.to_frame(sequence=0)))
         return ImageUploadWriteResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
@@ -875,7 +875,7 @@ def test_maximize_upload_packet_fills_decoded_buffer(
         FileUploadRequest(name="/lfs1/firmware.bin", off=0, data=b"", len=len(image)), image
     )
     for maximized in (image_packet, file_packet):
-        frame = bytes(maximized.to_frame())
+        frame = bytes(maximized.to_frame(sequence=0))
 
         # the maximizer fills the decoded reassembly buffer exactly
         assert len(frame) == max_unencoded_size
