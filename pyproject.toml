@@ -118,7 +118,9 @@ markers = [
 [tool.coverage.run]
 source = ["smpclient", "tests"]
 branch = true
-omit = ["tests/integration/*"]
+# `test_generics_typing` asserts statically under mypy and pyright; it is never executed,
+# so there is no runtime behaviour for coverage to measure.
+omit = ["tests/integration/*", "tests/test_generics_typing.py"]
 
 [tool.coverage.report]
 fail_under = 91

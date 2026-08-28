@@ -38,9 +38,8 @@ from smp.os_management import (
     ResetWriteResponse,
 )
 
-from smpclient import SMPClient
+from smpclient import SMPClient, error, error_v1, error_v2, success
 from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
-from smpclient.generics import error, error_v1, error_v2, success
 from smpclient.transport.serial import (
     BufferParams,
     BufferSize,

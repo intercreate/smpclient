@@ -7,8 +7,7 @@ from typing import Final
 
 from smp.os_management import EchoWriteRequest
 
-from smpclient import SMPClient
-from smpclient.generics import error, success
+from smpclient import SMPClient, error, success
 from smpclient.transport.udp import SMPUDPTransport
 
 logging.basicConfig(level=logging.DEBUG)

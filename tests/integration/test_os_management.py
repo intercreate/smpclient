@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from smp.os_management import EchoWriteRequest, MCUMgrParametersReadRequest
 
-from smpclient.generics import success
+from smpclient import success
 from tests.integration.conftest import ConnectedServer
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]

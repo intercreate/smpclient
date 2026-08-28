@@ -41,20 +41,20 @@ import traceback
 from collections.abc import AsyncIterator
 from hashlib import sha256
 from types import TracebackType
-from typing import Final, TypeVar
+from typing import Final, TypeVar, Union
 
 import msgspec
 from smp import SMPRequest
+from smp import error as smperror
 from smp import header as smpheader
 from smp import message as smpmsg
 from smp.file_management import FileDownloadRequest, FileUploadRequest
 from smp.image_management import ImageUploadWriteRequest
 from smp.os_management import MCUMgrParametersReadRequest
 from smp.user import intercreate as smpic
-from typing_extensions import assert_never
+from typing_extensions import TypeIs, assert_never
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
-from smpclient.generics import TEr1, TEr2, TRep, error, success
 from smpclient.transport import SMPTransport
 
 try:
@@ -63,6 +63,64 @@ except ImportError:  # backport for Python3.10 and below
     from async_timeout import timeout  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+TEr1 = TypeVar("TEr1", bound=smperror.ErrorV1)
+"""Type of SMP Error V1."""
+
+TEr2 = TypeVar("TEr2", bound=smperror.ErrorV2)
+"""Type of SMP Error V2."""
+
+TRep = TypeVar("TRep", bound=Union[smpmsg.ReadResponse, smpmsg.WriteResponse])
+"""Type of successful SMP Response (ReadResponse or WriteResponse)."""
+
+
+def error_v1(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[smperror.ErrorV1]:
+    """`TypeIs` that returns `True` if the `response` is an `ErrorV1`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV1`.
+    """
+    return response.RESPONSE_TYPE == smpmsg.ResponseType.ERROR_V1
+
+
+def error_v2(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[TEr2]:
+    """`TypeIs` that returns `True` if the `response` is an `ErrorV2`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV2`.
+    """
+    return response.RESPONSE_TYPE == smpmsg.ResponseType.ERROR_V2
+
+
+def error(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[smperror.ErrorV1 | TEr2]:
+    """`TypeIs` that returns `True` if the `response` is an `ErrorV1` or `ErrorV2`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV1` or `ErrorV2`.
+    """
+    return error_v1(response) or error_v2(response)
+
+
+def success(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[TRep]:
+    """`TypeIs` that returns `True` if the `response` is a successful `Response`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is a successful `Response`.
+    """
+    return response.RESPONSE_TYPE == smpmsg.ResponseType.SUCCESS
+
 
 TUploadRequest = TypeVar(
     "TUploadRequest",

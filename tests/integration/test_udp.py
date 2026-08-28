@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from smp.os_management import EchoWriteRequest
 
-from smpclient.generics import success
+from smpclient import success
 from smpclient.transport.udp import SMPUDPTransport
 from tests.integration.conftest import ConnectedServer
 

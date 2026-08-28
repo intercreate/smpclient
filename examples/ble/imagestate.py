@@ -5,8 +5,7 @@ from typing import Final
 
 from smp.image_management import ImageStatesReadRequest
 
-from smpclient import SMPClient
-from smpclient.generics import error, success
+from smpclient import SMPClient, error, success
 from smpclient.transport.ble import SMPBLETransport
 
 

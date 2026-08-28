@@ -6,7 +6,7 @@ import pytest
 from smp import header as smphdr
 from smp.enumeration_management import GroupCountRequest, ListOfGroupsRequest
 
-from smpclient.generics import success
+from smpclient import success
 from tests.integration.conftest import ConnectedServer
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]

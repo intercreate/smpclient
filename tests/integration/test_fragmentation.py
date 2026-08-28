@@ -12,8 +12,7 @@ import pytest
 from smp import packet as smppacket
 from smp.os_management import EchoWriteRequest
 
-from smpclient import SMPClient
-from smpclient.generics import success
+from smpclient import SMPClient, success
 from smpclient.transport.serial import BufferParams, SMPSerialTransport
 from tests.integration.conftest import ConnectedServer, _wait_until_answering, fixture_params
 from tests.integration.servers import PtyEndpoint, ServerFixture, serve

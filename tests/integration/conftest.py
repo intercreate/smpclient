@@ -24,9 +24,8 @@ from smp.image_management import ImageStatesReadRequest
 from smp.os_management import BootMode, EchoWriteRequest, ResetWriteRequest
 from typing_extensions import assert_never
 
-from smpclient import SMPClient
+from smpclient import SMPClient, success
 from smpclient.exceptions import SMPBadSequence
-from smpclient.generics import success
 from smpclient.transport import SMPTransport
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.udp import SMPUDPTransport

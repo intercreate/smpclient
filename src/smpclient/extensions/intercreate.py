@@ -4,9 +4,8 @@ from collections.abc import AsyncIterator
 
 from smp.user import intercreate as ic
 
-from smpclient import SMPClient
+from smpclient import SMPClient, error, success
 from smpclient.exceptions import SMPUploadError
-from smpclient.generics import error, success
 
 
 class ICUploadClient(SMPClient):

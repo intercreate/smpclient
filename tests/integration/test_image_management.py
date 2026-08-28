@@ -11,7 +11,7 @@ import pytest
 from smp import packet as smppacket
 from smp.image_management import ImageStatesReadRequest
 
-from smpclient.generics import success
+from smpclient import success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from tests.integration.conftest import (

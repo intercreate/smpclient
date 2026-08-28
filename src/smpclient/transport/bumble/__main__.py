@@ -12,8 +12,7 @@ from typing import Final, NamedTuple
 from smp.os_management import EchoWriteRequest
 from typing_extensions import assert_never
 
-from smpclient import SMPClient
-from smpclient.generics import error, success
+from smpclient import SMPClient, error, success
 from smpclient.transport.bumble import SMPBumbleTransport
 from smpclient.transport.bumble.pairing import (
     KeyboardOnly,

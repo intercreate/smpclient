@@ -15,8 +15,7 @@ from smp import error as smperr
 from smp.image_management import ImageStatesReadRequest, ImageStatesWriteRequest
 from smp.os_management import OS_MGMT_RET_RC, ResetWriteRequest
 
-from smpclient import SMPClient
-from smpclient.generics import TEr1, TEr2, TRep, error, error_v1, error_v2, success
+from smpclient import SMPClient, TEr1, TEr2, TRep, error, error_v1, error_v2, success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
 from smpclient.transport.serial import BufferParams, SMPSerialTransport
 
