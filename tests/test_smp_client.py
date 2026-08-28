@@ -38,7 +38,7 @@ from smp.os_management import (
     ResetWriteResponse,
 )
 
-from smpclient import SMPClient, error, error_v1, error_v2, success
+from smpclient import SMPClient, error, error_v1, error_v2, success, wrapping_sequence
 from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
 from smpclient.transport.serial import (
     BufferParams,
@@ -224,6 +224,26 @@ async def test_request_unparseable_frame() -> None:
     assert "Frame:" in exc_info.value.details
     assert req._ErrorV1.__name__ in exc_info.value.details
     assert req._ErrorV2.__name__ in exc_info.value.details
+
+
+def test_wrapping_sequence() -> None:
+    """The default sequence space covers the header's 8 bit field and wraps."""
+    sequence = wrapping_sequence()
+
+    assert [next(sequence) for _ in range(0x100)] == list(range(0x100))
+    assert next(sequence) == 0
+
+
+@pytest.mark.asyncio
+async def test_injected_sequence() -> None:
+    """The sequence space is injectable, so a test can pin what goes on the wire."""
+    m = SMPMockTransport()
+    s = SMPClient(m, "address", sequence=iter((7, 9)))
+    m.receive.return_value = bytes(ResetWriteResponse().to_frame(sequence=0))
+
+    for expected in (7, 9):
+        await s.request(ResetWriteRequest())
+        assert smphdr.Header.loads(sent_frame(m)[: smphdr.Header.SIZE]).sequence == expected
 
 
 @pytest.mark.asyncio

@@ -39,7 +39,7 @@ import asyncio
 import itertools
 import logging
 import traceback
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from hashlib import sha256
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Final, TypeVar, Union, cast
@@ -60,6 +60,8 @@ from smpclient.transport import SMPTransport
 
 if TYPE_CHECKING:
     from types_bits import u8
+else:  # `types_bits` is typing-only; reaching its values at runtime needs its `rt` extra
+    u8 = int
 
 try:
     from asyncio import timeout  # type: ignore
@@ -139,6 +141,11 @@ TUploadRequest = TypeVar(
 """A single-shot upload request whose `data` field is filled to maximize throughput."""
 
 
+def wrapping_sequence() -> Iterator[u8]:
+    """The default SMP sequence space: `0x00`-`0xFF`, wrapping."""
+    return cast(Iterator[u8], itertools.cycle(range(0x100)))
+
+
 def _hexdump(frame: bytes) -> str:
     """Format `frame` as an offset/hex/printable-ASCII dump for readable debug logging."""
 
@@ -189,6 +196,7 @@ class SMPClient:
         transport: the `SMPTransport` to use
         address: the address of the SMP server, see `smpclient.transport` for details
         timeout_s: the default timeout in seconds for SMP requests
+        sequence: this client's SMP sequence space; defaults to `wrapping_sequence()`
 
     Example:
     ```python
@@ -211,20 +219,17 @@ class SMPClient:
     ```
     """
 
-    def __init__(self, transport: SMPTransport, address: str, timeout_s: float = 2.5):  # noqa: DOC301
+    def __init__(  # noqa: DOC301
+        self,
+        transport: SMPTransport,
+        address: str,
+        timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
+    ):
         self._transport: Final = transport
         self._address: Final = address
         self._timeout_s = timeout_s
-        self._counter: Final = itertools.count()
-        """This client's own SMP sequence space, one counter per connection."""
-
-    def _next_sequence(self) -> "u8":
-        """Take the next sequence from this client's own counter.
-
-        `u8` is a `Literal[0..255]` alias with no runtime constructor, so a masked `int`
-        does not satisfy it; narrow once here rather than at every call site.
-        """
-        return cast("u8", next(self._counter) % 0x100)
+        self._sequence: Final = wrapping_sequence() if sequence is None else sequence
 
     async def connect(self, connect_timeout_s: float | None = None) -> None:
         """Connect to the SMP server.
@@ -298,7 +303,7 @@ class SMPClient:
         """
         timeout_s = timeout_s if timeout_s is not None else self._timeout_s
 
-        request_frame: Final = request.to_frame(self._next_sequence())
+        request_frame: Final = request.to_frame(next(self._sequence))
 
         try:
             async with timeout(timeout_s):
