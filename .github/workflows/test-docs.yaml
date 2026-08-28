@@ -17,5 +17,4 @@ jobs:
 
       - name: Build docs
         run: |
-          uv run --group doc python docs/_generate_requests_docstrings.py
           uv run --group doc mkdocs build

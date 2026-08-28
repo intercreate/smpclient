@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import pytest
 from smp import packet as smppacket
+from smp.image_management import ImageStatesReadRequest
 
-from smpclient.generics import success
+from smpclient import success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
-from smpclient.requests.image_management import ImageStatesRead
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from tests.integration.conftest import (
     assert_chunks_maximized,
@@ -32,7 +32,7 @@ _FULL_UPLOAD_LIMIT = 64 * 1024
 @pytest.mark.parametrize("fixture", fixture_params(lambda f: f.has_group("img")))
 async def test_image_states_read(fixture: ServerFixture) -> None:
     async with connected(fixture) as cs:
-        response = await cs.client.request(ImageStatesRead())
+        response = await cs.client.request(ImageStatesReadRequest())
         assert success(response)
         assert len(response.images) >= 1
         assert response.images[0].active is True
@@ -69,7 +69,7 @@ async def test_dfu_upload(fixture: ServerFixture) -> None:
 
         if cap is None:
             assert offsets[-1] == len(image)  # ran to completion (incl. SHA match)
-            states = await cs.client.request(ImageStatesRead())
+            states = await cs.client.request(ImageStatesReadRequest())
             assert success(states)
             uploaded_hash = (
                 ImageInfo.load_file(str(signed_image(fixture))).get_tlv(IMAGE_TLV.SHA256).value

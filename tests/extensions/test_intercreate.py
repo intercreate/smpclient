@@ -5,10 +5,10 @@ from unittest.mock import PropertyMock, patch
 
 import pytest
 from smp import packet as smppacket
+from smp.user import intercreate as ic
 from smp.user import intercreate as smpic
 
 from smpclient.extensions.intercreate import ICUploadClient
-from smpclient.requests.user import intercreate as ic
 from smpclient.transport.serial import SMPSerialTransport
 
 
@@ -39,11 +39,11 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
     s._transport._conn.write = mock_write  # type: ignore
     type(s._transport._conn).out_waiting = 0  # type: ignore
 
-    async def mock_request(request: ic.ImageUploadWrite) -> smpic.ImageUploadWriteResponse:
+    async def mock_request(request: ic.ImageUploadWriteRequest) -> smpic.ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
-        await s._transport.send(request.BYTES)
-        return ic.ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+        await s._transport.send(bytes(request.to_frame(sequence=0)))
+        return ic.ImageUploadWriteResponse(off=request.off + len(request.data))
 
     s.request = mock_request  # type: ignore
 
@@ -63,7 +63,7 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
         try:
             decoder.send(packet)
         except StopIteration as e:
-            reconstructed_request = smpic.ImageUploadWriteRequest.loads(e.value)
+            reconstructed_request = smpic.ImageUploadWriteRequest.loads(e.value).data
             reconstructed_image.extend(reconstructed_request.data)
 
             decoder = smppacket.decode()

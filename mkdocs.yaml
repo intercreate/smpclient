@@ -11,13 +11,6 @@ nav:
   - UDP (Network): transport/udp.md
   - MCUBoot: mcuboot.md
   - Request/Response: requests.md
-  - File Management: file_management.md
-  - Image Management: image_management.md
-  - OS Management: os_management.md
-  - Settings Management: settings_management.md
-  - Shell Management: shell_management.md
-  - Statistics Management: statistics_management.md
-  - Zephyr Management: zephyr_management.md
   - User:
       - Intercreate: user/intercreate.md
 
