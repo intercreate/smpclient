@@ -9,8 +9,8 @@ import pytest
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from smp.os_management import EchoWriteResponse
 
-from smpclient.requests.os_management import EchoWrite
 from smpclient.transport import SMPTransportDisconnected
 from smpclient.transport.ble import (
     MAC_ADDRESS_PATTERN,
@@ -166,20 +166,20 @@ async def test_receive() -> None:
     t._smp_characteristic.uuid = str(SMP_CHARACTERISTIC_UUID)
     t._disconnected_event.clear()  # pretend t.connect() was successful
 
-    REP = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!").BYTES  # type: ignore
+    REP = bytes(EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0))
 
     b, _ = await asyncio.gather(
         t.receive(),
-        t._notify_callback(t._smp_characteristic, REP),
+        t._notify_callback(t._smp_characteristic, bytearray(REP)),
     )
 
     assert b == REP
 
     # cool, now try with a fragmented response
     async def fragmented_notifies() -> None:
-        await t._notify_callback(t._smp_characteristic, REP[:10])
+        await t._notify_callback(t._smp_characteristic, bytearray(REP[:10]))
         await asyncio.sleep(0.001)
-        await t._notify_callback(t._smp_characteristic, REP[10:])
+        await t._notify_callback(t._smp_characteristic, bytearray(REP[10:]))
 
     b, _ = await asyncio.gather(
         t.receive(),

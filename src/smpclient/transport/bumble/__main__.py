@@ -9,11 +9,11 @@ import logging
 import sys
 from typing import Final, NamedTuple
 
+from smp.os_management import EchoWriteRequest
 from typing_extensions import assert_never
 
 from smpclient import SMPClient
 from smpclient.generics import error, success
-from smpclient.requests.os_management import EchoWrite
 from smpclient.transport.bumble import SMPBumbleTransport
 from smpclient.transport.bumble.pairing import (
     KeyboardOnly,
@@ -97,7 +97,7 @@ async def _echo(args: _EchoArgs) -> int:
     async with SMPClient(
         SMPBumbleTransport(hci=args.hci), args.address, timeout_s=args.timeout
     ) as client:
-        response = await client.request(EchoWrite(d=args.message))
+        response = await client.request(EchoWriteRequest(d=args.message))
         if success(response):
             print(response.r)
             return 0

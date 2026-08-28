@@ -20,14 +20,13 @@ from typing import NamedTuple
 import pytest
 import pytest_asyncio
 from _pytest.mark.structures import ParameterSet
-from smp.os_management import BootMode
+from smp.image_management import ImageStatesReadRequest
+from smp.os_management import BootMode, EchoWriteRequest, ResetWriteRequest
 from typing_extensions import assert_never
 
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence
 from smpclient.generics import success
-from smpclient.requests.image_management import ImageStatesRead
-from smpclient.requests.os_management import EchoWrite, ResetWrite
 from smpclient.transport import SMPTransport
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.udp import SMPUDPTransport
@@ -144,7 +143,7 @@ async def _wait_until_answering(client: SMPClient, *, attempts: int = 30) -> Non
     """Round-trip an echo until the server answers, tolerating boot-time stalls."""
 
     async def echoes(c: SMPClient) -> bool:
-        response = await c.request(EchoWrite(d=_READY_PROBE), timeout_s=1.0)
+        response = await c.request(EchoWriteRequest(d=_READY_PROBE), timeout_s=1.0)
         return success(response) and response.r == _READY_PROBE
 
     if not await _poll_until_answering(client, echoes, attempts=attempts):
@@ -245,10 +244,12 @@ async def reboot_into_recovery(
     `transport` then connects to the bootloader on the same serial endpoint, probed until
     it answers (the recovery server speaks the img group, not echo).
     """
-    assert success(await app_client.request(ImageStatesRead()))
+    assert success(await app_client.request(ImageStatesReadRequest()))
     try:
         assert success(
-            await app_client.request(ResetWrite(boot_mode=BootMode.BOOTLOADER), timeout_s=3.0)
+            await app_client.request(
+                ResetWriteRequest(boot_mode=BootMode.BOOTLOADER), timeout_s=3.0
+            )
         )
     except TimeoutError:
         pass  # some servers reset before sending the response
@@ -256,7 +257,7 @@ async def reboot_into_recovery(
     await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
 
     async def lists_images(c: SMPClient) -> bool:
-        return success(await c.request(ImageStatesRead(), timeout_s=1.0))
+        return success(await c.request(ImageStatesReadRequest(), timeout_s=1.0))
 
     bootloader = SMPClient(transport, address)
     await bootloader.connect()

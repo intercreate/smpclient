@@ -28,11 +28,11 @@ from typing import NamedTuple
 import pytest
 from _pytest.mark.structures import ParameterSet
 from smp import packet as smppacket
+from smp.image_management import ImageStatesReadRequest
+from smp.os_management import MCUMgrParametersReadRequest
 from typing_extensions import assert_never
 
 from smpclient.generics import success
-from smpclient.requests.image_management import ImageStatesRead
-from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport.serial import Auto, BufferSize, Cobs, SMPSerialTransport
 from smpclient.transport.serial.encoded import _FRAME_OVERHEAD
 from tests.integration.conftest import (
@@ -173,7 +173,7 @@ async def test_upload_to_mcuboot_recovery(variant: _Recovery, fixture: ServerFix
         async with reboot_into_recovery(cs.client, transport, cs.endpoint.url) as bootloader:
             await bootloader._initialize()  # negotiate buf_size (a no-op for explicit BufferSize)
 
-            params = await bootloader.request(MCUMgrParametersRead(), timeout_s=2.0)
+            params = await bootloader.request(MCUMgrParametersReadRequest(), timeout_s=2.0)
             assert success(params)
             assert (params.buf_count, params.buf_size) == (1, advertised)
 
@@ -188,6 +188,6 @@ async def test_upload_to_mcuboot_recovery(variant: _Recovery, fixture: ServerFix
             assert offsets[-1] >= 4096  # the bootloader reassembles the fragmented upload
             assert_chunks_maximized(offsets, cap)
 
-            states = await bootloader.request(ImageStatesRead(), timeout_s=5.0)
+            states = await bootloader.request(ImageStatesReadRequest(), timeout_s=5.0)
             assert success(states)
             assert len(states.images) >= 1  # the recovery img group is coherent after the upload

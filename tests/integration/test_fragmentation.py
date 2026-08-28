@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import pytest
 from smp import packet as smppacket
+from smp.os_management import EchoWriteRequest
 
 from smpclient import SMPClient
 from smpclient.generics import success
-from smpclient.requests.os_management import EchoWrite
 from smpclient.transport.serial import BufferParams, SMPSerialTransport
 from tests.integration.conftest import ConnectedServer, _wait_until_answering, fixture_params
 from tests.integration.servers import PtyEndpoint, ServerFixture, serve
@@ -51,7 +51,7 @@ async def test_noparams_falls_back_to_defaults(connected_server: ConnectedServer
     assert transport._line_buffers == 2
     assert transport.mtu == transport._line_length * transport._line_buffers
 
-    response = await cs.client.request(EchoWrite(d="fallback works"))
+    response = await cs.client.request(EchoWriteRequest(d="fallback works"))
     assert success(response)
     assert response.r == "fallback works"
 
@@ -69,7 +69,7 @@ async def test_two_fragment_roundtrip(connected_server: ConnectedServer) -> None
 
     text = "Z" * transport._line_length  # > one line packet, within a 2-fragment burst
     # Generous timeout: a multi-fragment round-trip is slow on emulated MCUs under CI load.
-    response = await cs.client.request(EchoWrite(d=text), timeout_s=10.0)
+    response = await cs.client.request(EchoWriteRequest(d=text), timeout_s=10.0)
     assert success(response)
     assert response.r == text
 
@@ -89,11 +89,13 @@ async def test_max_payload_roundtrip(connected_server: ConnectedServer) -> None:
 
     transport = cs.client._transport
     assert isinstance(transport, SMPSerialTransport)
-    text = "M" * (transport.max_unencoded_size - len(EchoWrite(d="").BYTES) - 4)
-    request = EchoWrite(d=text)
-    assert len(request.BYTES) <= transport.max_unencoded_size
+    text = "M" * (transport.max_unencoded_size - len(bytes(EchoWriteRequest(d="").to_frame())) - 4)
+    request = EchoWriteRequest(d=text)
+    assert len(bytes(request.to_frame())) <= transport.max_unencoded_size
 
-    line_packets = len(list(smppacket.encode(request.BYTES, line_length=transport._line_length)))
+    line_packets = len(
+        list(smppacket.encode(bytes(request.to_frame()), line_length=transport._line_length))
+    )
     limit = cs.fixture.max_reliable_line_packets
     if limit is not None and line_packets > limit:
         pytest.skip(
@@ -127,9 +129,9 @@ async def test_non_default_line_length(fixture: ServerFixture) -> None:
             assert transport._line_length == 512
 
             text = "L" * 200  # > one 128-byte line packet, so the 512 line length is in effect
-            request = EchoWrite(d=text)
-            assert len(list(smppacket.encode(request.BYTES, line_length=512))) < len(
-                list(smppacket.encode(request.BYTES, line_length=128))
+            request = EchoWriteRequest(d=text)
+            assert len(list(smppacket.encode(bytes(request.to_frame()), line_length=512))) < len(
+                list(smppacket.encode(bytes(request.to_frame()), line_length=128))
             )
             response = await client.request(request, timeout_s=10.0)
             assert success(response)

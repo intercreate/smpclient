@@ -3,9 +3,10 @@
 import asyncio
 from typing import Final
 
+from smp.os_management import MCUMgrParametersReadRequest
+
 from smpclient import SMPClient
 from smpclient.generics import error, success
-from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport.ble import SMPBLETransport
 
 
@@ -22,7 +23,7 @@ async def main() -> None:
         print(f"Client max unencoded size is {client._transport.max_unencoded_size}B")
 
         print("Sending request...", end="", flush=True)
-        response: Final = await client.request(MCUMgrParametersRead())
+        response: Final = await client.request(MCUMgrParametersReadRequest())
         print("OK")
 
         if success(response):

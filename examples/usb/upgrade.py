@@ -10,14 +10,14 @@ from pathlib import Path
 from typing import Final
 
 from serial.tools.list_ports import comports
+from smp import SMPRequest
 from smp import error as smperr
-from smp.os_management import OS_MGMT_RET_RC
+from smp.image_management import ImageStatesReadRequest, ImageStatesWriteRequest
+from smp.os_management import OS_MGMT_RET_RC, ResetWriteRequest
 
 from smpclient import SMPClient
-from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, error_v1, error_v2, success
+from smpclient.generics import TEr1, TEr2, TRep, error, error_v1, error_v2, success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
-from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite
-from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import BufferParams, SMPSerialTransport
 
 logging.basicConfig(
@@ -130,7 +130,7 @@ async def main() -> None:
             else:
                 raise Exception(f"Unknown response: {response}")
 
-        response = await ensure_request(ImageStatesRead())
+        response = await ensure_request(ImageStatesReadRequest())
         assert response.images[0].hash == a_smp_dut_hash.value
         assert response.images[0].slot == 0
 
@@ -155,7 +155,7 @@ async def main() -> None:
             )
 
         print()
-        response = await ensure_request(ImageStatesRead())
+        response = await ensure_request(ImageStatesReadRequest())
         assert response.images[1].hash == b_smp_dut_hash.value
         assert response.images[1].slot == 1
         print("Confirmed the upload")
@@ -167,11 +167,11 @@ async def main() -> None:
 
         print()
         print("Marking B SMP DUT for test...")
-        await ensure_request(ImageStatesWrite(hash=response.images[1].hash))
+        await ensure_request(ImageStatesWriteRequest(hash=response.images[1].hash))
 
         print()
         print("Resetting for swap...")
-        reset_response = await client.request(ResetWrite())
+        reset_response = await client.request(ResetWriteRequest())
         if error_v1(reset_response):
             assert reset_response.rc == smperr.MGMT_ERR.EOK
         elif error_v2(reset_response):
@@ -199,7 +199,7 @@ async def main() -> None:
 
         print()
         print("Sending request...", end="", flush=True)
-        images = await client.request(ImageStatesRead())
+        images = await client.request(ImageStatesReadRequest())
         print("OK")
 
         if success(images):

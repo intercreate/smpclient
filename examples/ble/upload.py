@@ -6,9 +6,10 @@ import logging
 import time
 from typing import Final
 
+from smp.image_management import ImageStatesReadRequest
+
 from smpclient import SMPClient
 from smpclient.generics import error, success
-from smpclient.requests.image_management import ImageStatesRead
 from smpclient.transport.ble import SMPBLETransport
 
 logging.basicConfig(
@@ -36,7 +37,7 @@ async def main() -> None:
         print("OK")
 
         print("Sending request...", end="", flush=True)
-        response = await client.request(ImageStatesRead())
+        response = await client.request(ImageStatesReadRequest())
         print("OK")
 
         if success(response):
@@ -58,7 +59,7 @@ async def main() -> None:
 
         print()
         print("Sending request...", end="", flush=True)
-        response = await client.request(ImageStatesRead())
+        response = await client.request(ImageStatesReadRequest())
         print("OK")
 
         if success(response):

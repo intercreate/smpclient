@@ -1,19 +1,25 @@
 """Tests for `SMPClient`."""
 
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, PropertyMock, call, patch
 
 import pytest
 from smp import header as smphdr
+from smp import message as smpmsg
 from smp import packet as smppacket
 from smp.error import MGMT_ERR
 from smp.error import Err as SMPErr
+from smp.exceptions import SMPMismatchedGroupId
 from smp.file_management import (
     FS_MGMT_ERR,
+    FileDownloadRequest,
     FileDownloadResponse,
     FileSystemManagementErrorV1,
     FileSystemManagementErrorV2,
+    FileUploadRequest,
     FileUploadResponse,
 )
 from smp.image_management import (
@@ -25,17 +31,16 @@ from smp.image_management import (
 )
 from smp.os_management import (
     OS_MGMT_RET_RC,
+    EchoWriteResponse,
     OSManagementErrorV1,
     OSManagementErrorV2,
+    ResetWriteRequest,
     ResetWriteResponse,
 )
 
 from smpclient import SMPClient
 from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
 from smpclient.generics import error, error_v1, error_v2, success
-from smpclient.requests.file_management import FileDownload, FileUpload
-from smpclient.requests.image_management import ImageUploadWrite
-from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.serial import (
     BufferParams,
     BufferSize,
@@ -45,6 +50,30 @@ from smpclient.transport.serial import (
 
 FRAME_OVERHEAD = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
 """The SMP serial frame's 2-byte length + 2-byte CRC16 that share the decoded buffer."""
+
+
+def error_bytes(err: smpmsg.Response, command_id: smphdr.AnyCommandId) -> bytes:
+    """Serialize an error response, whose header cannot be synthesized by `to_frame()`.
+
+    `ErrorV1`/`ErrorV2` declare no `_OP` or `_COMMAND_ID` -- only the group they belong
+    to -- so a caller that needs their bytes builds the header itself. `SMPMockTransport`
+    re-stamps the sequence, so the one here is arbitrary.
+    """
+    payload = bytes(err)
+    return (
+        bytes(
+            smphdr.Header(
+                op=smphdr.OP.WRITE_RSP,
+                version=smphdr.Version.V2,
+                flags=smphdr.Flag(0),
+                length=len(payload),
+                group_id=err._GROUP_ID,
+                sequence=0,
+                command_id=command_id,
+            )
+        )
+        + payload
+    )
 
 
 class SMPMockTransport:
@@ -59,6 +88,8 @@ class SMPMockTransport:
         self.initialize = AsyncMock()
         self._mtu = 0
         self._max_unencoded_size = 0
+        self.sequence_offset = 0
+        """Added to the echoed sequence; non-zero fakes a server answering out of order."""
 
     @property
     def mtu(self) -> int:
@@ -69,8 +100,29 @@ class SMPMockTransport:
         return self._max_unencoded_size
 
     async def send_and_receive(self, data: bytes) -> bytes:
+        """Answer with `receive()`'s frame, re-stamped with the sequence a server would echo.
+
+        `SMPClient.request` draws the sequence from smp's counter when it frames the
+        request, so a test cannot know it in advance.
+        """
         await self.send(data)
-        return await self.receive()
+        response: bytes = await self.receive()
+        sequence: int = smphdr.Header.loads(data[: smphdr.Header.SIZE]).sequence
+        return (
+            bytes(
+                replace(
+                    smphdr.Header.loads(response[: smphdr.Header.SIZE]),
+                    sequence=(sequence + self.sequence_offset) % 0x100,
+                )
+            )
+            + response[smphdr.Header.SIZE :]
+        )
+
+
+def sent_frame(m: SMPMockTransport) -> Any:
+    """The frame handed to the most recent `send`."""
+    assert m.send.await_args is not None
+    return m.send.await_args.args[0]
 
 
 def test_constructor() -> None:
@@ -96,10 +148,10 @@ async def test_request() -> None:
     m = SMPMockTransport()
     s = SMPClient(m, "address")
 
-    req = ResetWrite()
-    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence).BYTES
+    req = ResetWriteRequest()
+    m.receive.return_value = bytes(ResetWriteResponse().to_frame())
     rep = await s.request(req)
-    m.send.assert_has_awaits([call(req.BYTES)])
+    assert ResetWriteRequest.loads(sent_frame(m)).data == req
     m.receive.assert_awaited()
     assert type(rep) is req._Response
     assert success(rep) is True
@@ -108,28 +160,19 @@ async def test_request() -> None:
     assert error_v2(rep) is False
 
     # test that a bad sequence raises `SMPBadSequence`
-    req = ResetWrite()
-    m.receive.return_value = ResetWriteResponse(sequence=req.header.sequence + 1).BYTES
+    m.receive.return_value = bytes(ResetWriteResponse().to_frame())
+    m.sequence_offset = 1
     with pytest.raises(SMPBadSequence):
         await s.request(req)
+    m.sequence_offset = 0
 
     # test that a genric MGMT_ERR error response is parsed
-    req = ResetWrite()
-    m.receive.return_value = OSManagementErrorV1(
-        header=smphdr.Header(
-            op=smphdr.OP.WRITE_RSP,
-            version=smphdr.Version.V1,
-            flags=smphdr.Flag(0),
-            length=5,
-            group_id=req.header.group_id,
-            sequence=req.header.sequence,
-            command_id=req.header.command_id,
-        ),
-        rc=MGMT_ERR.ENOTSUP,
-    ).BYTES
+    m.receive.return_value = error_bytes(
+        OSManagementErrorV1(rc=MGMT_ERR.ENOTSUP), smphdr.CommandId.OSManagement.RESET
+    )
 
     rep = await s.request(req)
-    m.send.assert_has_awaits([call(req.BYTES)])
+    assert ResetWriteRequest.loads(sent_frame(m)).data == req
     m.receive.assert_awaited()
     assert success(rep) is False
     assert error_v2(rep) is False
@@ -141,24 +184,17 @@ async def test_request() -> None:
         raise AssertionError(f"Unexpected response type: {type(rep)}")
 
     # test that an OS_MGMT_RET_RC error response is parsed
-    req = ResetWrite()
-    # _header = ResetWriteResponse(sequence=req.header.sequence).header
-    header = smphdr.Header(
-        op=smphdr.OP.WRITE_RSP,
-        version=smphdr.Version.V2,
-        flags=smphdr.Flag(0),
-        length=17,
-        group_id=smphdr.GroupId.OS_MANAGEMENT,
-        sequence=req.sequence,
-        command_id=smphdr.CommandId.OSManagement.RESET,
+    m.receive.return_value = error_bytes(
+        OSManagementErrorV2(
+            err=SMPErr[OS_MGMT_RET_RC](
+                rc=OS_MGMT_RET_RC.UNKNOWN, group=smphdr.GroupId.OS_MANAGEMENT
+            )
+        ),
+        smphdr.CommandId.OSManagement.RESET,
     )
-    m.receive.return_value = OSManagementErrorV2(
-        header=header,
-        err=SMPErr[OS_MGMT_RET_RC](rc=OS_MGMT_RET_RC.UNKNOWN, group=smphdr.GroupId.OS_MANAGEMENT),
-    ).BYTES
 
     rep = await s.request(req)
-    m.send.assert_has_awaits([call(req.BYTES)])
+    assert ResetWriteRequest.loads(sent_frame(m)).data == req
     m.receive.assert_awaited()
     assert success(rep) is False
     assert error(rep) is True
@@ -176,9 +212,10 @@ async def test_request_unparseable_frame() -> None:
     m = SMPMockTransport()
     s = SMPClient(m, "address")
 
-    req = ResetWrite()
-    # A frame from a different group/command can be parsed as none of `ResetWrite`'s types.
-    m.receive.return_value = ImageUploadWriteResponse(sequence=req.header.sequence, off=0).BYTES
+    req = ResetWriteRequest()
+    # Same group, so the frame reaches the decoders -- but `r` is a field of none of
+    # `ResetWriteRequest`'s three response types, so every one of them rejects it.
+    m.receive.return_value = bytes(EchoWriteResponse(r="not a reset response").to_frame())
 
     with pytest.raises(SMPValidationException) as exc_info:
         await s.request(req)
@@ -188,6 +225,52 @@ async def test_request_unparseable_frame() -> None:
     assert "Frame:" in exc_info.value.details
     assert req._ErrorV1.__name__ in exc_info.value.details
     assert req._ErrorV2.__name__ in exc_info.value.details
+
+
+@pytest.mark.asyncio
+async def test_request_mismatched_group_propagates() -> None:
+    """A frame from the wrong group is a transport error, not an unparseable response.
+
+    It fails all three candidate types identically, so `SMPMismatchedGroupId` propagates
+    instead of being collected as one more parse failure.
+    """
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    m.receive.return_value = bytes(ImageUploadWriteResponse(off=0).to_frame())
+
+    with pytest.raises(SMPMismatchedGroupId):
+        await s.request(ResetWriteRequest())
+
+
+@pytest.mark.asyncio
+async def test_request_truncated_payload_is_diagnosed() -> None:
+    """A payload that is not decodable CBOR still raises the diagnostic exception.
+
+    msgspec reports this as a bare `DecodeError` rather than a `ValidationError`, so the
+    decode chain catches the wider type.
+    """
+    m = SMPMockTransport()
+    s = SMPClient(m, "address")
+
+    truncated = b"\xbf\x61\x72"  # an indefinite-length map that simply stops
+    m.receive.return_value = (
+        bytes(
+            smphdr.Header(
+                op=smphdr.OP.WRITE_RSP,
+                version=smphdr.Version.V2,
+                flags=smphdr.Flag(0),
+                length=len(truncated),
+                group_id=smphdr.GroupId.OS_MANAGEMENT,
+                sequence=0,
+                command_id=smphdr.CommandId.OSManagement.RESET,
+            )
+        )
+        + truncated
+    )
+
+    with pytest.raises(SMPValidationException):
+        await s.request(ResetWriteRequest())
 
 
 @pytest.mark.asyncio
@@ -203,32 +286,13 @@ async def test_upload() -> None:
     chunk_size = 415  # max chunk given MTU
 
     image = bytes([i % 255 for i in range(4097)])
-    req = ImageUploadWrite(
-        off=0,
-        data=image[:chunk_size],
-        image=0,
-        len=len(image),
-        sha=sha256(image).digest(),
-        upgrade=False,
-    )
-
     u = s.upload(image)
-    h = req.header
 
-    s.request.return_value = ImageUploadWrite._Response.get_default()(off=415)  # type: ignore
+    s.request.return_value = ImageUploadWriteResponse(off=415)  # type: ignore
     offset = await anext(u)
     assert offset == 415
     s.request.assert_awaited_once_with(
-        ImageUploadWrite(
-            header=smphdr.Header(
-                op=h.op,
-                version=h.version,
-                flags=h.flags,
-                length=h.length,
-                group_id=h.group_id,
-                sequence=(h.sequence + 2) % 0xFF,
-                command_id=h.command_id,
-            ),
+        ImageUploadWriteRequest(
             off=0,
             data=image[:chunk_size],
             image=0,
@@ -239,20 +303,11 @@ async def test_upload() -> None:
         timeout_s=40.000,
     )
 
-    s.request.return_value = ImageUploadWrite._Response.get_default()(off=415 + 474)  # type: ignore
+    s.request.return_value = ImageUploadWriteResponse(off=415 + 474)  # type: ignore
     offset = await anext(u)
     assert offset == 415 + 474
     s.request.assert_awaited_with(
-        ImageUploadWrite(
-            header=smphdr.Header(
-                op=h.op,
-                version=h.version,
-                flags=h.flags,
-                length=h.length,
-                group_id=h.group_id,
-                sequence=(h.sequence + 4) % 0xFF,
-                command_id=h.command_id,
-            ),
+        ImageUploadWriteRequest(
             off=415,
             data=image[415 : 415 + 474],
         ),
@@ -261,35 +316,16 @@ async def test_upload() -> None:
 
     # assert that upload() raises SMPUploadError
     s.request.return_value = ImageManagementErrorV1(
-        header=smphdr.Header(
-            op=req.header.op,
-            version=req.header.version,
-            flags=req.header.flags,
-            length=5,
-            group_id=req.header.group_id,
-            sequence=(req.header.sequence + 6) % 0xFF,
-            command_id=req.header.command_id,
-        ),
         rc=MGMT_ERR.ECORRUPT,
     )
     with pytest.raises(SMPUploadError) as e:
         _ = await anext(u)
     assert e.value.args[0].rc == MGMT_ERR.ECORRUPT
     u = s.upload(image)
-    h = req.header
     s.request.return_value = ImageManagementErrorV2(
-        header=smphdr.Header(
-            op=req.header.op,
-            version=req.header.version,
-            flags=req.header.flags,
-            length=17,
-            group_id=req.header.group_id,
-            sequence=(req.header.sequence + 7) % 0xFF,
-            command_id=req.header.command_id,
-        ),
         err=SMPErr(  # type: ignore
             rc=IMG_MGMT_ERR.FLASH_WRITE_FAILED, group=smphdr.GroupId.IMAGE_MANAGEMENT
-        ).model_dump(),
+        ),
     )
     with pytest.raises(SMPUploadError) as e:
         _ = await anext(u)
@@ -318,10 +354,10 @@ async def test_upload_hello_world_bin(
     accumulated_image = bytearray([])
 
     async def mock_request(
-        request: ImageUploadWrite, timeout_s: float = 120.000
+        request: ImageUploadWriteRequest, timeout_s: float = 120.000
     ) -> ImageUploadWriteResponse:
         accumulated_image.extend(request.data)
-        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+        return ImageUploadWriteResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
@@ -370,12 +406,12 @@ async def test_upload_hello_world_bin_encoded(
     type(s._transport._conn).out_waiting = 0  # type: ignore
 
     async def mock_request(
-        request: ImageUploadWrite, timeout_s: float = 120.000
+        request: ImageUploadWriteRequest, timeout_s: float = 120.000
     ) -> ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
-        await s._transport.send(request.BYTES)
-        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+        await s._transport.send(bytes(request.to_frame()))
+        return ImageUploadWriteResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
@@ -395,7 +431,7 @@ async def test_upload_hello_world_bin_encoded(
         try:
             decoder.send(packet)
         except StopIteration as e:
-            reconstructed_request = ImageUploadWriteRequest.loads(e.value)
+            reconstructed_request = ImageUploadWriteRequest.loads(e.value).data
             reconstructed_image.extend(reconstructed_request.data)
 
             decoder = smppacket.decode()
@@ -428,12 +464,12 @@ async def test_upload_hello_world_bin_raw(mtu: int) -> None:
     s._transport._conn.write = mock_write  # type: ignore
 
     async def mock_request(
-        request: ImageUploadWrite, timeout_s: float = 120.000
+        request: ImageUploadWriteRequest, timeout_s: float = 120.000
     ) -> ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this provides coverage for the MTU-limited chunking done by SMPClient.upload
-        await s._transport.send(request.BYTES)
-        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+        await s._transport.send(bytes(request.to_frame()))
+        return ImageUploadWriteResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
@@ -446,7 +482,7 @@ async def test_upload_hello_world_bin_raw(mtu: int) -> None:
     # Each captured write is one complete SMP message [header][payload], no decoding needed.
     reconstructed_image = bytearray([])
     for packet in packets:
-        reconstructed_image.extend(ImageUploadWriteRequest.loads(packet).data)
+        reconstructed_image.extend(ImageUploadWriteRequest.loads(packet).data.data)
 
     assert reconstructed_image == image
 
@@ -464,25 +500,13 @@ async def test_upload_file() -> None:
     chunk_size = 455  # max chunk given MTU
 
     data = bytes([i % 255 for i in range(4097)])
-    req = FileUpload(off=0, data=data[:chunk_size], len=len(data), name="test.txt")
-
     u = s.upload_file(data, file_path="test.txt")
-    h = req.header
 
-    s.request.return_value = FileUpload._Response.get_default()(off=455)  # type: ignore
+    s.request.return_value = FileUploadResponse(off=455)  # type: ignore
     offset = await anext(u)
     assert offset == 455
     s.request.assert_awaited_once_with(
-        FileUpload(
-            header=smphdr.Header(
-                op=h.op,
-                version=h.version,
-                flags=h.flags,
-                length=h.length,
-                group_id=h.group_id,
-                sequence=(h.sequence + 2) % 0xFF,
-                command_id=h.command_id,
-            ),
+        FileUploadRequest(
             off=0,
             data=data[:chunk_size],
             len=len(data),
@@ -491,20 +515,11 @@ async def test_upload_file() -> None:
         timeout_s=2.500,
     )
 
-    s.request.return_value = FileUpload._Response.get_default()(off=455 + 460)  # type: ignore
+    s.request.return_value = FileUploadResponse(off=455 + 460)  # type: ignore
     offset = await anext(u)
     assert offset == 455 + 460
     s.request.assert_awaited_with(
-        FileUpload(
-            header=smphdr.Header(
-                op=h.op,
-                version=h.version,
-                flags=h.flags,
-                length=h.length,
-                group_id=h.group_id,
-                sequence=(h.sequence + 4) % 0xFF,
-                command_id=h.command_id,
-            ),
+        FileUploadRequest(
             off=455,
             data=data[455 : 455 + 460],
             name="test.txt",
@@ -514,15 +529,6 @@ async def test_upload_file() -> None:
 
     # assert that upload() raises SMPUploadError
     s.request.return_value = FileSystemManagementErrorV1(
-        header=smphdr.Header(
-            op=req.header.op,
-            version=req.header.version,
-            flags=req.header.flags,
-            length=5,
-            group_id=req.header.group_id,
-            sequence=(req.header.sequence + 5) % 0xFF,
-            command_id=req.header.command_id,
-        ),
         rc=MGMT_ERR.EACCESSDENIED,
     )
 
@@ -530,20 +536,10 @@ async def test_upload_file() -> None:
         _ = await anext(u)
     assert e.value.args[0].rc == MGMT_ERR.EACCESSDENIED
     u = s.upload_file(data, file_path="test.txt")
-    h = req.header
     s.request.return_value = FileSystemManagementErrorV2(
-        header=smphdr.Header(
-            op=req.header.op,
-            version=req.header.version,
-            flags=req.header.flags,
-            length=17,
-            group_id=req.header.group_id,
-            sequence=(req.header.sequence + 6) % 0xFF,
-            command_id=req.header.command_id,
-        ),
         err=SMPErr(  # type: ignore
             rc=FS_MGMT_ERR.FILE_WRITE_FAILED, group=smphdr.GroupId.FILE_MANAGEMENT
-        ).model_dump(),
+        ),
     )
     with pytest.raises(SMPUploadError) as e:
         _ = await anext(u)
@@ -570,9 +566,11 @@ async def test_file_upload_test_txt(
 
     accumulated_data = bytearray([])
 
-    async def mock_request(request: FileUpload, timeout_s: float = 120.000) -> FileUploadResponse:
+    async def mock_request(
+        request: FileUploadRequest, timeout_s: float = 120.000
+    ) -> FileUploadResponse:
         accumulated_data.extend(request.data)
-        return FileUpload._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+        return FileUploadResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
@@ -602,9 +600,11 @@ async def test_file_upload_test_255_bytes_file(
 
     accumulated_data = bytearray([])
 
-    async def mock_request(request: FileUpload, timeout_s: float = 120.000) -> FileUploadResponse:
+    async def mock_request(
+        request: FileUploadRequest, timeout_s: float = 120.000
+    ) -> FileUploadResponse:
         accumulated_data.extend(request.data)
-        return FileUpload._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+        return FileUploadResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
@@ -651,12 +651,12 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
     type(s._transport._conn).out_waiting = 0  # type: ignore
 
     async def mock_request(
-        request: ImageUploadWrite, timeout_s: float = 120.000
+        request: ImageUploadWriteRequest, timeout_s: float = 120.000
     ) -> ImageUploadWriteResponse:
         # call the real send method (with write mocked) but don't bother with receive
         # this does provide coverage for the MTU-limited encoding done in the send method
-        await s._transport.send(request.BYTES)
-        return ImageUploadWrite._Response.get_default()(off=request.off + len(request.data))  # type: ignore # noqa
+        await s._transport.send(bytes(request.to_frame()))
+        return ImageUploadWriteResponse(off=request.off + len(request.data))  # type: ignore # noqa
 
     s.request = mock_request  # type: ignore
 
@@ -676,7 +676,7 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
         try:
             decoder.send(packet)
         except StopIteration as e:
-            reconstructed_request = ImageUploadWriteRequest.loads(e.value)
+            reconstructed_request = ImageUploadWriteRequest.loads(e.value).data
             reconstructed_file.extend(reconstructed_request.data)
 
             decoder = smppacket.decode()
@@ -708,150 +708,66 @@ async def test_download_file() -> None:
         FileDownloadResponse(off=3648, data=data[3648:4097]),
     ]
 
-    req = FileDownload(off=3648, name="test.txt")
-    h = req.header
-
     file_data = await s.download_file(file_path="test.txt")
     calls = [
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length - 2,  # Decrease size ass offset of 0 uses 2 less bytes
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 1) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=0,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 2) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=456,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 3) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=912,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 4) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=1368,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 5) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=1824,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 6) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=2280,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 7) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=2736,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 8) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=3192,
                 name="test.txt",
             ),
             timeout_s=2.500,
         ),
         call(
-            FileDownload(
-                header=smphdr.Header(
-                    op=h.op,
-                    version=h.version,
-                    flags=h.flags,
-                    length=h.length,
-                    group_id=h.group_id,
-                    sequence=(h.sequence + 9) % 0xFF,
-                    command_id=h.command_id,
-                ),
+            FileDownloadRequest(
                 off=3648,
                 name="test.txt",
             ),
@@ -873,25 +789,10 @@ async def test_download_file_error_first() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    req = FileDownload(
-        off=3648,
-        name="test.txt",
-        sequence=0,
-    )
-
     s.request.return_value = FileSystemManagementErrorV2(
-        header=smphdr.Header(
-            op=req.header.op,
-            version=req.header.version,
-            flags=req.header.flags,
-            length=17,
-            group_id=req.header.group_id,
-            sequence=req.header.sequence + 6,
-            command_id=req.header.command_id,
-        ),
         err=SMPErr(  # type: ignore
             rc=FS_MGMT_ERR.FILE_WRITE_FAILED, group=smphdr.GroupId.FILE_MANAGEMENT
-        ).model_dump(),
+        ),
     )
 
     with pytest.raises(SMPUploadError) as e:
@@ -906,23 +807,9 @@ async def test_download_file_no_len_first() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    req = FileDownload(
-        off=3648,
-        name="test.txt",
-        sequence=0,
-    )
     data = bytes([i % 255 for i in range(4097)])
 
     s.request.return_value = FileDownloadResponse(
-        header=smphdr.Header(
-            op=req.header.op,
-            version=req.header.version,
-            flags=req.header.flags,
-            length=472,
-            group_id=req.header.group_id,
-            sequence=req.header.sequence + 1,
-            command_id=req.header.command_id,
-        ),
         off=456,
         data=data[:456],
     )
@@ -939,41 +826,18 @@ async def test_download_file_error_not_first() -> None:
 
     s.request = AsyncMock()  # type: ignore
 
-    req = FileDownload(
-        off=3648,
-        name="test.txt",
-        sequence=0,
-    )
     data = bytes([i % 255 for i in range(4097)])
 
     s.request.side_effect = [
         FileDownloadResponse(
-            header=smphdr.Header(
-                op=req.header.op,
-                version=req.header.version,
-                flags=req.header.flags,
-                length=479,
-                group_id=req.header.group_id,
-                sequence=req.header.sequence + 1,
-                command_id=req.header.command_id,
-            ),
             off=456,
             data=data[:456],
             len=len(data),
         ),
         FileSystemManagementErrorV2(
-            header=smphdr.Header(
-                op=req.header.op,
-                version=req.header.version,
-                flags=req.header.flags,
-                length=17,
-                group_id=req.header.group_id,
-                sequence=req.header.sequence + 2,
-                command_id=req.header.command_id,
-            ),
             err=SMPErr(  # type: ignore
                 rc=FS_MGMT_ERR.FILE_WRITE_FAILED, group=smphdr.GroupId.FILE_MANAGEMENT
-            ).model_dump(),
+            ),
         ),
     ]
     with pytest.raises(SMPUploadError) as e:
@@ -992,7 +856,7 @@ def test_maximize_upload_packet_fills_decoded_buffer(
     Filling the decoded reassembly buffer (`buf_size - 4`) is the whole point of the
     maximizer: the resulting SMP message base64-encodes to a frame ~1.37x `buf_size` on
     the wire -- larger than the buffer, which the server decodes incrementally as the
-    lines arrive. The unified generic handles both `ImageUploadWrite` and `FileUpload`.
+    lines arrive. The unified generic handles both `ImageUploadWriteRequest` and `FileUploadRequest`.
     """
     client = SMPClient(
         SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size)),
@@ -1003,17 +867,21 @@ def test_maximize_upload_packet_fills_decoded_buffer(
 
     image = b"\xa5" * (4 * buf_size)  # plenty of source so the packet is never a short final
     image_packet = client._maximize_upload_packet(
-        ImageUploadWrite(off=0, data=b"", image=0, len=len(image), sha=sha256(image).digest()),
+        ImageUploadWriteRequest(
+            off=0, data=b"", image=0, len=len(image), sha=sha256(image).digest()
+        ),
         image,
     )
     file_packet = client._maximize_upload_packet(
-        FileUpload(name="/lfs1/firmware.bin", off=0, data=b"", len=len(image)), image
+        FileUploadRequest(name="/lfs1/firmware.bin", off=0, data=b"", len=len(image)), image
     )
     for maximized in (image_packet, file_packet):
+        frame = bytes(maximized.to_frame())
+
         # the maximizer fills the decoded reassembly buffer exactly
-        assert len(maximized.BYTES) == max_unencoded_size
+        assert len(frame) == max_unencoded_size
 
         # ... so the encoded frame on the wire is ~1.37x buf_size -- bigger than the buffer
-        on_wire = b"".join(smppacket.encode(maximized.BYTES, line_length=128))
+        on_wire = b"".join(smppacket.encode(frame, line_length=128))
         assert len(on_wire) == encoded_frame_size
         assert len(on_wire) > buf_size

@@ -152,12 +152,10 @@ async def test_send_single_chunk_when_smaller_than_max_write() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_assembles_smp_message_from_notification_chunks() -> None:
-    from smpclient.requests.os_management import EchoWrite
+    from smp.os_management import EchoWriteResponse
 
     t, _ = _make_connected()
-    response_bytes = EchoWrite._Response.get_default()(  # type: ignore[attr-defined]
-        sequence=0, r="hi"
-    ).BYTES
+    response_bytes = bytes(EchoWriteResponse(r="hi").to_frame(sequence=0))
 
     async def push_chunks() -> None:
         await asyncio.sleep(0)  # let receive() start awaiting first

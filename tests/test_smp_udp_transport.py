@@ -5,9 +5,9 @@ from typing import Final, cast
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from smp.os_management import EchoWriteResponse
 
 from smpclient.exceptions import SMPClientException
-from smpclient.requests.os_management import EchoWrite
 from smpclient.transport._udp_client import Addr, UDPClient
 from smpclient.transport.udp import IPV4_UDP_OVERHEAD, IPV6_UDP_OVERHEAD, SMPUDPTransport
 
@@ -82,7 +82,7 @@ async def test_receive(_: MagicMock) -> None:
     t = SMPUDPTransport()
     t._client.receive = AsyncMock()  # type: ignore
 
-    message = bytes(EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!"))  # type: ignore # noqa
+    message = bytes(EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0))  # type: ignore # noqa
 
     # no fragmentation
     t._client.receive.return_value = message

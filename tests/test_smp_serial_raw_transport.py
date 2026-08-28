@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 from serial import SerialException
 from smp import header as smphdr
+from smp.os_management import EchoWriteRequest, EchoWriteResponse
 from smp.packet import CRC16_STRUCT, crc16_func
 
 from smpclient.exceptions import SMPClientException
-from smpclient.requests.os_management import EchoWrite
 from smpclient.transport import SMPTransportDisconnected
 from smpclient.transport.serial import Cobs, SMPSerialRawTransport
 from smpclient.transport.serial.framing.cobs import cobs_encode
@@ -71,11 +71,11 @@ async def test_send() -> None:
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
 
-    r = EchoWrite(d="Hello pytest!")
-    await t.send(r.BYTES)
+    r = EchoWriteRequest(d="Hello pytest!").to_frame()
+    await t.send(bytes(r))
 
     # Raw transport writes the bytes verbatim - no encoding.
-    t._conn.write.assert_called_once_with(r.BYTES)
+    t._conn.write.assert_called_once_with(bytes(r))
     p.assert_called_once_with()
 
 
@@ -86,7 +86,7 @@ async def test_send_waits_for_tx_drain() -> None:
     p = PropertyMock(side_effect=(1, 0))
     type(t._conn).out_waiting = p  # type: ignore
 
-    await t.send(EchoWrite(d="x").BYTES)
+    await t.send(bytes(EchoWriteRequest(d="x").to_frame()))
     assert p.call_count == 2
 
 
@@ -103,7 +103,7 @@ async def test_send_disconnected_raises() -> None:
     t._conn.write = MagicMock(side_effect=SerialException("disconnected"))  # type: ignore
 
     with pytest.raises(SMPTransportDisconnected):
-        await t.send(EchoWrite(d="x").BYTES)
+        await t.send(bytes(EchoWriteRequest(d="x").to_frame()))
 
 
 @pytest.mark.asyncio
@@ -111,11 +111,11 @@ async def test_receive_single_packet() -> None:
     t = SMPSerialRawTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
-    t._conn.read_all = MagicMock(side_effect=[m.BYTES])  # type: ignore
+    m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
+    t._conn.read_all = MagicMock(side_effect=[bytes(m)])  # type: ignore
 
     received = await t.receive()
-    assert received == m.BYTES
+    assert received == bytes(m)
 
     await t.disconnect()
 
@@ -125,17 +125,17 @@ async def test_receive_fragmented() -> None:
     t = SMPSerialRawTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
+    m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
     fragments = [
-        m.BYTES[:3],  # less than a header
-        m.BYTES[3:8],  # completes the header but no payload yet
-        m.BYTES[8:10],
-        m.BYTES[10:],  # rest of payload
+        bytes(m)[:3],  # less than a header
+        bytes(m)[3:8],  # completes the header but no payload yet
+        bytes(m)[8:10],
+        bytes(m)[10:],  # rest of payload
     ]
     t._conn.read_all = MagicMock(side_effect=fragments)  # type: ignore
 
     received = await t.receive()
-    assert received == m.BYTES
+    assert received == bytes(m)
 
     await t.disconnect()
 
@@ -145,13 +145,13 @@ async def test_receive_byte_at_a_time() -> None:
     t = SMPSerialRawTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="Hi")  # type: ignore
+    m = EchoWriteResponse(r="Hi").to_frame(sequence=0)
     t._conn.read_all = MagicMock(  # type: ignore
-        side_effect=[bytes([b]) for b in m.BYTES]
+        side_effect=[bytes([b]) for b in bytes(m)]
     )
 
     received = await t.receive()
-    assert received == m.BYTES
+    assert received == bytes(m)
 
     await t.disconnect()
 
@@ -161,16 +161,16 @@ async def test_receive_consecutive_messages() -> None:
     t = SMPSerialRawTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m1 = EchoWrite._Response.get_default()(sequence=0, r="SMP Message 1")  # type: ignore
-    m2 = EchoWrite._Response.get_default()(sequence=1, r="SMP Message 2")  # type: ignore
-    m3 = EchoWrite._Response.get_default()(sequence=2, r="SMP Message 3")  # type: ignore
+    m1 = EchoWriteResponse(r="SMP Message 1").to_frame(sequence=0)
+    m2 = EchoWriteResponse(r="SMP Message 2").to_frame(sequence=1)
+    m3 = EchoWriteResponse(r="SMP Message 3").to_frame(sequence=2)
 
     # Each receive() reads one full message, just like a normal request/response loop.
-    t._conn.read_all = MagicMock(side_effect=[m1.BYTES, m2.BYTES, m3.BYTES])  # type: ignore
+    t._conn.read_all = MagicMock(side_effect=[bytes(m1), bytes(m2), bytes(m3)])  # type: ignore
 
-    assert await t.receive() == m1.BYTES
-    assert await t.receive() == m2.BYTES
-    assert await t.receive() == m3.BYTES
+    assert await t.receive() == bytes(m1)
+    assert await t.receive() == bytes(m2)
+    assert await t.receive() == bytes(m3)
 
     await t.disconnect()
 
@@ -184,8 +184,8 @@ async def test_receive_overrun_raises() -> None:
     t = SMPSerialRawTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="Hello!")  # type: ignore
-    t._conn.read_all = MagicMock(side_effect=[m.BYTES + b"\x00\x01\x02"])  # type: ignore
+    m = EchoWriteResponse(r="Hello!").to_frame(sequence=0)
+    t._conn.read_all = MagicMock(side_effect=[bytes(m) + b"\x00\x01\x02"])  # type: ignore
 
     with pytest.raises(SMPClientException):
         await t.receive()
@@ -198,11 +198,11 @@ async def test_receive_polls_when_nothing_available() -> None:
     t = SMPSerialRawTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="ok")  # type: ignore
-    t._conn.read_all = MagicMock(side_effect=[b"", b"", m.BYTES])  # type: ignore
+    m = EchoWriteResponse(r="ok").to_frame(sequence=0)
+    t._conn.read_all = MagicMock(side_effect=[b"", b"", bytes(m)])  # type: ignore
 
     received = await t.receive()
-    assert received == m.BYTES
+    assert received == bytes(m)
     assert t._conn.read_all.call_count >= 3
 
     await t.disconnect()
@@ -263,7 +263,7 @@ async def test_send_with_cobs_framing_encodes() -> None:
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
 
-    msg = EchoWrite(d="Hello pytest!").BYTES
+    msg = bytes(EchoWriteRequest(d="Hello pytest!").to_frame())
     await t.send(msg)
 
     expected = cobs_encode(msg + CRC16_STRUCT.pack(crc16_func(msg))) + b"\x00"
@@ -275,11 +275,11 @@ async def test_receive_with_cobs_framing_decodes() -> None:
     t = SMPSerialRawTransport(framing=Cobs())
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
-    (wire,) = Cobs().encode(m.BYTES)
+    m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
+    (wire,) = Cobs().encode(bytes(m))
     t._conn.read_all = MagicMock(side_effect=[wire])  # type: ignore
 
-    assert await t.receive() == m.BYTES
+    assert await t.receive() == bytes(m)
 
     await t.disconnect()
 
@@ -289,11 +289,11 @@ async def test_receive_with_cobs_framing_fragmented() -> None:
     t = SMPSerialRawTransport(framing=Cobs())
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="fragment me across reads")  # type: ignore
-    (wire,) = Cobs().encode(m.BYTES)
+    m = EchoWriteResponse(r="fragment me across reads").to_frame(sequence=0)
+    (wire,) = Cobs().encode(bytes(m))
     t._conn.read_all = MagicMock(side_effect=[wire[:5], b"", wire[5:]])  # type: ignore
 
-    assert await t.receive() == m.BYTES
+    assert await t.receive() == bytes(m)
 
     await t.disconnect()
 
@@ -307,14 +307,14 @@ async def test_receive_two_cobs_frames_in_one_read() -> None:
     t = SMPSerialRawTransport(framing=Cobs())
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m1 = EchoWrite._Response.get_default()(sequence=0, r="first")  # type: ignore
-    m2 = EchoWrite._Response.get_default()(sequence=1, r="second")  # type: ignore
-    (w1,) = Cobs().encode(m1.BYTES)
-    (w2,) = Cobs().encode(m2.BYTES)
+    m1 = EchoWriteResponse(r="first").to_frame(sequence=0)
+    m2 = EchoWriteResponse(r="second").to_frame(sequence=1)
+    (w1,) = Cobs().encode(bytes(m1))
+    (w2,) = Cobs().encode(bytes(m2))
     t._conn.read_all = MagicMock(side_effect=[w1 + w2])  # type: ignore
 
-    assert await t.receive() == m1.BYTES
-    assert await t.receive() == m2.BYTES  # from leftover; read_all not consulted again
+    assert await t.receive() == bytes(m1)
+    assert await t.receive() == bytes(m2)  # from leftover; read_all not consulted again
     assert t._conn.read_all.call_count == 1
 
     await t.disconnect()
@@ -330,15 +330,16 @@ async def test_receive_cobs_framing_resyncs_past_corrupt_frame() -> None:
     t = SMPSerialRawTransport(framing=Cobs())
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    dropped = EchoWrite._Response.get_default()(sequence=0, r="dropped")  # type: ignore
-    recovered = EchoWrite._Response.get_default()(sequence=1, r="recovered")  # type: ignore
+    dropped = EchoWriteResponse(r="dropped").to_frame(sequence=0)
+    recovered = EchoWriteResponse(r="recovered").to_frame(sequence=1)
     corrupt = (
-        cobs_encode(dropped.BYTES + CRC16_STRUCT.pack(crc16_func(dropped.BYTES) ^ 0xFFFF)) + b"\x00"
+        cobs_encode(bytes(dropped) + CRC16_STRUCT.pack(crc16_func(bytes(dropped)) ^ 0xFFFF))
+        + b"\x00"
     )
-    (good,) = Cobs().encode(recovered.BYTES)
+    (good,) = Cobs().encode(bytes(recovered))
     t._conn.read_all = MagicMock(side_effect=[corrupt + good])  # type: ignore
 
-    assert await t.receive() == recovered.BYTES
+    assert await t.receive() == bytes(recovered)
 
     await t.disconnect()
 
@@ -353,8 +354,8 @@ async def test_receive_framed_yields_so_an_outer_timeout_can_fire() -> None:
     t = SMPSerialRawTransport(framing=Cobs())
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m = EchoWrite._Response.get_default()(sequence=0, r="never valid")  # type: ignore
-    corrupt = cobs_encode(m.BYTES + CRC16_STRUCT.pack(crc16_func(m.BYTES) ^ 0xFFFF)) + b"\x00"
+    m = EchoWriteResponse(r="never valid").to_frame(sequence=0)
+    corrupt = cobs_encode(bytes(m) + CRC16_STRUCT.pack(crc16_func(bytes(m)) ^ 0xFFFF)) + b"\x00"
     t._conn.read_all = MagicMock(return_value=corrupt)  # type: ignore  # endless, never valid
 
     with pytest.raises(asyncio.TimeoutError):

@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 from serial import SerialException
 from smp import packet as smppacket
+from smp.os_management import EchoWriteRequest, EchoWriteResponse
 
-from smpclient.requests.os_management import EchoWrite
 from smpclient.transport import SMPTransportDisconnected
 from smpclient.transport.serial import (
     Auto,
@@ -83,8 +83,8 @@ async def test_send() -> None:
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
 
-    r = EchoWrite(d="Hello pytest!")
-    await t.send(r.BYTES)
+    r = EchoWriteRequest(d="Hello pytest!").to_frame()
+    await t.send(bytes(r))
     t._conn.write.assert_called_once()
     p.assert_called_once_with()
 
@@ -92,7 +92,7 @@ async def test_send() -> None:
     p = PropertyMock(side_effect=(1, 0))
     type(t._conn).out_waiting = p  # type: ignore
 
-    await t.send(r.BYTES)
+    await t.send(bytes(r))
     t._conn.write.assert_called_once()
     assert p.call_count == 2  # called twice since out buffer was not drained on first call
 
@@ -100,21 +100,21 @@ async def test_send() -> None:
 @pytest.mark.asyncio
 async def test_receive() -> None:
     t = SMPSerialTransport()
-    m = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
-    p = [p for p in smppacket.encode(m.BYTES, t.max_unencoded_size)]
+    m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
+    p = [p for p in smppacket.encode(bytes(m), t.max_unencoded_size)]
     t._read_one_smp_packet = AsyncMock(side_effect=p)  # type: ignore
 
     b = await t.receive()
     t._read_one_smp_packet.assert_awaited_once_with()
 
-    assert b == m.BYTES
+    assert b == bytes(m)
 
-    p = [p for p in smppacket.encode(m.BYTES, 8)]  # test packet fragmentation
+    p = [p for p in smppacket.encode(bytes(m), 8)]  # test packet fragmentation
     t._read_one_smp_packet = AsyncMock(side_effect=p)  # type: ignore
 
     b = await t.receive()
     t._read_one_smp_packet.assert_awaited()
-    assert b == m.BYTES
+    assert b == bytes(m)
 
 
 @pytest.mark.asyncio
@@ -122,10 +122,10 @@ async def test_read_one_smp_packet() -> None:
     t = SMPSerialTransport()
     await t.connect("COM2", timeout_s=1.0)
 
-    m1 = EchoWrite._Response.get_default()(sequence=0, r="Hello pytest!")  # type: ignore
-    m2 = EchoWrite._Response.get_default()(sequence=1, r="Hello computer!")  # type: ignore
-    p1 = [p for p in smppacket.encode(m1.BYTES, 8)]
-    p2 = [p for p in smppacket.encode(m2.BYTES, 8)]
+    m1 = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
+    m2 = EchoWriteResponse(r="Hello computer!").to_frame(sequence=1)
+    p1 = [p for p in smppacket.encode(bytes(m1), 8)]
+    p2 = [p for p in smppacket.encode(bytes(m2), 8)]
     packets = p1 + p2
     t._conn.read_all = MagicMock(side_effect=packets)  # type: ignore
 
@@ -133,8 +133,8 @@ async def test_read_one_smp_packet() -> None:
         assert p == await t._read_one_smp_packet()
 
     # do again, but manually fragment the buffers
-    packets = [p for p in smppacket.encode(m1.BYTES, 512)] + [
-        p for p in smppacket.encode(m2.BYTES, 512)
+    packets = [p for p in smppacket.encode(bytes(m1), 512)] + [
+        p for p in smppacket.encode(bytes(m2), 512)
     ]
     assert len(packets) == 2
     buffers = [
@@ -218,19 +218,19 @@ async def test_only_smp_data_no_serial() -> None:
     t = SMPSerialTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m1 = EchoWrite._Response.get_default()(sequence=0, r="SMP Message 1")  # type: ignore
-    m2 = EchoWrite._Response.get_default()(sequence=1, r="SMP Message 2")  # type: ignore
-    m3 = EchoWrite._Response.get_default()(sequence=2, r="SMP Message 3")  # type: ignore
+    m1 = EchoWriteResponse(r="SMP Message 1").to_frame(sequence=0)
+    m2 = EchoWriteResponse(r="SMP Message 2").to_frame(sequence=1)
+    m3 = EchoWriteResponse(r="SMP Message 3").to_frame(sequence=2)
 
     packets = (
-        list(smppacket.encode(m1.BYTES, 512))
-        + list(smppacket.encode(m2.BYTES, 512))
-        + list(smppacket.encode(m3.BYTES, 512))
+        list(smppacket.encode(bytes(m1), 512))
+        + list(smppacket.encode(bytes(m2), 512))
+        + list(smppacket.encode(bytes(m3), 512))
     )
 
     t._conn.read_all = MagicMock(side_effect=packets)  # type: ignore
 
-    for expected_msg in [m1.BYTES, m2.BYTES, m3.BYTES]:
+    for expected_msg in [bytes(m1), bytes(m2), bytes(m3)]:
         received = await t.receive()
         assert received == expected_msg
 
@@ -242,11 +242,11 @@ async def test_serial_and_smp_data() -> None:
     t = SMPSerialTransport()
     await t.connect("/dev/ttyUSB0", timeout_s=1.0)
 
-    m1 = EchoWrite._Response.get_default()(sequence=0, r="SMP1")  # type: ignore
-    m2 = EchoWrite._Response.get_default()(sequence=1, r="SMP2")  # type: ignore
+    m1 = EchoWriteResponse(r="SMP1").to_frame(sequence=0)
+    m2 = EchoWriteResponse(r="SMP2").to_frame(sequence=1)
 
-    p1 = next(smppacket.encode(m1.BYTES, 512))
-    p2 = next(smppacket.encode(m2.BYTES, 512))
+    p1 = next(smppacket.encode(bytes(m1), 512))
+    p2 = next(smppacket.encode(bytes(m2), 512))
 
     t._conn.read_all = MagicMock(  # type: ignore
         side_effect=[
@@ -261,10 +261,10 @@ async def test_serial_and_smp_data() -> None:
     # first in a row must work:
 
     received1 = await t.receive()
-    assert received1 == m1.BYTES
+    assert received1 == bytes(m1)
 
     received2 = await t.receive()
-    assert received2 == m2.BYTES
+    assert received2 == bytes(m2)
 
     data = await t.read_serial(delimiter=b"\n")
     assert data == b"Start"

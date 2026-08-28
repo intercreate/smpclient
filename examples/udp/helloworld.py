@@ -5,9 +5,10 @@ import asyncio
 import logging
 from typing import Final
 
+from smp.os_management import EchoWriteRequest
+
 from smpclient import SMPClient
 from smpclient.generics import error, success
-from smpclient.requests.os_management import EchoWrite
 from smpclient.transport.udp import SMPUDPTransport
 
 logging.basicConfig(level=logging.DEBUG)
@@ -22,7 +23,7 @@ async def main() -> None:
         print("OK")
 
         print("Sending request...", end="", flush=True)
-        response: Final = await client.request(EchoWrite(d="Hello, World!"))
+        response: Final = await client.request(EchoWriteRequest(d="Hello, World!"))
         print("OK")
 
         if success(response):
