@@ -8,15 +8,13 @@ from __future__ import annotations
 import argparse
 import pathlib
 import struct
+from dataclasses import dataclass
 from enum import IntEnum, IntFlag, unique
 from functools import cached_property
 from io import BufferedReader, BytesIO
-from typing import Annotated, Any, Final, Generic, Literal, TypeVar, Union
+from typing import Final, Generic, Literal, TypeVar
 
 from intelhex import hex2bin  # type: ignore
-from pydantic import Field, GetCoreSchemaHandler
-from pydantic.dataclasses import dataclass
-from pydantic_core import CoreSchema, core_schema
 
 ImageMagic = Literal[0x96F3B83D]
 IMAGE_MAGIC: Final[ImageMagic] = 0x96F3B83D
@@ -146,29 +144,23 @@ class VendorTLV(int):
             )
         return int.__new__(cls, value)
 
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls, _source_type: Any, _handler: GetCoreSchemaHandler
-    ) -> CoreSchema:
-        def validate(value: int) -> VendorTLV:
-            return cls(value)
 
-        return core_schema.no_info_after_validator_function(
-            validate,
-            core_schema.int_schema(),
-        )
-
-
-ImageTLVType = Annotated[Union[IMAGE_TLV, VendorTLV, int], Field(union_mode="left_to_right")]
+ImageTLVType = IMAGE_TLV | VendorTLV | int
 """TLV type that accepts standard IMAGE_TLV enums, vendor-defined TLVs, or any integer.
 
-This uses Pydantic's "left to right" union mode to:
-1. First try to match against IMAGE_TLV enum values
-2. Then try to validate as a VendorTLV (0xXXA0-0xXXFE ranges)
-3. Finally accept any integer as a fallback
-
-This ensures backward compatibility and supports future TLV types without validation errors.
+`ImageTLV` narrows a raw type field to the leftmost member that accepts it, so an
+unrecognized type stays readable as an `int` instead of failing the parse.
 """
+
+
+def _narrow_tlv_type(value: int) -> ImageTLVType:
+    """Return `value` as the leftmost `ImageTLVType` that accepts it."""
+    for tlv_type in (IMAGE_TLV, VendorTLV):
+        try:
+            return tlv_type(value)
+        except ValueError:
+            continue
+    return value
 
 
 @dataclass(frozen=True)
@@ -223,7 +215,7 @@ class ImageHeader:
             hdr_size=hdr_size,
             protect_tlv_size=protect_tlv_size,
             img_size=img_size,
-            flags=flags,
+            flags=IMAGE_F(flags),
             ver=ImageVersion(*ver),
         )
 
@@ -281,6 +273,10 @@ class ImageTLV:
     type: ImageTLVType
     len: int
     """Data length (not including TLV header)."""
+
+    def __post_init__(self) -> None:
+        """Narrow `type` to the leftmost `ImageTLVType` that accepts it."""
+        object.__setattr__(self, "type", _narrow_tlv_type(self.type))
 
     @staticmethod
     def load_from(file: BytesIO | BufferedReader) -> ImageTLV:
