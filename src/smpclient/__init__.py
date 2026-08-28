@@ -41,7 +41,7 @@ import traceback
 from collections.abc import AsyncIterator
 from hashlib import sha256
 from types import TracebackType
-from typing import Final, TypeVar, Union
+from typing import Any, Final, TypeVar, Union
 
 import msgspec
 from smp import SMPRequest
@@ -74,7 +74,7 @@ TRep = TypeVar("TRep", bound=Union[smpmsg.ReadResponse, smpmsg.WriteResponse])
 """Type of successful SMP Response (ReadResponse or WriteResponse)."""
 
 
-def error_v1(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[smperror.ErrorV1]:
+def error_v1(response: smpmsg.Response) -> TypeIs[smperror.ErrorV1]:
     """`TypeIs` that returns `True` if the `response` is an `ErrorV1`.
 
     Args:
@@ -86,7 +86,7 @@ def error_v1(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[smperror.ErrorV
     return response.RESPONSE_TYPE == smpmsg.ResponseType.ERROR_V1
 
 
-def error_v2(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[TEr2]:
+def error_v2(response: smpmsg.Response) -> TypeIs[smperror.ErrorV2[Any]]:
     """`TypeIs` that returns `True` if the `response` is an `ErrorV2`.
 
     Args:
@@ -98,7 +98,9 @@ def error_v2(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[TEr2]:
     return response.RESPONSE_TYPE == smpmsg.ResponseType.ERROR_V2
 
 
-def error(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[smperror.ErrorV1 | TEr2]:
+def error(
+    response: smpmsg.Response,
+) -> TypeIs[Union[smperror.ErrorV1, smperror.ErrorV2[Any]]]:
     """`TypeIs` that returns `True` if the `response` is an `ErrorV1` or `ErrorV2`.
 
     Args:
@@ -110,7 +112,9 @@ def error(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[smperror.ErrorV1 |
     return error_v1(response) or error_v2(response)
 
 
-def success(response: smperror.ErrorV1 | TEr2 | TRep) -> TypeIs[TRep]:
+def success(
+    response: smpmsg.Response,
+) -> TypeIs[Union[smpmsg.ReadResponse, smpmsg.WriteResponse]]:
     """`TypeIs` that returns `True` if the `response` is a successful `Response`.
 
     Args:
