@@ -21,12 +21,12 @@ from smpclient.mcuboot import (
     ImageTLVInfo,
     ImageTLVInfoMagic,
     ImageTLVProtInfoMagic,
-    ImageTLVType,
     ImageTLVValue,
     ImageVersion,
     MCUBootImageError,
     TLVNotFound,
     VendorTLV,
+    _narrow_tlv_type,
     mcuimg,
 )
 
@@ -195,24 +195,20 @@ def test_unknown_tlv_fallback() -> None:
 
 def test_tlv_type_union_order() -> None:
     """Test that union resolution follows left-to-right order."""
-    from pydantic import TypeAdapter
-
-    adapter: TypeAdapter[ImageTLVType] = TypeAdapter(ImageTLVType)
-
     # Standard TLV should match IMAGE_TLV first
-    result = adapter.validate_python(0x02)
-    assert isinstance(result, IMAGE_TLV)
-    assert result == IMAGE_TLV.PUBKEY
+    standard = _narrow_tlv_type(0x02)
+    assert isinstance(standard, IMAGE_TLV)
+    assert standard == IMAGE_TLV.PUBKEY
 
-    # Vendor TLV should validate
-    result = adapter.validate_python(0xA0)
-    assert isinstance(result, int)
-    assert result == 0xA0
+    # Vendor TLV should validate; VendorTLV rather than a bare int is the whole point
+    vendor = _narrow_tlv_type(0xA0)
+    assert isinstance(vendor, VendorTLV)
+    assert vendor == 0xA0
 
-    # Unknown TLV should fallback to int
-    result = adapter.validate_python(0x99)
-    assert isinstance(result, int)
-    assert result == 0x99
+    # Unknown TLV should fallback to int, matching neither of the narrower members
+    unknown = _narrow_tlv_type(0x99)
+    assert not isinstance(unknown, (IMAGE_TLV, VendorTLV))
+    assert unknown == 0x99
 
 
 def test_tlv_value_str_standard() -> None:
