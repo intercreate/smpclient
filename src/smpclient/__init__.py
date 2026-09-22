@@ -35,26 +35,33 @@ or in your local clone at `examples/`.
 
 """
 
+from __future__ import annotations
+
 import asyncio
+import itertools
 import logging
 import traceback
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from hashlib import sha256
 from types import TracebackType
-from typing import Final, TypeVar
+from typing import TYPE_CHECKING, Any, Final, TypeVar, Union, cast
 
-from pydantic import ValidationError
-from pydantic_core import ErrorDetails
+import msgspec
+from smp import SMPRequest
+from smp import error as smperror
 from smp import header as smpheader
 from smp import message as smpmsg
-from typing_extensions import assert_never
+from smp.file_management import FileDownloadRequest, FileUploadRequest
+from smp.image_management import ImageUploadWriteRequest
+from smp.os_management import MCUMgrParametersReadRequest
+from smp.user import intercreate as smpic
+from typing_extensions import TypeIs, assert_never
 
 from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
-from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
-from smpclient.requests.file_management import FileDownload, FileUpload
-from smpclient.requests.image_management import ImageUploadWrite
-from smpclient.requests.os_management import MCUMgrParametersRead
 from smpclient.transport import SMPTransport
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 try:
     from asyncio import timeout  # type: ignore
@@ -63,8 +70,80 @@ except ImportError:  # backport for Python3.10 and below
 
 logger = logging.getLogger(__name__)
 
-TUploadRequest = TypeVar("TUploadRequest", ImageUploadWrite, FileUpload)
+TEr1 = TypeVar("TEr1", bound=smperror.ErrorV1)
+"""Type of SMP Error V1."""
+
+TEr2 = TypeVar("TEr2", bound=smperror.ErrorV2)
+"""Type of SMP Error V2."""
+
+TRep = TypeVar("TRep", bound=Union[smpmsg.ReadResponse, smpmsg.WriteResponse])
+"""Type of successful SMP Response (ReadResponse or WriteResponse)."""
+
+
+def error_v1(response: smpmsg.Response) -> TypeIs[smperror.ErrorV1]:
+    """`TypeIs` that returns `True` if the `response` is an `ErrorV1`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV1`.
+    """
+    return response.RESPONSE_TYPE == smpmsg.ResponseType.ERROR_V1
+
+
+def error_v2(response: smpmsg.Response) -> TypeIs[smperror.ErrorV2[Any]]:
+    """`TypeIs` that returns `True` if the `response` is an `ErrorV2`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV2`.
+    """
+    return response.RESPONSE_TYPE == smpmsg.ResponseType.ERROR_V2
+
+
+def error(
+    response: smpmsg.Response,
+) -> TypeIs[Union[smperror.ErrorV1, smperror.ErrorV2[Any]]]:
+    """`TypeIs` that returns `True` if the `response` is an `ErrorV1` or `ErrorV2`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is an `ErrorV1` or `ErrorV2`.
+    """
+    return error_v1(response) or error_v2(response)
+
+
+def success(
+    response: smpmsg.Response,
+) -> TypeIs[Union[smpmsg.ReadResponse, smpmsg.WriteResponse]]:
+    """`TypeIs` that returns `True` if the `response` is a successful `Response`.
+
+    Args:
+        response: The response to check.
+
+    Returns:
+        `True` if the `response` is a successful `Response`.
+    """
+    return response.RESPONSE_TYPE == smpmsg.ResponseType.SUCCESS
+
+
+TUploadRequest = TypeVar(
+    "TUploadRequest",
+    ImageUploadWriteRequest,
+    FileUploadRequest,
+    smpic.ImageUploadWriteRequest,
+)
 """A single-shot upload request whose `data` field is filled to maximize throughput."""
+
+
+def wrapping_sequence() -> Iterator[u8]:
+    """The default SMP sequence space: `0x00`-`0xFF`, wrapping."""
+    return cast("Iterator[u8]", itertools.cycle(range(0x100)))
 
 
 def _hexdump(frame: bytes) -> str:
@@ -79,18 +158,10 @@ def _hexdump(frame: bytes) -> str:
     return "\n".join(row(offset) for offset in range(0, len(frame), 16))
 
 
-def _format_validation_error(error: ValidationError) -> str:
-    def row(detail: ErrorDetails) -> str:
-        location: Final = ".".join(str(part) for part in detail["loc"])
-        return f"\t\t[{detail['type']}] {detail['msg']}: {location}; input: {detail['input']}"
-
-    return "\n".join(row(detail) for detail in error.errors())
-
-
 def _validation_failure(
     header: smpheader.Header,
     frame: bytes,
-    errors: tuple[tuple[type[smpmsg.Response], ValidationError], ...],
+    errors: tuple[tuple[type[smpmsg.Response], msgspec.DecodeError], ...],
 ) -> tuple[str, str]:
     """Return the `(summary, details)` describing why `frame` matched none of `errors`' types."""
     summary: Final = (
@@ -103,8 +174,7 @@ def _validation_failure(
             f"Frame:\n{_hexdump(frame)}",
             "Errors:",
             *(
-                f"\tCould not be parsed as {response.__name__} because "
-                f"{len(error.errors())} error(s):\n{_format_validation_error(error)}"
+                f"\tCould not be parsed as {response.__name__}: {error}"
                 for response, error in errors
             ),
         )
@@ -126,17 +196,18 @@ class SMPClient:
         transport: the `SMPTransport` to use
         address: the address of the SMP server, see `smpclient.transport` for details
         timeout_s: the default timeout in seconds for SMP requests
+        sequence: this client's SMP sequence space; defaults to `wrapping_sequence()`
 
     Example:
     ```python
     import asyncio
     from smpclient import SMPClient
-    from smpclient.requests.os_management import EchoWrite
+    from smp.os_management import EchoWriteRequest
     from smpclient.transport.ble import SMPBLETransport
 
     async def main():
         async with SMPClient(SMPBLETransport(), "00:11:22:33:44:55") as client:
-            response = await client.request(EchoWrite(d="Hello, World!"))
+            response = await client.request(EchoWriteRequest(d="Hello, World!"))
 
             if success(response):
                 print(f"Response: {response=}")
@@ -148,10 +219,17 @@ class SMPClient:
     ```
     """
 
-    def __init__(self, transport: SMPTransport, address: str, timeout_s: float = 2.5):  # noqa: DOC301
+    def __init__(  # noqa: DOC301
+        self,
+        transport: SMPTransport,
+        address: str,
+        timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
+    ):
         self._transport: Final = transport
         self._address: Final = address
         self._timeout_s = timeout_s
+        self._sequence: Final = wrapping_sequence() if sequence is None else sequence
 
     async def connect(self, connect_timeout_s: float | None = None) -> None:
         """Connect to the SMP server.
@@ -189,7 +267,7 @@ class SMPClient:
         Usage:
 
         ```python
-        response = await client.request(EchoWrite(d="Hello, World!"))
+        response = await client.request(EchoWriteRequest(d="Hello, World!"))
         if success(response):
             print(f"Response: {response=}")
         elif error(response):
@@ -201,7 +279,7 @@ class SMPClient:
         Type Safety and Exhaustiveness with Generic Typing:
 
         ```python
-        response = await client.request(EchoWrite(d="Hello, World!"))
+        response = await client.request(EchoWriteRequest(d="Hello, World!"))
         reveal_type(response)
         # Revealed type is 'Union[EchoWriteResponse, EchoWriteErrorV1, EchoWriteErrorV2]'
         if success(response):
@@ -225,9 +303,11 @@ class SMPClient:
         """
         timeout_s = timeout_s if timeout_s is not None else self._timeout_s
 
+        request_frame: Final = request.to_frame(next(self._sequence))
+
         try:
             async with timeout(timeout_s):
-                frame = await self._transport.send_and_receive(request.BYTES)
+                frame = await self._transport.send_and_receive(bytes(request_frame))
         except asyncio.TimeoutError:
             timeout_message: Final = f"Timeout ({timeout_s}s) waiting for request {request}"
             logger.error(timeout_message)
@@ -235,23 +315,25 @@ class SMPClient:
 
         header = smpheader.Header.loads(frame[: smpheader.Header.SIZE])
 
-        if header.sequence != request.header.sequence:
+        if header.sequence != request_frame.header.sequence:
             raise SMPBadSequence(
-                f"Bad sequence {header.sequence}, expected {request.header.sequence}"
+                f"Bad sequence {header.sequence}, expected {request_frame.header.sequence}"
             )
 
-        errors: list[tuple[type[smpmsg.Response], ValidationError]] = []
+        # `SMPMalformed` and `SMPMismatchedGroupId` are not caught: they fail all three
+        # candidates identically, so they are transport errors rather than a mismatch.
+        errors: list[tuple[type[smpmsg.Response], msgspec.DecodeError]] = []
         try:
-            return request._Response.loads(frame)  # type: ignore[return-value]
-        except ValidationError as error:
+            return request._Response.loads(frame).data  # type: ignore[return-value]
+        except msgspec.DecodeError as error:
             errors.append((request._Response, error))
         try:
-            return request._ErrorV1.loads(frame)
-        except ValidationError as error:
+            return request._ErrorV1.loads(frame).data
+        except msgspec.DecodeError as error:
             errors.append((request._ErrorV1, error))
         try:
-            return request._ErrorV2.loads(frame)
-        except ValidationError as error:
+            return request._ErrorV2.loads(frame).data
+        except msgspec.DecodeError as error:
             errors.append((request._ErrorV2, error))
 
         summary, details = _validation_failure(header, frame, tuple(errors))
@@ -278,10 +360,10 @@ class SMPClient:
                 confirmed from within the upgraded application.  Zephyr provides
                 [boot_write_img_confirmed()](https://docs.zephyrproject.org/apidoc/latest/group__mcuboot__api.html#ga95ccc9e1c7460fec16b9ce9ac8ad7a72)
                 for this purpose.
-            first_timeout_s: the timeout for the first `ImageUploadWrite` request
+            first_timeout_s: the timeout for the first `ImageUploadWriteRequest` request
                 which might take longer than subsequent requests (e.g. if a big
                 chunk of flash memory has to be erased upfront).
-            subsequent_timeout_s: the timeout for subsequent `ImageUploadWrite` requests
+            subsequent_timeout_s: the timeout for subsequent `ImageUploadWriteRequest` requests
             use_sha: `True` to include the SHA256 hash of the image in the first
                 packet.
 
@@ -301,7 +383,7 @@ class SMPClient:
 
         response = await self.request(
             self._maximize_upload_packet(
-                ImageUploadWrite(
+                ImageUploadWriteRequest(
                     off=0,
                     data=b"",
                     image=slot,
@@ -327,7 +409,7 @@ class SMPClient:
         while response.off != len(image):
             response = await self.request(
                 self._maximize_upload_packet(
-                    ImageUploadWrite(
+                    ImageUploadWriteRequest(
                         off=response.off,
                         data=b"",
                         len=len(image) if response.off == 0 else None,
@@ -367,7 +449,7 @@ class SMPClient:
         Args:
             file_data: the `bytes` to upload
             file_path: the path to upload to
-            timeout_s: the timeout for each `FileUpload` request
+            timeout_s: the timeout for each `FileUploadRequest` request
 
         Yields:
             int: the offset of the file upload
@@ -379,7 +461,7 @@ class SMPClient:
 
         response = await self.request(
             self._maximize_upload_packet(
-                FileUpload(name=file_path, off=0, data=b"", len=len(file_data)),
+                FileUploadRequest(name=file_path, off=0, data=b"", len=len(file_data)),
                 file_data,
             ),
             timeout_s=timeout_s,
@@ -398,7 +480,7 @@ class SMPClient:
         while response.off != len(file_data):
             response = await self.request(
                 self._maximize_upload_packet(
-                    FileUpload(name=file_path, off=response.off, data=b""), file_data
+                    FileUploadRequest(name=file_path, off=response.off, data=b""), file_data
                 ),
                 timeout_s=timeout_s,
             )
@@ -420,7 +502,7 @@ class SMPClient:
 
         Args:
             file_path: the path to download
-            timeout_s: the timeout for each `FileDownload` request
+            timeout_s: the timeout for each `FileDownloadRequest` request
 
         Returns:
             The downloaded file as `bytes`
@@ -430,7 +512,9 @@ class SMPClient:
         """
         timeout_s = timeout_s if timeout_s is not None else self._timeout_s
 
-        response = await self.request(FileDownload(off=0, name=file_path), timeout_s=timeout_s)
+        response = await self.request(
+            FileDownloadRequest(off=0, name=file_path), timeout_s=timeout_s
+        )
         file_length = 0
 
         if error(response):
@@ -447,7 +531,7 @@ class SMPClient:
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off + len(response.data) != file_length:
             response = await self.request(
-                FileDownload(off=response.off + len(response.data), name=file_path),
+                FileDownloadRequest(off=response.off + len(response.data), name=file_path),
                 timeout_s=timeout_s,
             )
             if error(response):
@@ -501,8 +585,12 @@ class SMPClient:
                 max_data_bytes: maximum amount of raw payload that can be stuffed into the
                     currently-empty data field.
         """
+        encoded_request: Final = bytes(request)
+
         # given empty data in the request, how many bytes are available for the data?
-        unencoded_bytes_available: Final = self._transport.max_unencoded_size - len(bytes(request))
+        unencoded_bytes_available: Final = (
+            self._transport.max_unencoded_size - smpheader.Header.SIZE - len(encoded_request)
+        )
 
         # how many bytes are required to encode the data size?
         bytes_required_to_encode_data_size: Final = self._cbor_integer_size(
@@ -514,7 +602,7 @@ class SMPClient:
         data_size: Final = max(0, unencoded_bytes_available - bytes_required_to_encode_data_size)
         # the final CBOR size is the original header length plus the data size
         # plus the bytes required to encode the data size
-        cbor_size: Final = request.header.length + data_size + self._cbor_integer_size(data_size)
+        cbor_size: Final = len(encoded_request) + data_size + self._cbor_integer_size(data_size)
 
         return cbor_size, data_size
 
@@ -523,42 +611,23 @@ class SMPClient:
 
         Fills the transport's `max_unencoded_size` so the encoded frame put on the wire
         is as large as the server's reassembly buffer allows (best throughput).  Works
-        for any single-shot upload request (`ImageUploadWrite`, `FileUpload`): only
+        for any single-shot upload request (`ImageUploadWriteRequest`, `FileUploadRequest`): only
         `header` (with the buffer-filling `length`) and `data` change; every other field
         is carried over from `request`.
         """
-        h: Final = request.header
-        cbor_size, data_size = self.get_max_cbor_and_data_size(request)
+        _, max_data_size = self.get_max_cbor_and_data_size(request)
+        data_size: Final = min(max_data_size, len(data) - request.off)
 
-        if data_size > len(data) - request.off:  # final packet
-            data_size = len(data) - request.off
-            cbor_size = h.length + data_size + self._cbor_integer_size(data_size)
-
-        carried_over: Final = {
-            field: getattr(request, field)
-            for field in type(request).model_fields
-            if field not in ("header", "version", "sequence", "smp_data", "data")
-        }
-        return type(request)(
-            header=smpheader.Header(
-                op=h.op,
-                version=h.version,
-                flags=h.flags,
-                length=cbor_size,
-                group_id=h.group_id,
-                sequence=h.sequence,
-                command_id=h.command_id,
-            ),
-            data=data[request.off : request.off + data_size],
-            **carried_over,
-        )
+        return msgspec.structs.replace(request, data=data[request.off : request.off + data_size])
 
     async def _initialize(self, timeout_s: float | None = None) -> None:
         """Gather initialization information from the SMP server."""
         timeout_s = timeout_s if timeout_s is not None else self._timeout_s
 
         try:
-            mcumgr_parameters = await self.request(MCUMgrParametersRead(), timeout_s=timeout_s)
+            mcumgr_parameters = await self.request(
+                MCUMgrParametersReadRequest(), timeout_s=timeout_s
+            )
             if success(mcumgr_parameters):
                 logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
                 self._transport.initialize(mcumgr_parameters.buf_size)

@@ -21,8 +21,12 @@ classifiers = [
 "Operating System :: MacOS :: MacOS X",
 ]
 dependencies = [
-"smp>=4.1.0",
+# TODO(screaming-goblin): re-pin to a released smp before this branch merges to main.
+"smp @ git+https://github.com/JPHutchins/smp@screaming-goblin",
+"msgspec>=0.21.1",
 "intelhex>=2.3.0",
+# `TypeIs` landed in 4.10; `override`/`assert_never`/`deprecated` are older
+"typing-extensions>=4.10",
 "async-timeout>=5.0.1; python_version < '3.11'",
 ]
 
@@ -50,6 +54,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
+
+# TODO(screaming-goblin): drop with the `smp @ git+...` pin above.
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [dependency-groups]
 dev = [
@@ -110,7 +118,9 @@ markers = [
 [tool.coverage.run]
 source = ["smpclient", "tests"]
 branch = true
-omit = ["tests/integration/*"]
+# `test_generics_typing` asserts statically under mypy and pyright; it is never executed,
+# so there is no runtime behaviour for coverage to measure.
+omit = ["tests/integration/*", "tests/test_generics_typing.py"]
 
 [tool.coverage.report]
 fail_under = 91

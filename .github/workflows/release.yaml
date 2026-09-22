@@ -97,5 +97,4 @@ jobs:
 
       - name: Build and deploy documentation
         run: |
-          uv run --group doc python docs/_generate_requests_docstrings.py
           uv run --group doc mike deploy --push --update-aliases ${GIT_TAG} latest

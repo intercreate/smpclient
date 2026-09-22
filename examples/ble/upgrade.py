@@ -10,12 +10,12 @@ from typing import Final, cast
 
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
+from smp import SMPRequest
+from smp.image_management import ImageStatesReadRequest, ImageStatesWriteRequest
+from smp.os_management import ResetWriteRequest
 
-from smpclient import SMPClient
-from smpclient.generics import SMPRequest, TEr1, TEr2, TRep, error, success
+from smpclient import SMPClient, TEr1, TEr2, TRep, error, success
 from smpclient.mcuboot import IMAGE_TLV, ImageInfo
-from smpclient.requests.image_management import ImageStatesRead, ImageStatesWrite
-from smpclient.requests.os_management import ResetWrite
 from smpclient.transport.ble import SMPBLETransport
 
 logging.basicConfig(
@@ -80,7 +80,7 @@ async def main() -> None:
             else:
                 raise Exception(f"Unknown response: {response}")
 
-        response = await ensure_request(ImageStatesRead())
+        response = await ensure_request(ImageStatesReadRequest())
         assert response.images[0].hash == a_smp_dut_hash.value
         assert response.images[0].slot == 0
 
@@ -96,18 +96,18 @@ async def main() -> None:
 
         print()
 
-        response = await ensure_request(ImageStatesRead())
+        response = await ensure_request(ImageStatesReadRequest())
         assert response.images[1].hash == b_smp_dut_hash.value
         assert response.images[1].slot == 1
         print("Confirmed the upload")
 
         print()
         print("Marking B SMP DUT for test...")
-        await ensure_request(ImageStatesWrite(hash=response.images[1].hash))
+        await ensure_request(ImageStatesWriteRequest(hash=response.images[1].hash))
 
         print()
         print("Resetting for swap...")
-        await ensure_request(ResetWrite())
+        await ensure_request(ResetWriteRequest())
 
     print()
     print("Searching for B SMP DUT...", end="", flush=True)
@@ -124,7 +124,7 @@ async def main() -> None:
 
         print()
         print("Sending request...", end="", flush=True)
-        images = await client.request(ImageStatesRead())
+        images = await client.request(ImageStatesReadRequest())
         print("OK")
 
         if success(images):
