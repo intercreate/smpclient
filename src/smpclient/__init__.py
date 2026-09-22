@@ -35,6 +35,8 @@ or in your local clone at `examples/`.
 
 """
 
+from __future__ import annotations
+
 import asyncio
 import itertools
 import logging
@@ -60,8 +62,6 @@ from smpclient.transport import SMPTransport
 
 if TYPE_CHECKING:
     from types_bits import u8
-else:  # `types_bits` is typing-only; reaching its values at runtime needs its `rt` extra
-    u8 = int
 
 try:
     from asyncio import timeout  # type: ignore
@@ -143,7 +143,7 @@ TUploadRequest = TypeVar(
 
 def wrapping_sequence() -> Iterator[u8]:
     """The default SMP sequence space: `0x00`-`0xFF`, wrapping."""
-    return cast(Iterator[u8], itertools.cycle(range(0x100)))
+    return cast("Iterator[u8]", itertools.cycle(range(0x100)))
 
 
 def _hexdump(frame: bytes) -> str:
