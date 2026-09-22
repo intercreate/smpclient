@@ -132,6 +132,17 @@ def test_max_unencoded_size_custom_mtu() -> None:
     assert t.max_unencoded_size == 484
 
 
+@pytest.mark.parametrize(
+    "buf_size, expected",
+    [(384, 384), (1472, 1472), (2048, 1472)],
+)
+def test_max_unencoded_size_capped_by_server_buffer(buf_size: int, expected: int) -> None:
+    """Zephyr copies each datagram into one `buf_size` buffer, so neither bound may be exceeded."""
+    t = SMPUDPTransport(mtu=1500)
+    t.initialize(buf_size)
+    assert t.max_unencoded_size == expected
+
+
 @pytest.mark.asyncio
 async def test_ipv4_detection_real_socket() -> None:
     """Test IPv4 auto-detection with real socket connection."""
