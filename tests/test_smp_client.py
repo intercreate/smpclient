@@ -226,7 +226,7 @@ def test_wrapping_sequence() -> None:
 async def test_injected_sequence() -> None:
     """The sequence space is injectable, so a test can pin what goes on the wire."""
     m = SMPMockTransport()
-    s = SMPClient(m, sequence=iter((7, 9)))
+    s = SMPClient(m, sequence=lambda: iter((7, 9)))
     m.receive.return_value = bytes(ResetWriteResponse().to_frame(sequence=0))
 
     for expected in (7, 9):

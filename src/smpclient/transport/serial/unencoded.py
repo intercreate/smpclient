@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 from smp import header as smphdr
 from typing_extensions import assert_never, override
 
+from smpclient import _request
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import Auto, BufferSize
 from smpclient.transport.serial.common import SerialOptions, _SerialTransportBase
@@ -40,7 +41,7 @@ RawSerialFragmentationStrategy: TypeAlias = Auto | BufferSize
 """How `SMPSerialRawTransport` sizes SMP messages: `Auto` or `BufferSize`."""
 
 
-class SMPSerialRawTransport(_SerialTransportBase):
+class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]):
     def __init__(
         self,
         port: str,
@@ -48,7 +49,7 @@ class SMPSerialRawTransport(_SerialTransportBase):
         *,
         framing: SerialFraming | None = None,
         connect_timeout_s: float = 2.5,
-        sequence: Iterator[u8] | None = None,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
         options: SerialOptions = SerialOptions(),
     ) -> None:
         """Initialize the raw serial transport.
@@ -62,17 +63,10 @@ class SMPSerialRawTransport(_SerialTransportBase):
                 `None` sends the bare `[header][payload]`.
             connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
                 parameters.
-            sequence: The SMP sequence space the MCUmgr parameters read draws from;
-                defaults to `wrapping_sequence()`.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
             options: The `pyserial` port settings.
         """
-        super().__init__(
-            port,
-            connect_timeout_s,
-            sequence,
-            options,
-        )
-        self._fragmentation_strategy: Final = fragmentation_strategy
+        super().__init__(port, fragmentation_strategy, connect_timeout_s, sequence, options)
         self._framing: Final = framing
 
         logger.debug(f"Initialized {self.__class__.__name__}")
@@ -169,7 +163,11 @@ class SMPSerialRawTransport(_SerialTransportBase):
     async def negotiate(self) -> None:
         match self._fragmentation_strategy:
             case Auto():
-                self._negotiated_buf_size = await self._read_buf_size()
+                match await self._read_buf_size():
+                    case None:
+                        self._sizing = Auto()
+                    case buf_size:
+                        self._sizing = BufferSize(buf_size)
             case BufferSize():
                 pass
             case _ as unreachable:
@@ -183,13 +181,9 @@ class SMPSerialRawTransport(_SerialTransportBase):
     @property
     @override
     def max_unencoded_size(self) -> int:
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                return (
-                    _DEFAULT_BUF_SIZE
-                    if self._negotiated_buf_size is None
-                    else self._negotiated_buf_size
-                )
+                return _DEFAULT_BUF_SIZE
             case BufferSize(buf_size=buf_size):
                 return buf_size
             case _ as unreachable:

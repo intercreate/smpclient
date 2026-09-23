@@ -38,7 +38,7 @@ or in your local clone at `examples/`.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from hashlib import sha256
 from typing import TYPE_CHECKING, Final, TypeVar
 
@@ -90,7 +90,7 @@ class SMPClient:
     Args:
         transport: the connected `SMPTransport`; the client never opens or closes it
         timeout_s: the default timeout in seconds for SMP requests
-        sequence: this client's SMP sequence space; defaults to `wrapping_sequence()`
+        sequence: this client's SMP sequence space
 
     Example:
     ```python
@@ -119,11 +119,11 @@ class SMPClient:
         transport: SMPTransport,
         *,
         timeout_s: float = 2.5,
-        sequence: Iterator[u8] | None = None,
+        sequence: Callable[[], Iterator[u8]] = wrapping_sequence,
     ):
         self._transport: Final = transport
-        self._timeout_s = timeout_s
-        self._sequence: Final = wrapping_sequence() if sequence is None else sequence
+        self._timeout_s: Final = timeout_s
+        self._sequence: Final = sequence()
 
     async def request(
         self, request: SMPRequest[TRep, TEr1, TEr2], timeout_s: float | None = None

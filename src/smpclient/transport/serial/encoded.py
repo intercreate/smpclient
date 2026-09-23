@@ -24,13 +24,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from enum import IntEnum, unique
 from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from smp import packet as smppacket
 from typing_extensions import assert_never, override
 
+from smpclient import _request
 from smpclient.transport import Auto
 from smpclient.transport.serial.common import SerialOptions, _SerialTransportBase
 
@@ -134,7 +135,7 @@ are read, or if the server doesn't provide them, it assumes a conservative line 
 """
 
 
-class SMPSerialTransport(_SerialTransportBase):
+class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
     @unique
     class BufferState(IntEnum):
         SMP = 0
@@ -153,7 +154,7 @@ class SMPSerialTransport(_SerialTransportBase):
         fragmentation_strategy: SerialFragmentationStrategy = Auto(),
         *,
         connect_timeout_s: float = 2.5,
-        sequence: Iterator[u8] | None = None,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
         options: SerialOptions = SerialOptions(),
     ) -> None:
         """Initialize the serial transport.
@@ -163,20 +164,12 @@ class SMPSerialTransport(_SerialTransportBase):
             fragmentation_strategy: how to size SMP messages.
             connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
                 parameters.
-            sequence: The SMP sequence space the MCUmgr parameters read draws from;
-                defaults to `wrapping_sequence()`.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
             options: The `pyserial` port settings.
 
         """
-        super().__init__(
-            port,
-            connect_timeout_s,
-            sequence,
-            options,
-        )
-
         self._validate_strategy(fragmentation_strategy)
-        self._fragmentation_strategy: Final = fragmentation_strategy
+        super().__init__(port, fragmentation_strategy, connect_timeout_s, sequence, options)
 
         self._smp_packet_queue: asyncio.Queue[bytes] = asyncio.Queue()
         """Contains full SMP packets."""
@@ -241,7 +234,7 @@ class SMPSerialTransport(_SerialTransportBase):
     @property
     def _line_length(self) -> int:
         """The base64 line length used to fragment outgoing frames."""
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
                 return _DEFAULT_LINE_LENGTH
             case BufferSize(line_length=line_length):
@@ -261,10 +254,8 @@ class SMPSerialTransport(_SerialTransportBase):
         buffer); `Auto` falls back to a conservative default until the server's
         params are read.
         """
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                if self._negotiated_buf_size is not None:
-                    return max(1, self._negotiated_buf_size // self._line_length)
                 return _AUTO_LINE_BUFFERS
             case BufferSize(buf_size=buf_size):
                 return max(1, buf_size // self._line_length)
@@ -276,10 +267,8 @@ class SMPSerialTransport(_SerialTransportBase):
     @property
     def _max_smp_encoded_frame_size(self) -> int:
         """The configured buffer size that the MTU reports."""
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                if self._negotiated_buf_size is not None:
-                    return self._negotiated_buf_size
                 return self._line_length * self._line_buffers
             case BufferSize(buf_size=buf_size):
                 return buf_size
@@ -295,14 +284,14 @@ class SMPSerialTransport(_SerialTransportBase):
             case Auto():
                 match await self._read_buf_size():
                     case None:
-                        pass
+                        self._sizing = Auto()
                     case buf_size if buf_size <= _FRAME_OVERHEAD:
                         raise ValueError(
                             f"server buffer size ({buf_size}) must exceed the "
                             f"{_FRAME_OVERHEAD}-byte frame overhead to carry a message"
                         )
                     case buf_size:
-                        self._negotiated_buf_size = buf_size
+                        self._sizing = BufferSize(buf_size=buf_size)
                         logger.info(
                             f"Auto-configured from server buf_size={buf_size}: "
                             f"mtu={self.mtu}, max_unencoded_size={self.max_unencoded_size}, "
@@ -497,10 +486,8 @@ class SMPSerialTransport(_SerialTransportBase):
         SMP serial framing (the 2-byte length + 2-byte CRC16):
         https://docs.zephyrproject.org/latest/services/device_mgmt/smp_transport.html
         """
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                if self._negotiated_buf_size is not None:
-                    return self._negotiated_buf_size - _FRAME_OVERHEAD
                 return self._encoded_budget_max_unencoded_size()
             case BufferSize(buf_size=buf_size):
                 return buf_size - _FRAME_OVERHEAD

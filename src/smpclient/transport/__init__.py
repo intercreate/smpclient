@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Iterator
+from abc import abstractmethod
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Final, Generic, NamedTuple, Protocol, TypeAlias, TypeVar
 from uuid import UUID
 
 from typing_extensions import Self, assert_never, override
@@ -104,33 +105,46 @@ class SMPTransport(Protocol):
         ...
 
 
-class _ConnectableTransport(SMPTransport, Protocol):
+_TStrategy = TypeVar("_TStrategy")
+"""A transport's fragmentation strategy union."""
+
+
+class _ConnectableTransport(SMPTransport, Generic[_TStrategy]):
     """An `SMPTransport` that opens and closes its own link.
 
-    `SMPClient` sees only the `SMPTransport` part.  Prefer the `connected()` bracket;
-    `connect()` and `disconnect()` are for a lifetime that a lexical scope can't express.
+    `SMPClient` sees only the `SMPTransport` part.
     """
 
-    _sequence: Iterator[u8]
-    """The SMP sequence space that the MCUmgr parameters read draws from."""
+    def __init__(
+        self,
+        fragmentation_strategy: _TStrategy,
+        connect_timeout_s: float,
+        sequence: Callable[[], Iterator[u8]],
+    ) -> None:
+        self._fragmentation_strategy: Final = fragmentation_strategy
+        self._sizing: _TStrategy = fragmentation_strategy
+        """The fragmentation strategy as `negotiate()` resolved it."""
+        self._connect_timeout_s: Final = connect_timeout_s
+        self._sequence: Final = sequence()
 
-    _connect_timeout_s: float
-    """Bounds establishing the link, including reading the MCUmgr parameters."""
-
-    _negotiated_buf_size: int | None = None
-    """The server's advertised `buf_size`, once a fragmentation strategy that asks has read it."""
-
+    @abstractmethod
     async def connect(self) -> None:  # pragma: no cover
-        """Open the link, then `negotiate()`."""
-        ...
+        """Open the link, then `negotiate()`.
 
+        Prefer `connected()`: a bare `connect()` gives up the bracket's guarantee that the
+        link is closed, on error and on cancellation.
+        """
+
+    @abstractmethod
     async def disconnect(self) -> None:  # pragma: no cover
-        """Close the link."""
-        ...
+        """Close the link.
 
+        Prefer `connected()`, which calls this for you on every exit.
+        """
+
+    @abstractmethod
     async def negotiate(self) -> None:  # pragma: no cover
         """Adopt the server's MCUmgr parameters, if the fragmentation strategy asks for them."""
-        ...
 
     async def _read_buf_size(self) -> int | None:
         """The server's advertised `buf_size`, or `None` if it doesn't provide one."""
@@ -152,16 +166,24 @@ class _ConnectableTransport(SMPTransport, Protocol):
                 logger.warning(f"Error during disconnect: {e}")
 
 
-class _GATTTransport(_ConnectableTransport):
+class _GATTTransport(_ConnectableTransport[GATTFragmentationStrategy]):
     """A `_ConnectableTransport` that writes SMP messages to a GATT characteristic."""
-
-    _fragmentation_strategy: GATTFragmentationStrategy
 
     @override
     async def negotiate(self) -> None:
         match self._fragmentation_strategy:
-            case Auto() | Unfragmented():
-                self._negotiated_buf_size = await self._read_buf_size()
+            case Auto():
+                match await self._read_buf_size():
+                    case None:
+                        self._sizing = Auto()
+                    case buf_size:
+                        self._sizing = BufferSize(buf_size)
+            case Unfragmented():
+                match await self._read_buf_size():
+                    case None:
+                        self._sizing = Unfragmented()
+                    case buf_size:
+                        self._sizing = BufferSize(min(self.mtu, buf_size))
             case BufferSize():
                 pass
             case _ as unreachable:
@@ -170,15 +192,9 @@ class _GATTTransport(_ConnectableTransport):
     @property
     @override
     def max_unencoded_size(self) -> int:
-        match self._fragmentation_strategy:
-            case Auto():
-                return self.mtu if self._negotiated_buf_size is None else self._negotiated_buf_size
-            case Unfragmented():
-                return (
-                    self.mtu
-                    if self._negotiated_buf_size is None
-                    else min(self.mtu, self._negotiated_buf_size)
-                )
+        match self._sizing:
+            case Auto() | Unfragmented():
+                return self.mtu
             case BufferSize(buf_size=buf_size):
                 return buf_size
             case _ as unreachable:

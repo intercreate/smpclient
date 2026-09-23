@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import sys
-from collections.abc import AsyncIterator, Coroutine, Iterator
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, TypeAlias, TypeGuard, TypeVar
 from uuid import UUID
@@ -125,7 +125,7 @@ class SMPBLETransport(_GATTTransport):
         bluez: BlueZClientArgs = {},
         fragmentation_strategy: GATTFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
-        sequence: Iterator[u8] | None = None,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
     ) -> None:
         """Initialize the BLE transport; `connect()` scans for and connects to `address`.
 
@@ -137,18 +137,15 @@ class SMPBLETransport(_GATTTransport):
                 `BufferSize`.
             connect_timeout_s: Bounds scanning and connecting, and reading the server's
                 MCUmgr parameters.
-            sequence: The SMP sequence space the MCUmgr parameters read draws from;
-                defaults to `wrapping_sequence()`.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
         self._address: Final = address
-        self._fragmentation_strategy = fragmentation_strategy
-        self._connect_timeout_s = connect_timeout_s
-        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
-        self._buffer = bytearray()
-        self._notify_condition = asyncio.Condition()
-        self._disconnected_event = asyncio.Event()
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
+        self._buffer: Final = bytearray()
+        self._notify_condition: Final = asyncio.Condition()
+        self._disconnected_event: Final = asyncio.Event()
         self._disconnected_event.set()
-        self._winrt = winrt
+        self._winrt: Final = winrt
         self._bluez: Final = bluez
         self._link: _Link = _Closed()
 

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from time import monotonic
-from typing import TYPE_CHECKING, Final, Generator, NamedTuple, Protocol, TypeAlias, final
+from typing import TYPE_CHECKING, Final, Generator, NamedTuple, Protocol, TypeAlias, TypeVar, final
 
 try:
     from serial import Serial, SerialException
@@ -19,7 +19,6 @@ except ModuleNotFoundError as e:
     raise
 from typing_extensions import Self, assert_never, override
 
-from smpclient import _request
 from smpclient.transport import SMPTransportDisconnected, _ConnectableTransport
 
 if TYPE_CHECKING:
@@ -95,7 +94,10 @@ class SerialOptions(NamedTuple):
     mode if it is already open in exclusive access mode."""
 
 
-class _SerialTransportBase(_ConnectableTransport):
+_TStrategy = TypeVar("_TStrategy")
+
+
+class _SerialTransportBase(_ConnectableTransport[_TStrategy]):
     """Connection-management base class for serial-port-backed SMP transports.
 
     Holds the `pyserial` `Serial` instance, the open/retry connect loop, borrowing a
@@ -112,23 +114,14 @@ class _SerialTransportBase(_ConnectableTransport):
     def __init__(
         self,
         port: str,
-        connect_timeout_s: float = 2.5,
-        sequence: Iterator[u8] | None = None,
-        options: SerialOptions = SerialOptions(),
+        fragmentation_strategy: _TStrategy,
+        connect_timeout_s: float,
+        sequence: Callable[[], Iterator[u8]],
+        options: SerialOptions,
     ) -> None:
-        """Initialize the underlying `pyserial` `Serial` instance.
-
-        Args:
-            port: The serial port, e.g. `/dev/ttyACM0` or `COM3`.
-            connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
-                parameters.
-            sequence: The SMP sequence space the MCUmgr parameters read draws from;
-                defaults to `wrapping_sequence()`.
-            options: The `pyserial` port settings.
-        """
+        """Hold a closed `Serial` with the `options` until `connect()` opens it."""
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
         self._port: Final = port
-        self._connect_timeout_s = connect_timeout_s
-        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._serial: Final = Serial(**options._asdict())
         self._link: _Link = _Owned()
 

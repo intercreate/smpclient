@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from socket import AF_INET6
 from typing import TYPE_CHECKING, Final, TypeAlias
 
@@ -51,7 +51,7 @@ each request as a single datagram into a single buffer.
 """
 
 
-class SMPUDPTransport(_ConnectableTransport):
+class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
     def __init__(
         self,
         address: str,
@@ -60,7 +60,7 @@ class SMPUDPTransport(_ConnectableTransport):
         mtu: int = 1500,
         fragmentation_strategy: UDPFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
-        sequence: Iterator[u8] | None = None,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
     ) -> None:
         """Initialize the SMP UDP transport.
 
@@ -73,15 +73,12 @@ class SMPUDPTransport(_ConnectableTransport):
             fragmentation_strategy: How to size SMP messages: `Auto` or `BufferSize`.
             connect_timeout_s: Bounds connecting, and reading the server's MCUmgr
                 parameters.
-            sequence: The SMP sequence space the MCUmgr parameters read draws from;
-                defaults to `wrapping_sequence()`.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
         self._address: Final = address
         self._port: Final = port
-        self._connect_timeout_s = connect_timeout_s
-        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
-        self._mtu = mtu
-        self._fragmentation_strategy: Final = fragmentation_strategy
+        self._mtu: Final = mtu
         self._is_ipv6 = False
 
         self._client: Final = UDPClient()
@@ -179,7 +176,11 @@ class SMPUDPTransport(_ConnectableTransport):
     async def negotiate(self) -> None:
         match self._fragmentation_strategy:
             case Auto():
-                self._negotiated_buf_size = await self._read_buf_size()
+                match await self._read_buf_size():
+                    case None:
+                        self._sizing = Auto()
+                    case buf_size:
+                        self._sizing = BufferSize(buf_size)
             case BufferSize():
                 pass
             case _ as unreachable:
@@ -194,13 +195,9 @@ class SMPUDPTransport(_ConnectableTransport):
         The IP version is auto-detected after connection.
         """
         mss: Final = self._mtu - (IPV6_UDP_OVERHEAD if self._is_ipv6 else IPV4_UDP_OVERHEAD)
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                return (
-                    mss
-                    if self._negotiated_buf_size is None
-                    else min(mss, self._negotiated_buf_size)
-                )
+                return mss
             case BufferSize(buf_size=buf_size):
                 return min(mss, buf_size)
             case _ as unreachable:

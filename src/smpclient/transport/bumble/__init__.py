@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
@@ -147,7 +147,7 @@ class SMPBumbleTransport(_GATTTransport):
         settle_s: float = DEFAULT_POST_PAIR_SETTLE_S,
         fragmentation_strategy: GATTFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
-        sequence: Iterator[u8] | None = None,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
     ) -> None:
         """Initialize the bumble transport.
 
@@ -177,13 +177,10 @@ class SMPBumbleTransport(_GATTTransport):
                 `BufferSize`.
             connect_timeout_s: Bounds scanning for a name, and reading the server's
                 MCUmgr parameters.
-            sequence: The SMP sequence space the MCUmgr parameters read draws from;
-                defaults to `wrapping_sequence()`.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
         self._address: Final = address
-        self._fragmentation_strategy = fragmentation_strategy
-        self._connect_timeout_s = connect_timeout_s
-        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._hci: Final = hci
         self._host_address: Final = host_address
         self._host_name: Final = host_name
