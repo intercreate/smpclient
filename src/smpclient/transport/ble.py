@@ -13,6 +13,7 @@ from uuid import UUID
 
 try:
     from bleak import BleakClient, BleakScanner
+    from bleak.args.bluez import BlueZClientArgs, BlueZScannerArgs
     from bleak.args.winrt import WinRTClientArgs
     from bleak.backends.characteristic import BleakGATTCharacteristic
     from bleak.backends.client import BaseBleakClient
@@ -115,6 +116,7 @@ class SMPBLETransport(_GATTTransport):
         address: str,
         *,
         winrt: WinRTClientArgs = {},
+        bluez: BlueZClientArgs = {},
         fragmentation_strategy: GATTFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
@@ -124,6 +126,7 @@ class SMPBLETransport(_GATTTransport):
         Args:
             address: The device's MAC address, macOS UUID, or advertised name.
             winrt: WinRT backend arguments, e.g. `use_cached_services`.
+            bluez: BlueZ backend arguments, e.g. the `adapter` to scan and connect with.
             fragmentation_strategy: How to size SMP messages: `Auto`, `Unfragmented`, or
                 `BufferSize`.
             connect_timeout_s: Bounds scanning and connecting, and reading the server's
@@ -140,6 +143,7 @@ class SMPBLETransport(_GATTTransport):
         self._disconnected_event = asyncio.Event()
         self._disconnected_event.set()
         self._winrt = winrt
+        self._bluez: Final = bluez
         self._link: _Link = _Owned()
 
         self._max_write_without_response_size = 20
@@ -162,9 +166,13 @@ class SMPBLETransport(_GATTTransport):
     async def _connect(self, address: str, timeout_s: float) -> None:
         logger.debug(f"Scanning for {address=}")
         device: BLEDevice | None = (
-            await BleakScanner.find_device_by_address(address, timeout=timeout_s)
+            await BleakScanner.find_device_by_address(
+                address, timeout=timeout_s, bluez=BlueZScannerArgs(**self._bluez)
+            )
             if MAC_ADDRESS_PATTERN.match(address) or UUID_PATTERN.match(address)
-            else await BleakScanner.find_device_by_name(address, timeout=timeout_s)
+            else await BleakScanner.find_device_by_name(
+                address, timeout=timeout_s, bluez=BlueZScannerArgs(**self._bluez)
+            )
         )
 
         if type(device) is BLEDevice:
@@ -172,6 +180,7 @@ class SMPBLETransport(_GATTTransport):
                 device,
                 services=(str(SMP_SERVICE_UUID),),
                 winrt=self._winrt,
+                bluez=self._bluez,
                 timeout=timeout_s,
                 disconnected_callback=self._set_disconnected_event,
             )
@@ -329,12 +338,12 @@ class SMPBLETransport(_GATTTransport):
         return self._max_write_without_response_size
 
     @staticmethod
-    async def scan(timeout: int = 5) -> list[BLEDevice]:
-        """Scan for BLE devices."""
+    async def scan(timeout: int = 5, bluez: BlueZScannerArgs = {}) -> list[BLEDevice]:
+        """Scan for BLE devices, on the BlueZ `adapter` if `bluez` names one."""
         logger.debug(f"Scanning for BLE devices for {timeout} seconds")
-        devices: Final = await BleakScanner(service_uuids=[str(SMP_SERVICE_UUID)]).discover(
-            timeout=timeout, return_adv=True
-        )
+        devices: Final = await BleakScanner(
+            service_uuids=[str(SMP_SERVICE_UUID)], bluez=bluez
+        ).discover(timeout=timeout, return_adv=True)
         smp_servers: Final = [
             d for d, a in devices.values() if SMP_SERVICE_UUID in {UUID(u) for u in a.service_uuids}
         ]

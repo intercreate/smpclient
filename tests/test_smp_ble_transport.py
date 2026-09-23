@@ -94,12 +94,12 @@ async def test_connect(
 ) -> None:
     # assert that it searches by name if MAC or UUID is not provided
     await SMPBLETransport("device name", connect_timeout_s=1.0).connect()
-    mock_find_device_by_name.assert_called_once_with("device name", timeout=1.0)
+    mock_find_device_by_name.assert_called_once_with("device name", timeout=1.0, bluez={})
     mock_find_device_by_name.reset_mock()
 
     # assert that it searches by MAC if MAC is provided
     await SMPBLETransport("00:00:00:00:00:00", connect_timeout_s=1.0).connect()
-    mock_find_device_by_address.assert_called_once_with("00:00:00:00:00:00", timeout=1.0)
+    mock_find_device_by_address.assert_called_once_with("00:00:00:00:00:00", timeout=1.0, bluez={})
     mock_find_device_by_address.reset_mock()
 
     # assert that it searches by UUID if UUID is provided
@@ -107,7 +107,7 @@ async def test_connect(
         UUID("00000000-0000-4000-8000-000000000000").hex, connect_timeout_s=1.0
     ).connect()
     mock_find_device_by_address.assert_called_once_with(
-        "00000000000040008000000000000000", timeout=1.0
+        "00000000000040008000000000000000", timeout=1.0, bluez={}
     )
     mock_find_device_by_address.reset_mock()
 
@@ -146,6 +146,35 @@ async def test_connect(
 
     # assert that SMP characteristic notifications are started
     t._client.start_notify.assert_called_once_with(SMP_CHARACTERISTIC_UUID, t._notify_callback)
+
+
+@patch(
+    "smpclient.transport.ble.BleakScanner.find_device_by_address",
+    return_value=BLEDevice(ADDRESS, "name", None),
+)
+@patch("smpclient.transport.ble.BleakClient", side_effect=MockBleakClient)
+@pytest.mark.asyncio
+async def test_connect_scans_and_connects_with_the_bluez_adapter(
+    mock_bleak_client: MagicMock, mock_find_device_by_address: MagicMock
+) -> None:
+    await SMPBLETransport(ADDRESS, bluez={"adapter": "hci1"}, connect_timeout_s=1.0).connect()
+
+    mock_find_device_by_address.assert_called_once_with(
+        ADDRESS, timeout=1.0, bluez={"adapter": "hci1"}
+    )
+    assert mock_bleak_client.call_args.kwargs["bluez"] == {"adapter": "hci1"}
+
+
+@patch("smpclient.transport.ble.BleakScanner")
+@pytest.mark.asyncio
+async def test_scan_uses_the_bluez_adapter(mock_bleak_scanner: MagicMock) -> None:
+    mock_bleak_scanner.return_value.discover = AsyncMock(return_value={})
+
+    assert await SMPBLETransport.scan(bluez={"adapter": "hci1"}) == []
+
+    mock_bleak_scanner.assert_called_once_with(
+        service_uuids=[str(SMP_SERVICE_UUID)], bluez={"adapter": "hci1"}
+    )
 
 
 @pytest.mark.asyncio
