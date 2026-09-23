@@ -75,6 +75,46 @@ UUID_PATTERN: Final = re.compile(
 )
 
 
+class PlatformDefault(NamedTuple):
+    """bleak's defaults for the platform's backend."""
+
+
+class BlueZ(NamedTuple):
+    """Options for bleak's BlueZ backend (Linux), e.g. the `adapter` to scan and connect with."""
+
+    args: BlueZClientArgs
+
+
+class WinRT(NamedTuple):
+    """Options for bleak's WinRT backend (Windows), e.g. `use_cached_services`."""
+
+    args: WinRTClientArgs
+
+
+BleakBackend: TypeAlias = PlatformDefault | BlueZ | WinRT
+"""The bleak backend options that `SMPBLETransport` scans and connects with."""
+
+
+def _bluez_args(backend: BleakBackend) -> BlueZClientArgs:
+    match backend:
+        case BlueZ(args=args):
+            return args
+        case PlatformDefault() | WinRT():
+            return {}
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _winrt_args(backend: BleakBackend) -> WinRTClientArgs:
+    match backend:
+        case WinRT(args=args):
+            return args
+        case PlatformDefault() | BlueZ():
+            return {}
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 class SMPBLETransportException(SMPClientException):
     """Base class for SMP BLE transport exceptions."""
 
@@ -120,8 +160,7 @@ class SMPBLETransport(_GATTTransport):
     def __init__(
         self,
         *,
-        winrt: WinRTClientArgs = {},
-        bluez: BlueZClientArgs = {},
+        backend: BleakBackend = PlatformDefault(),
         fragmentation_strategy: GATTFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
         sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
@@ -129,8 +168,7 @@ class SMPBLETransport(_GATTTransport):
         """Initialize the BLE transport.
 
         Args:
-            winrt: WinRT backend arguments, e.g. `use_cached_services`.
-            bluez: BlueZ backend arguments, e.g. the `adapter` to scan and connect with.
+            backend: The bleak backend options to scan and connect with.
             fragmentation_strategy: How to size SMP messages: `Auto`, `Unfragmented`, or
                 `BufferSize`.
             connect_timeout_s: Bounds scanning and connecting, and reading the server's
@@ -142,8 +180,7 @@ class SMPBLETransport(_GATTTransport):
         self._notify_condition: Final = asyncio.Condition()
         self._disconnected_event: Final = asyncio.Event()
         self._disconnected_event.set()
-        self._winrt: Final = winrt
-        self._bluez: Final = bluez
+        self._backend: Final = backend
         self._link: _Link = _Closed()
 
         self._max_write_without_response_size = 20
@@ -178,11 +215,11 @@ class SMPBLETransport(_GATTTransport):
         logger.debug(f"Scanning for {address=}")
         device: BLEDevice | None = (
             await BleakScanner.find_device_by_address(
-                address, timeout=timeout_s, bluez=BlueZScannerArgs(**self._bluez)
+                address, timeout=timeout_s, bluez=BlueZScannerArgs(**_bluez_args(self._backend))
             )
             if MAC_ADDRESS_PATTERN.match(address) or UUID_PATTERN.match(address)
             else await BleakScanner.find_device_by_name(
-                address, timeout=timeout_s, bluez=BlueZScannerArgs(**self._bluez)
+                address, timeout=timeout_s, bluez=BlueZScannerArgs(**_bluez_args(self._backend))
             )
         )
 
@@ -191,8 +228,8 @@ class SMPBLETransport(_GATTTransport):
                 BleakClient(
                     device,
                     services=(str(SMP_SERVICE_UUID),),
-                    winrt=self._winrt,
-                    bluez=self._bluez,
+                    winrt=_winrt_args(self._backend),
+                    bluez=_bluez_args(self._backend),
                     timeout=timeout_s,
                     disconnected_callback=self._set_disconnected_event,
                 )
@@ -352,11 +389,11 @@ class SMPBLETransport(_GATTTransport):
         return self._max_write_without_response_size
 
     @staticmethod
-    async def scan(timeout: int = 5, bluez: BlueZScannerArgs = {}) -> list[BLEDevice]:
-        """Scan for BLE devices, on the BlueZ `adapter` if `bluez` names one."""
+    async def scan(timeout: int = 5, backend: BleakBackend = PlatformDefault()) -> list[BLEDevice]:
+        """Scan for BLE devices with the bleak `backend` options."""
         logger.debug(f"Scanning for BLE devices for {timeout} seconds")
         devices: Final = await BleakScanner(
-            service_uuids=[str(SMP_SERVICE_UUID)], bluez=bluez
+            service_uuids=[str(SMP_SERVICE_UUID)], bluez=BlueZScannerArgs(**_bluez_args(backend))
         ).discover(timeout=timeout, return_adv=True)
         smp_servers: Final = [
             d for d, a in devices.values() if SMP_SERVICE_UUID in {UUID(u) for u in a.service_uuids}

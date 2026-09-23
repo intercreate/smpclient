@@ -7,6 +7,8 @@ from uuid import UUID
 
 import pytest
 from bleak import BleakClient
+from bleak.args.bluez import BlueZClientArgs
+from bleak.args.winrt import WinRTClientArgs
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
@@ -18,8 +20,12 @@ from smpclient.transport.ble import (
     SMP_CHARACTERISTIC_UUID,
     SMP_SERVICE_UUID,
     UUID_PATTERN,
+    BleakBackend,
+    BlueZ,
+    PlatformDefault,
     SMPBLETransport,
     SMPBLETransportDeviceNotFound,
+    WinRT,
     _Owned,
 )
 from tests.support import advertise, negotiated
@@ -148,21 +154,37 @@ async def test_connect(
     )
 
 
+@pytest.mark.parametrize(
+    "backend, bluez, winrt",
+    [
+        pytest.param(PlatformDefault(), {}, {}, id="default"),
+        pytest.param(BlueZ(BlueZClientArgs(adapter="hci1")), {"adapter": "hci1"}, {}, id="bluez"),
+        pytest.param(
+            WinRT(WinRTClientArgs(use_cached_services=True)),
+            {},
+            {"use_cached_services": True},
+            id="winrt",
+        ),
+    ],
+)
 @patch(
     "smpclient.transport.ble.BleakScanner.find_device_by_address",
     return_value=BLEDevice(ADDRESS, "name", None),
 )
 @patch("smpclient.transport.ble.BleakClient", side_effect=MockBleakClient)
 @pytest.mark.asyncio
-async def test_connect_scans_and_connects_with_the_bluez_adapter(
-    mock_bleak_client: MagicMock, mock_find_device_by_address: MagicMock
+async def test_connect_passes_bleak_only_the_chosen_backend(
+    mock_bleak_client: MagicMock,
+    mock_find_device_by_address: MagicMock,
+    backend: BleakBackend,
+    bluez: BlueZClientArgs,
+    winrt: WinRTClientArgs,
 ) -> None:
-    await SMPBLETransport(bluez={"adapter": "hci1"}, connect_timeout_s=1.0).connect(ADDRESS)
+    await SMPBLETransport(backend=backend, connect_timeout_s=1.0).connect(ADDRESS)
 
-    mock_find_device_by_address.assert_called_once_with(
-        ADDRESS, timeout=1.0, bluez={"adapter": "hci1"}
-    )
-    assert mock_bleak_client.call_args.kwargs["bluez"] == {"adapter": "hci1"}
+    mock_find_device_by_address.assert_called_once_with(ADDRESS, timeout=1.0, bluez=bluez)
+    assert mock_bleak_client.call_args.kwargs["bluez"] == bluez
+    assert mock_bleak_client.call_args.kwargs["winrt"] == winrt
 
 
 @patch("smpclient.transport.ble.BleakScanner")
@@ -170,7 +192,7 @@ async def test_connect_scans_and_connects_with_the_bluez_adapter(
 async def test_scan_uses_the_bluez_adapter(mock_bleak_scanner: MagicMock) -> None:
     mock_bleak_scanner.return_value.discover = AsyncMock(return_value={})
 
-    assert await SMPBLETransport.scan(bluez={"adapter": "hci1"}) == []
+    assert await SMPBLETransport.scan(backend=BlueZ(BlueZClientArgs(adapter="hci1"))) == []
 
     mock_bleak_scanner.assert_called_once_with(
         service_uuids=[str(SMP_SERVICE_UUID)], bluez={"adapter": "hci1"}
