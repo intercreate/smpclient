@@ -289,6 +289,10 @@ class SMPBumbleTransport(_GATTTransport):
             )
             logger.info(f"Connected to {target}, max_write={max_write}")
             await self.negotiate()
+        except asyncio.CancelledError:
+            logger.debug("connect() cancelled; tearing down partial state")
+            await self.disconnect()
+            raise
         except Exception:
             logger.exception("connect() failed; tearing down partial state")
             await self.disconnect()
@@ -388,7 +392,11 @@ class SMPBumbleTransport(_GATTTransport):
             max_write=max_write,
         )
         logger.info(f"Borrowing connection to {connection.peer_address}, max_write={max_write}")
-        await self.negotiate()
+        try:
+            await self.negotiate()
+        except (Exception, asyncio.CancelledError):
+            await self.disconnect()
+            raise
 
     @asynccontextmanager
     async def borrowed(
@@ -568,7 +576,7 @@ class SMPBumbleTransport(_GATTTransport):
     async def _teardown_borrowed(self) -> None:
         assert isinstance(self._state, ConnectedBorrowed)
         try:
-            await self._state.smp_characteristic.unsubscribe()
+            await self._state.smp_characteristic.unsubscribe(self._on_notification)
         except Exception as e:
             logger.warning(f"smp_characteristic.unsubscribe failed: {e}")
         try:

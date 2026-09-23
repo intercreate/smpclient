@@ -716,10 +716,56 @@ async def test_borrow_borrowed_only_unsubscribes_on_disconnect(
     await t.borrow(bumble_env.connection)
     assert isinstance(t._state, ConnectedBorrowed)
     await t.disconnect()
-    bumble_env.smp_char.unsubscribe.assert_awaited()
+    bumble_env.smp_char.unsubscribe.assert_awaited_once_with(t._on_notification)
     bumble_env.connection.disconnect.assert_not_called()
     bumble_env.device.power_off.assert_not_called()
     bumble_env.transport.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_borrow_returns_the_connection_when_negotiation_fails(
+    bumble_env: _MockBumbleEnvironment,
+) -> None:
+    t = SMPBumbleTransport(ADDRESS)
+
+    with (
+        patch(
+            "smpclient._request.read_mcumgr_parameters",
+            AsyncMock(side_effect=asyncio.CancelledError),
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await t.borrow(bumble_env.connection)
+
+    assert isinstance(t._state, Disconnected)
+    bumble_env.smp_char.unsubscribe.assert_awaited_once_with(t._on_notification)
+    bumble_env.connection.disconnect.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_connect_tears_down_when_cancelled(
+    bumble_env: _MockBumbleEnvironment, caplog: pytest.LogCaptureFixture
+) -> None:
+    connecting: Final = asyncio.Event()
+
+    async def connect_until_cancelled(*_args: object, **_kwargs: object) -> MagicMock:
+        connecting.set()
+        await asyncio.Event().wait()
+        return bumble_env.connection
+
+    bumble_env.device.connect = AsyncMock(side_effect=connect_until_cancelled)
+    t = SMPBumbleTransport(ADDRESS)
+
+    connect: Final = asyncio.create_task(t.connect())
+    await connecting.wait()
+    connect.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await connect
+
+    assert isinstance(t._state, Disconnected)
+    bumble_env.device.power_off.assert_awaited_once()
+    bumble_env.transport.close.assert_awaited_once()
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 @pytest.mark.asyncio
