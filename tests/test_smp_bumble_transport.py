@@ -89,7 +89,7 @@ def test_smp_uuids_match_ble_transport() -> None:
 
 
 def test_constructor_defaults() -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     assert isinstance(t._state, Disconnected)
     assert t._hci == DEFAULT_HCI_TRANSPORT
     assert t._host_name == DEFAULT_HOST_NAME
@@ -98,27 +98,27 @@ def test_constructor_defaults() -> None:
 
 @pytest.mark.asyncio
 async def test_send_in_disconnected_state_raises() -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     with pytest.raises(SMPBumbleTransportException):
         await t.send(b"x")
 
 
 def test_mtu_in_disconnected_state_raises() -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     with pytest.raises(SMPBumbleTransportException):
         _ = t.mtu
 
 
 @pytest.mark.asyncio
 async def test_pair_in_disconnected_state_raises() -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     with pytest.raises(SMPBumbleTransportException):
         await t.pair(NoInputNoOutput())
 
 
 @pytest.mark.asyncio
 async def test_pair_in_borrowed_state_raises() -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     t._state = ConnectedBorrowed(
         connection=MagicMock(), peer=MagicMock(), smp_characteristic=MagicMock(), max_write=20
     )
@@ -128,23 +128,23 @@ async def test_pair_in_borrowed_state_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_disconnect_in_disconnected_state_is_noop() -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     await t.disconnect()
     assert isinstance(t._state, Disconnected)
 
 
 @pytest.mark.asyncio
 async def test_connect_while_connected_raises() -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     t._state = Connecting()
     with pytest.raises(SMPBumbleTransportException, match="Connecting"):
-        await t.connect()
+        await t.connect(ADDRESS)
 
 
 def _make_connected(
     max_write: int = 244, fragmentation_strategy: GATTFragmentationStrategy = Auto()
 ) -> tuple[SMPBumbleTransport, MagicMock]:
-    t = SMPBumbleTransport(ADDRESS, fragmentation_strategy=fragmentation_strategy)
+    t = SMPBumbleTransport(fragmentation_strategy=fragmentation_strategy)
     smp_char = MagicMock()
     smp_char.write_value = AsyncMock()
     t._state = Connected(
@@ -549,8 +549,8 @@ def bumble_env(monkeypatch: pytest.MonkeyPatch) -> _MockBumbleEnvironment:
 async def test_connect_transitions_to_connected_state(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:
-    t = SMPBumbleTransport(ADDRESS)
-    await t.connect()
+    t = SMPBumbleTransport()
+    await t.connect(ADDRESS)
     assert isinstance(t._state, Connected)
     assert t._state.max_write == 247 - ATT_WRITE_OVERHEAD
     bumble_env.device.power_on.assert_awaited_once()
@@ -580,8 +580,8 @@ async def test_connect_proactively_encrypts_when_bonded(
         "smpclient.transport.bumble.resolve_keystore",
         lambda _s, namespace: env.keystore,
     )
-    t = SMPBumbleTransport(ADDRESS)
-    await t.connect()
+    t = SMPBumbleTransport()
+    await t.connect(ADDRESS)
     env.connection.encrypt.assert_awaited_once()
 
 
@@ -608,8 +608,8 @@ async def test_pair_on_connect_installs_delegate_before_device_connect(
 
     bumble_env.device.connect = _connect_snapshotting
 
-    t = SMPBumbleTransport(ADDRESS, pair_on_connect=delegate)
-    await t.connect()
+    t = SMPBumbleTransport(pair_on_connect=delegate)
+    await t.connect(ADDRESS)
     assert factory_set_at["value"], (
         "pairing_config_factory must be set before device.connect() returns"
     )
@@ -628,7 +628,7 @@ async def test_peer_initiated_security_during_connecting_drives_pair(
     bumble_env.connection.pair.side_effect = _pair_and_encrypt
 
     delegate = NoInputNoOutput()
-    t = SMPBumbleTransport(ADDRESS, pair_on_connect=delegate, settle_s=0.0)
+    t = SMPBumbleTransport(pair_on_connect=delegate, settle_s=0.0)
 
     captured: dict[str, object] = {}
     original_on = bumble_env.connection.on
@@ -650,7 +650,7 @@ async def test_peer_initiated_security_during_connecting_drives_pair(
 
     bumble_env.device.connect = _emit_security_request_after_connect
 
-    await t.connect()
+    await t.connect(ADDRESS)
     bumble_env.connection.pair.assert_awaited_once()
     assert isinstance(t._state, Connected)
 
@@ -667,7 +667,7 @@ async def test_pair_during_connect_is_idempotent_across_callers(
 
     bumble_env.connection.pair.side_effect = _pair_and_encrypt
 
-    t = SMPBumbleTransport(ADDRESS, pair_on_connect=NoInputNoOutput(), settle_s=0.0)
+    t = SMPBumbleTransport(pair_on_connect=NoInputNoOutput(), settle_s=0.0)
     t._state = Connecting(connection=bumble_env.connection, device=bumble_env.device)
     t._pair_lock = asyncio.Lock()
     t._pair_result = None
@@ -685,9 +685,9 @@ async def test_connect_failure_tears_down_partial_state(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:
     bumble_env.smp_char.subscribe.side_effect = RuntimeError("boom")
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     with pytest.raises(RuntimeError, match="boom"):
-        await t.connect()
+        await t.connect(ADDRESS)
     assert isinstance(t._state, Disconnected)
     bumble_env.connection.disconnect.assert_awaited()
     bumble_env.device.power_off.assert_awaited()
@@ -698,8 +698,8 @@ async def test_connect_failure_tears_down_partial_state(
 async def test_disconnect_owned_tears_down_everything(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:
-    t = SMPBumbleTransport(ADDRESS)
-    await t.connect()
+    t = SMPBumbleTransport()
+    await t.connect(ADDRESS)
     await t.disconnect()
     assert isinstance(t._state, Disconnected)
     bumble_env.smp_char.unsubscribe.assert_awaited()
@@ -712,7 +712,7 @@ async def test_disconnect_owned_tears_down_everything(
 async def test_borrow_borrowed_only_unsubscribes_on_disconnect(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     await t.borrow(bumble_env.connection)
     assert isinstance(t._state, ConnectedBorrowed)
     await t.disconnect()
@@ -726,7 +726,7 @@ async def test_borrow_borrowed_only_unsubscribes_on_disconnect(
 async def test_borrow_returns_the_connection_when_negotiation_fails(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
 
     with (
         patch(
@@ -754,9 +754,9 @@ async def test_connect_tears_down_when_cancelled(
         return bumble_env.connection
 
     bumble_env.device.connect = AsyncMock(side_effect=connect_until_cancelled)
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
 
-    connect: Final = asyncio.create_task(t.connect())
+    connect: Final = asyncio.create_task(t.connect(ADDRESS))
     await connecting.wait()
     connect.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -773,7 +773,7 @@ async def test_borrow_skips_discover_when_services_present(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:
     bumble_env.peer.services = [MagicMock()]
-    t = SMPBumbleTransport(ADDRESS)
+    t = SMPBumbleTransport()
     await t.borrow(bumble_env.connection, peer=bumble_env.peer)
     bumble_env.peer.discover_all.assert_not_called()
 
@@ -782,8 +782,8 @@ async def test_borrow_skips_discover_when_services_present(
 async def test_borrow_while_connected_raises(
     bumble_env: _MockBumbleEnvironment,
 ) -> None:
-    t = SMPBumbleTransport(ADDRESS)
-    await t.connect()
+    t = SMPBumbleTransport()
+    await t.connect(ADDRESS)
     with pytest.raises(SMPBumbleTransportException):
         await t.borrow(bumble_env.connection)
 
@@ -1168,7 +1168,7 @@ async def test_cli_echo_success(capsys: pytest.CaptureFixture[str]) -> None:
     client = MagicMock()
     client.request = AsyncMock(return_value=response)
     transport = MagicMock()
-    transport.connected.return_value = nullcontext()
+    transport.connected.return_value = nullcontext(transport)
 
     with (
         patch(
@@ -1182,8 +1182,8 @@ async def test_cli_echo_success(capsys: pytest.CaptureFixture[str]) -> None:
             _EchoArgs(hci="usb:0", address="AA:BB:CC:DD:EE:FF", message="ping", timeout=5.0)
         )
     assert rc == 0
-    transport_class.assert_called_once_with("AA:BB:CC:DD:EE:FF", hci="usb:0", connect_timeout_s=5.0)
-    transport.connected.assert_called_once_with()
+    transport_class.assert_called_once_with(hci="usb:0", connect_timeout_s=5.0)
+    transport.connected.assert_called_once_with("AA:BB:CC:DD:EE:FF")
     assert "pong" in capsys.readouterr().out
 
 
@@ -1195,7 +1195,7 @@ async def test_cli_echo_returns_1_on_error(capsys: pytest.CaptureFixture[str]) -
     client = MagicMock()
     client.request = AsyncMock(return_value=response)
     transport = MagicMock()
-    transport.connected.return_value = nullcontext()
+    transport.connected.return_value = nullcontext(transport)
 
     with (
         patch("smpclient.transport.bumble.__main__.SMPBumbleTransport", return_value=transport),
@@ -1309,8 +1309,8 @@ async def test_pair_on_connect_runs_pair_when_no_bond(
 
     bumble_env.connection.pair = AsyncMock(side_effect=_post_pair_encrypted)
 
-    t = SMPBumbleTransport(ADDRESS, pair_on_connect=NoInputNoOutput(), settle_s=0.0)
-    await t.connect()
+    t = SMPBumbleTransport(pair_on_connect=NoInputNoOutput(), settle_s=0.0)
+    await t.connect(ADDRESS)
     bumble_env.connection.pair.assert_awaited_once()
     assert isinstance(t._state, Connected)
 
@@ -1325,9 +1325,9 @@ async def test_resolve_target_raises_when_no_device_with_name(
         "smpclient.transport.bumble.scan_for_devices",
         AsyncMock(return_value=()),
     )
-    t = SMPBumbleTransport("UnknownName", connect_timeout_s=0.1)
+    t = SMPBumbleTransport(connect_timeout_s=0.1)
     with pytest.raises(SMPBumbleTransportDeviceNotFound):
-        await t.connect()
+        await t.connect("UnknownName")
 
 
 # Suppress unused-imports warnings for symbols re-exported for downstream code.

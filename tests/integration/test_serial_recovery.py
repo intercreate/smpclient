@@ -99,14 +99,14 @@ def _fixture(variant: _Recovery) -> tuple[str, str]:
             assert_never(unreachable)
 
 
-def _build_transport(variant: _Recovery, url: str) -> _SocketTransport:
+def _build_transport(variant: _Recovery) -> _SocketTransport:
     match variant:
         case Console(strategy=strategy):
-            return SMPSerialTransport(url, fragmentation_strategy=strategy)
+            return SMPSerialTransport(strategy)
         case Raw():
-            return SMPSerialRawTransport(url)
+            return SMPSerialRawTransport()
         case RawCobs():
-            return SMPSerialRawTransport(url, framing=Cobs())
+            return SMPSerialRawTransport(framing=Cobs())
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -168,7 +168,7 @@ async def test_upload_to_mcuboot_recovery(variant: _Recovery, fixture: ServerFix
 
     async with connected(fixture) as cs:
         assert isinstance(cs.endpoint, SocketSerialEndpoint)
-        transport = _build_transport(variant, cs.endpoint.url)
+        transport = _build_transport(variant)
 
         async with reboot_into_recovery(cs, socket_link(transport, cs.endpoint.url)) as bootloader:
             # Re-negotiate in case the first read raced the bootloader coming up.

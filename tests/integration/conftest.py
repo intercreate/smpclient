@@ -81,9 +81,9 @@ def _link(
         case PtyEndpoint(pty):
             match fixture.transport:
                 case "serial" | "shell":
-                    return SMPSerialTransport(pty).connected()
+                    return SMPSerialTransport().connected(pty)
                 case "serial_raw":
-                    return SMPSerialRawTransport(pty).connected()
+                    return SMPSerialRawTransport().connected(pty)
                 case "udp":
                     pytest.fail("UDP fixtures do not present as a PTY serial endpoint")
                 case _ as unreachable:
@@ -91,15 +91,15 @@ def _link(
         case SocketSerialEndpoint(url):
             match fixture.transport:
                 case "serial" | "shell":
-                    return socket_link(SMPSerialTransport(url), url)
+                    return socket_link(SMPSerialTransport(), url)
                 case "serial_raw":
-                    return socket_link(SMPSerialRawTransport(url), url)
+                    return socket_link(SMPSerialRawTransport(), url)
                 case "udp":
                     pytest.fail("UDP fixtures do not present as a socket serial endpoint")
                 case _ as unreachable:
                     assert_never(unreachable)
         case UdpEndpoint(host, port):
-            return SMPUDPTransport(host, port).connected()
+            return SMPUDPTransport().connected(host, port)
         case _:
             assert_never(endpoint)
 

@@ -119,7 +119,6 @@ class SMPBLETransport(_GATTTransport):
 
     def __init__(
         self,
-        address: str,
         *,
         winrt: WinRTClientArgs = {},
         bluez: BlueZClientArgs = {},
@@ -127,10 +126,9 @@ class SMPBLETransport(_GATTTransport):
         connect_timeout_s: float = 2.5,
         sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
     ) -> None:
-        """Initialize the BLE transport; `connect()` scans for and connects to `address`.
+        """Initialize the BLE transport.
 
         Args:
-            address: The device's MAC address, macOS UUID, or advertised name.
             winrt: WinRT backend arguments, e.g. `use_cached_services`.
             bluez: BlueZ backend arguments, e.g. the `adapter` to scan and connect with.
             fragmentation_strategy: How to size SMP messages: `Auto`, `Unfragmented`, or
@@ -139,7 +137,6 @@ class SMPBLETransport(_GATTTransport):
                 MCUmgr parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
-        self._address: Final = address
         super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
         self._buffer: Final = bytearray()
         self._notify_condition: Final = asyncio.Condition()
@@ -154,17 +151,28 @@ class SMPBLETransport(_GATTTransport):
 
         logger.debug(f"Initialized {self.__class__.__name__}")
 
-    @override
-    async def connect(self) -> None:
+    async def connect(self, address: str) -> None:
+        """Scan for and connect to `address`, then `negotiate()`; prefer `connected()`.
+
+        Args:
+            address: The device's MAC address, macOS UUID, or advertised name.
+        """  # noqa: DOC501, DOC503
         try:
             await asyncio.wait_for(
-                self._connect(self._address, self._connect_timeout_s),
+                self._connect(address, self._connect_timeout_s),
                 timeout=self._connect_timeout_s,
             )
             await self.negotiate()
         except (Exception, asyncio.CancelledError):
             await self._best_effort_disconnect()
             raise
+
+    @asynccontextmanager
+    async def connected(self, address: str) -> AsyncIterator[Self]:
+        """Connect to `address` for the duration of the `async with`, then disconnect."""
+        await self.connect(address)
+        async with self._released_on_exit():
+            yield self
 
     async def _connect(self, address: str, timeout_s: float) -> None:
         logger.debug(f"Scanning for {address=}")
@@ -199,7 +207,7 @@ class SMPBLETransport(_GATTTransport):
         await self._start_smp()
 
     async def borrow(self, client: BleakClient) -> None:
-        """Adopt the caller's connected `client`, then `negotiate()`; `disconnect()` leaves it up."""
+        """Adopt the caller's connected `client`, then `negotiate()`; prefer `borrowed()`."""
         self._link = _Borrowed(client)
         try:
             await self._start_smp()
@@ -212,10 +220,8 @@ class SMPBLETransport(_GATTTransport):
     async def borrowed(self, client: BleakClient) -> AsyncIterator[Self]:
         """Borrow the caller's connected `client` for the duration of the `async with`."""
         await self.borrow(client)
-        try:
+        async with self._released_on_exit():
             yield self
-        finally:
-            await self.disconnect()
 
     @property
     def _active_client(self) -> BleakClient:

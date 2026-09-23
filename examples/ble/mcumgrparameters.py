@@ -16,7 +16,7 @@ async def main() -> None:
     print(f"Found {len(smp_servers)} SMP servers: {smp_servers}")
 
     print("Connecting to the first SMP server...", end="", flush=True)
-    async with SMPBLETransport(smp_servers[0].address).connected() as transport:
+    async with SMPBLETransport().connected(smp_servers[0].address) as transport:
         client = SMPClient(transport)
         print("OK")
         print(f"Client MTU is {client._transport.mtu}B")

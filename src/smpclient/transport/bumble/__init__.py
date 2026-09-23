@@ -135,7 +135,6 @@ class SMPBumbleTransport(_GATTTransport):
 
     def __init__(
         self,
-        address: str,
         *,
         hci: str = DEFAULT_HCI_TRANSPORT,
         host_address: Address = DEFAULT_HOST_ADDRESS,
@@ -152,7 +151,6 @@ class SMPBumbleTransport(_GATTTransport):
         """Initialize the bumble transport.
 
         Args:
-            address: The peer's BD_ADDR, or an advertised name to scan for.
             hci: The bumble HCI transport spec, e.g. `"usb:0"` or
                 `"tcp-client:host:port"`.  See bumble's `open_transport()` for
                 the full list of supported schemes.
@@ -180,7 +178,6 @@ class SMPBumbleTransport(_GATTTransport):
             sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
         super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
-        self._address: Final = address
         self._hci: Final = hci
         self._host_address: Final = host_address
         self._host_name: Final = host_name
@@ -205,8 +202,15 @@ class SMPBumbleTransport(_GATTTransport):
 
         logger.debug(f"Initialized {self.__class__.__name__}(hci={hci!r})")
 
-    @override
-    async def connect(self) -> None:
+    async def connect(self, address: str) -> None:
+        """Connect to `address`, then `negotiate()`; prefer `connected()`.
+
+        Args:
+            address: The peer's BD_ADDR, or an advertised name to scan for.
+
+        Raises:
+            SMPBumbleTransportException: if the transport already has a link.
+        """  # noqa: DOC503
         if not isinstance(self._state, Disconnected):
             raise SMPBumbleTransportException(
                 f"connect() called while in state {type(self._state).__name__}"
@@ -241,9 +245,7 @@ class SMPBumbleTransport(_GATTTransport):
                 )
             await self._state.device.power_on()
 
-            target = await _resolve_target(
-                self._state.device, self._address, self._connect_timeout_s
-            )
+            target = await _resolve_target(self._state.device, address, self._connect_timeout_s)
             logger.info(f"Connecting to {target}")
             self._state.connection = await self._state.device.connect(Address(target))
             self._state.connection.on(Connection.EVENT_DISCONNECTION, self._on_disconnection)
@@ -364,7 +366,7 @@ class SMPBumbleTransport(_GATTTransport):
         *,
         peer: Peer | None = None,
     ) -> None:
-        """Adopt a caller-owned `Connection`, then `negotiate()`; `disconnect()` only unsubscribes."""
+        """Adopt a caller-owned `Connection`, then `negotiate()`; prefer `borrowed()`."""
         if not isinstance(self._state, Disconnected):
             raise SMPBumbleTransportException(
                 f"borrow() called while in state {type(self._state).__name__}"
@@ -403,11 +405,16 @@ class SMPBumbleTransport(_GATTTransport):
         peer: Peer | None = None,
     ) -> AsyncIterator[Self]:
         """Borrow the caller's `connection` for the duration of the `async with`."""
-        try:
-            await self.borrow(connection, peer=peer)
+        await self.borrow(connection, peer=peer)
+        async with self._released_on_exit():
             yield self
-        finally:
-            await self.disconnect()
+
+    @asynccontextmanager
+    async def connected(self, address: str) -> AsyncIterator[Self]:
+        """Connect to `address` for the duration of the `async with`, then disconnect."""
+        await self.connect(address)
+        async with self._released_on_exit():
+            yield self
 
     async def pair(
         self,

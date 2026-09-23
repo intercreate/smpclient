@@ -44,7 +44,6 @@ RawSerialFragmentationStrategy: TypeAlias = Auto | BufferSize
 class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]):
     def __init__(
         self,
-        port: str,
         fragmentation_strategy: RawSerialFragmentationStrategy = Auto(),
         *,
         framing: SerialFraming | None = None,
@@ -55,7 +54,6 @@ class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]
         """Initialize the raw serial transport.
 
         Args:
-            port: The serial port, e.g. `/dev/ttyACM0` or `COM3`.
             fragmentation_strategy: How to size one SMP message (header + payload): `Auto`
                 or `BufferSize`.  A serial link has no MTU of its own, but the SMP server's
                 receive buffer (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`) does.
@@ -66,7 +64,7 @@ class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]
             sequence: The SMP sequence space the MCUmgr parameters read draws from.
             options: The `pyserial` port settings.
         """
-        super().__init__(port, fragmentation_strategy, connect_timeout_s, sequence, options)
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence, options)
         self._framing: Final = framing
 
         logger.debug(f"Initialized {self.__class__.__name__}")

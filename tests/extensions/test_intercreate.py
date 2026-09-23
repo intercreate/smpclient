@@ -23,7 +23,7 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
     ) as f:
         image = f.read()
 
-    m = SMPSerialTransport("/dev/ttyACM0")
+    m = SMPSerialTransport()
     s = ICUploadClient(m)
     assert s._transport.mtu == 127
     assert s._transport.max_unencoded_size < 127

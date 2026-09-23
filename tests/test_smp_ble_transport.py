@@ -41,7 +41,7 @@ ADDRESS = "00:00:00:00:00:00"
 
 
 def test_constructor() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     assert t._buffer == bytearray()
     assert isinstance(t._notify_condition, asyncio.Condition)
 
@@ -94,19 +94,19 @@ async def test_connect(
     mock_find_device_by_address: MagicMock,
 ) -> None:
     # assert that it searches by name if MAC or UUID is not provided
-    await SMPBLETransport("device name", connect_timeout_s=1.0).connect()
+    await SMPBLETransport(connect_timeout_s=1.0).connect("device name")
     mock_find_device_by_name.assert_called_once_with("device name", timeout=1.0, bluez={})
     mock_find_device_by_name.reset_mock()
 
     # assert that it searches by MAC if MAC is provided
-    await SMPBLETransport("00:00:00:00:00:00", connect_timeout_s=1.0).connect()
+    await SMPBLETransport(connect_timeout_s=1.0).connect("00:00:00:00:00:00")
     mock_find_device_by_address.assert_called_once_with("00:00:00:00:00:00", timeout=1.0, bluez={})
     mock_find_device_by_address.reset_mock()
 
     # assert that it searches by UUID if UUID is provided
-    await SMPBLETransport(
-        UUID("00000000-0000-4000-8000-000000000000").hex, connect_timeout_s=1.0
-    ).connect()
+    await SMPBLETransport(connect_timeout_s=1.0).connect(
+        UUID("00000000-0000-4000-8000-000000000000").hex
+    )
     mock_find_device_by_address.assert_called_once_with(
         "00000000000040008000000000000000", timeout=1.0, bluez={}
     )
@@ -115,12 +115,12 @@ async def test_connect(
     # assert that it raises an exception if the device is not found
     mock_find_device_by_address.return_value = None
     with pytest.raises(SMPBLETransportDeviceNotFound):
-        await SMPBLETransport("00:00:00:00:00:00", connect_timeout_s=1.0).connect()
+        await SMPBLETransport(connect_timeout_s=1.0).connect("00:00:00:00:00:00")
     mock_find_device_by_address.reset_mock()
 
     # assert that connect is awaited
-    t = SMPBLETransport("name", connect_timeout_s=1.0)
-    await t.connect()
+    t = SMPBLETransport(connect_timeout_s=1.0)
+    await t.connect("name")
     _owned_client(t).connect.assert_awaited_once_with()
 
     # these are hard to mock now because the _client is created in the connect method
@@ -157,7 +157,7 @@ async def test_connect(
 async def test_connect_scans_and_connects_with_the_bluez_adapter(
     mock_bleak_client: MagicMock, mock_find_device_by_address: MagicMock
 ) -> None:
-    await SMPBLETransport(ADDRESS, bluez={"adapter": "hci1"}, connect_timeout_s=1.0).connect()
+    await SMPBLETransport(bluez={"adapter": "hci1"}, connect_timeout_s=1.0).connect(ADDRESS)
 
     mock_find_device_by_address.assert_called_once_with(
         ADDRESS, timeout=1.0, bluez={"adapter": "hci1"}
@@ -180,7 +180,7 @@ async def test_scan_uses_the_bluez_adapter(mock_bleak_scanner: MagicMock) -> Non
 @pytest.mark.asyncio
 async def test_disconnect() -> None:
     client: Final = MagicMock(spec=BleakClient)
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     t._link = _Owned(client)
 
     await t.disconnect()
@@ -214,7 +214,7 @@ def _borrowable_client(max_write: int = 244) -> MagicMock:
 @pytest.mark.asyncio
 async def test_borrowed_subscribes_and_leaves_the_client_connected() -> None:
     client: Final = _borrowable_client(max_write=244)
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
 
     async with t.borrowed(client) as borrowed:
         assert borrowed is t
@@ -231,7 +231,7 @@ async def test_borrowed_subscribes_and_leaves_the_client_connected() -> None:
 
 @pytest.mark.asyncio
 async def test_a_returned_borrow_raises_disconnected() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     async with t.borrowed(_borrowable_client()):
         pass
 
@@ -246,7 +246,7 @@ async def test_a_returned_borrow_raises_disconnected() -> None:
 async def test_borrowed_receive_raises_once_the_client_disconnects() -> None:
     """The owner holds the client's disconnect callback, so a borrowed wait polls instead."""
     client: Final = _borrowable_client()
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
 
     async with t.borrowed(client):
         client.is_connected = False
@@ -256,7 +256,7 @@ async def test_borrowed_receive_raises_once_the_client_disconnects() -> None:
 
 @pytest.mark.asyncio
 async def test_borrowed_receive_leaves_no_task_polling_when_cancelled() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
 
     async with t.borrowed(_borrowable_client()):
         tasks_before: Final = asyncio.all_tasks()
@@ -271,7 +271,7 @@ async def test_borrowed_receive_leaves_no_task_polling_when_cancelled() -> None:
 
 @pytest.mark.asyncio
 async def test_borrow_negotiates_the_fragmentation_strategy() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
 
     with advertise(2048) as read_mcumgr_parameters:
         await t.borrow(_borrowable_client())
@@ -283,7 +283,7 @@ async def test_borrow_negotiates_the_fragmentation_strategy() -> None:
 @pytest.mark.asyncio
 async def test_borrow_returns_the_client_when_negotiation_fails() -> None:
     client: Final = _borrowable_client()
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
 
     with (
         patch(
@@ -309,7 +309,7 @@ async def _never_returns(*_args: object) -> None:
 async def test_returning_a_borrowed_client_survives_its_unsubscribe(stop_notify: object) -> None:
     client: Final = _borrowable_client()
     client.stop_notify.side_effect = stop_notify
-    t = SMPBLETransport(ADDRESS, connect_timeout_s=0.1)
+    t = SMPBLETransport(connect_timeout_s=0.1)
 
     async with t.borrowed(client):
         pass
@@ -320,7 +320,7 @@ async def test_returning_a_borrowed_client_survives_its_unsubscribe(stop_notify:
 @pytest.mark.asyncio
 async def test_send() -> None:
     client: Final = MagicMock(spec=BleakClient)
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     t._link = _Owned(client)
     t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
     t._smp_characteristic.max_write_without_response_size = 20
@@ -332,7 +332,7 @@ async def test_send() -> None:
 
 @pytest.mark.asyncio
 async def test_receive() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     t._link = _Owned(MagicMock(spec=BleakClient))
     t._smp_characteristic = MagicMock(spec=BleakGATTCharacteristic)
     t._smp_characteristic.uuid = str(SMP_CHARACTERISTIC_UUID)
@@ -363,7 +363,7 @@ async def test_receive() -> None:
 
 @pytest.mark.asyncio
 async def test_send_and_receive() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     t.send = AsyncMock()  # type: ignore
     t.receive = AsyncMock()  # type: ignore
     await t.send_and_receive(b"Hello pytest!")
@@ -372,14 +372,14 @@ async def test_send_and_receive() -> None:
 
 
 def test_max_unencoded_size() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     t._max_write_without_response_size = 42
     assert t.max_unencoded_size == 42
 
 
 @pytest.mark.asyncio
 async def test_max_unencoded_size_mcumgr_param() -> None:
-    t = SMPBLETransport(ADDRESS)
+    t = SMPBLETransport()
     t._max_write_without_response_size = 42
     assert (await negotiated(t, 9001)).max_unencoded_size == 9001
 
@@ -388,14 +388,14 @@ async def test_max_unencoded_size_mcumgr_param() -> None:
 @pytest.mark.parametrize("buf_size, expected", [(9001, 42), (30, 30)])
 async def test_unfragmented_caps_at_the_write_size(buf_size: int, expected: int) -> None:
     """One message per write: never more than one write, nor more than the server holds."""
-    t = SMPBLETransport(ADDRESS, fragmentation_strategy=Unfragmented())
+    t = SMPBLETransport(fragmentation_strategy=Unfragmented())
     t._max_write_without_response_size = 42
     assert (await negotiated(t, buf_size)).max_unencoded_size == expected
 
 
 @pytest.mark.asyncio
 async def test_buffer_size_never_reads() -> None:
-    t = SMPBLETransport(ADDRESS, fragmentation_strategy=BufferSize(512))
+    t = SMPBLETransport(fragmentation_strategy=BufferSize(512))
     with advertise(9001) as read:
         await t.negotiate()
     read.assert_not_awaited()
@@ -440,7 +440,7 @@ async def test_connect_raises_on_peer_disconnect_during_start_notify(
     When the peer disconnects mid-`start_notify` (e.g. failed pairing), `connect()`
     must surface `SMPTransportDisconnected` rather than hang.
     """
-    t = SMPBLETransport("00:00:00:00:00:00", connect_timeout_s=5.0)
+    t = SMPBLETransport(connect_timeout_s=5.0)
 
     async def _trip_disconnect_callback() -> MagicMock:
         # Wait until the transport reaches start_notify and clears the event,
@@ -452,7 +452,7 @@ async def test_connect_raises_on_peer_disconnect_during_start_notify(
         t._set_disconnected_event(client)
         return client
 
-    connect_task = asyncio.create_task(t.connect())
+    connect_task = asyncio.create_task(t.connect(ADDRESS))
     trip_task = asyncio.create_task(_trip_disconnect_callback())
 
     with pytest.raises(SMPTransportDisconnected):
@@ -473,9 +473,9 @@ async def test_connect_raises_on_timeout_during_start_notify(
     _mock_find_device_by_address: MagicMock,
 ) -> None:
     """`connect()` must honor `connect_timeout_s` even when `start_notify` hangs."""
-    t = SMPBLETransport("00:00:00:00:00:00", connect_timeout_s=0.05)
+    t = SMPBLETransport(connect_timeout_s=0.05)
     with pytest.raises(asyncio.TimeoutError):
-        await t.connect()
+        await t.connect(ADDRESS)
     mock_bleak_client.return_value.disconnect.assert_awaited()
 
 
@@ -489,10 +489,10 @@ async def test_connect_does_not_leak_tasks_on_external_cancel(
     _mock_find_device_by_address: MagicMock,
 ) -> None:
     """Caller-driven cancellation must not leave `_await_or_disconnect` sub-tasks running."""
-    t = SMPBLETransport("00:00:00:00:00:00", connect_timeout_s=60.0)
+    t = SMPBLETransport(connect_timeout_s=60.0)
     tasks_before = {id(task) for task in asyncio.all_tasks()}
 
-    connect_task = asyncio.create_task(t.connect())
+    connect_task = asyncio.create_task(t.connect(ADDRESS))
     while t._disconnected_event.is_set():
         await asyncio.sleep(0)  # wait until BleakClient.connect() returned
     await asyncio.sleep(0)  # let start_notify await begin

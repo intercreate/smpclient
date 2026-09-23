@@ -32,26 +32,26 @@ def mock_serial() -> Generator[None, Any, None]:
 
 
 def test_constructor() -> None:
-    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(512))
+    t = SMPSerialRawTransport(fragmentation_strategy=BufferSize(512))
     assert t.mtu == 512
     assert t.max_unencoded_size == 512
 
 
 def test_constructor_defaults() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     assert t.mtu == 384
 
 
 @pytest.mark.asyncio
 async def test_negotiate_with_auto() -> None:
     """`Auto` adopts the server's buffer: the whole message rides in it, with no framing."""
-    t = await negotiated(SMPSerialRawTransport(PORT), 1024)
+    t = await negotiated(SMPSerialRawTransport(), 1024)
     assert t.mtu == t.max_unencoded_size == 1024
 
 
 @pytest.mark.asyncio
 async def test_negotiate_never_reads_for_buffer_size() -> None:
-    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(512))
+    t = SMPSerialRawTransport(fragmentation_strategy=BufferSize(512))
     with advertise(1024) as read:
         await t.negotiate()
     read.assert_not_awaited()
@@ -63,10 +63,10 @@ async def test_connect_disconnect() -> None:
     ports: list[str] = ["COM2", "/dev/ttyACM0", "/dev/ttyUSB0"]
 
     for p in ports:
-        t = SMPSerialRawTransport(p, connect_timeout_s=1.0)
+        t = SMPSerialRawTransport(connect_timeout_s=1.0)
         t._conn.read_all = MagicMock(return_value=b"")  # type: ignore
 
-        await asyncio.wait_for(t.connect(), timeout=1.0)
+        await asyncio.wait_for(t.connect(p), timeout=1.0)
         t._conn.open.assert_called_once()  # type: ignore
 
         assert t._conn.port == p
@@ -79,21 +79,21 @@ async def test_connect_disconnect() -> None:
 
 @pytest.mark.asyncio
 async def test_connect_retries_until_timeout() -> None:
-    t = SMPSerialRawTransport(PORT, connect_timeout_s=0.1)
+    t = SMPSerialRawTransport(connect_timeout_s=0.1)
     t._conn.open = MagicMock(side_effect=SerialException("nope"))  # type: ignore
 
     with pytest.raises(TimeoutError):
-        await asyncio.wait_for(t.connect(), timeout=2.0)
+        await asyncio.wait_for(t.connect(PORT), timeout=2.0)
 
 
 @pytest.mark.asyncio
 async def test_connect_closes_the_port_when_the_flush_fails() -> None:
     """The flush is outside the retry, which would reopen the open port until the timeout."""
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     t._conn.reset_input_buffer = MagicMock(side_effect=SerialException("flush"))  # type: ignore
 
     with pytest.raises(SerialException):
-        await t.connect()
+        await t.connect(PORT)
 
     t._conn.open.assert_called_once()  # type: ignore
     t._conn.close.assert_called_once()  # type: ignore
@@ -101,7 +101,7 @@ async def test_connect_closes_the_port_when_the_flush_fails() -> None:
 
 @pytest.mark.asyncio
 async def test_connect_closes_the_port_when_cancelled_while_negotiating() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
 
     with (
         patch(
@@ -110,7 +110,7 @@ async def test_connect_closes_the_port_when_cancelled_while_negotiating() -> Non
         ),
         pytest.raises(asyncio.CancelledError),
     ):
-        await t.connect()
+        await t.connect(PORT)
 
     t._conn.close.assert_called_once()  # type: ignore
 
@@ -118,7 +118,7 @@ async def test_connect_closes_the_port_when_cancelled_while_negotiating() -> Non
 @pytest.mark.asyncio
 async def test_borrowed_uses_the_port_and_leaves_it_open() -> None:
     port: Final = MagicMock(out_waiting=0)
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     r = EchoWriteRequest(d="Hello pytest!").to_frame(sequence=0)
 
     async with t.borrowed(port) as borrowed:
@@ -134,7 +134,7 @@ async def test_borrowed_uses_the_port_and_leaves_it_open() -> None:
 
 @pytest.mark.asyncio
 async def test_borrow_negotiates_the_fragmentation_strategy() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
 
     with advertise(2048) as read_mcumgr_parameters:
         await t.borrow(MagicMock())
@@ -145,7 +145,7 @@ async def test_borrow_negotiates_the_fragmentation_strategy() -> None:
 
 @pytest.mark.asyncio
 async def test_borrow_reverts_to_the_owned_port_when_negotiation_fails() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
 
     with (
         patch(
@@ -161,7 +161,7 @@ async def test_borrow_reverts_to_the_owned_port_when_negotiation_fails() -> None
 
 @pytest.mark.asyncio
 async def test_send() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     t._conn.write = MagicMock()  # type: ignore
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
@@ -176,7 +176,7 @@ async def test_send() -> None:
 
 @pytest.mark.asyncio
 async def test_send_waits_for_tx_drain() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     t._conn.write = MagicMock()  # type: ignore
     p = PropertyMock(side_effect=(1, 0))
     type(t._conn).out_waiting = p  # type: ignore
@@ -187,14 +187,14 @@ async def test_send_waits_for_tx_drain() -> None:
 
 @pytest.mark.asyncio
 async def test_send_too_large_raises() -> None:
-    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(16))
+    t = SMPSerialRawTransport(fragmentation_strategy=BufferSize(16))
     with pytest.raises(ValueError):
         await t.send(b"\x00" * 32)
 
 
 @pytest.mark.asyncio
 async def test_send_disconnected_raises() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     t._conn.write = MagicMock(side_effect=SerialException("disconnected"))  # type: ignore
 
     with pytest.raises(SMPTransportDisconnected):
@@ -203,8 +203,8 @@ async def test_send_disconnected_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_single_packet() -> None:
-    t = SMPSerialRawTransport(PORT)
-    await t.connect()
+    t = SMPSerialRawTransport()
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
     t._conn.read_all = MagicMock(side_effect=[bytes(m)])  # type: ignore
@@ -217,8 +217,8 @@ async def test_receive_single_packet() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_fragmented() -> None:
-    t = SMPSerialRawTransport(PORT)
-    await t.connect()
+    t = SMPSerialRawTransport()
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
     fragments = [
@@ -237,8 +237,8 @@ async def test_receive_fragmented() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_byte_at_a_time() -> None:
-    t = SMPSerialRawTransport(PORT)
-    await t.connect()
+    t = SMPSerialRawTransport()
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="Hi").to_frame(sequence=0)
     t._conn.read_all = MagicMock(  # type: ignore
@@ -253,8 +253,8 @@ async def test_receive_byte_at_a_time() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_consecutive_messages() -> None:
-    t = SMPSerialRawTransport(PORT)
-    await t.connect()
+    t = SMPSerialRawTransport()
+    await t.connect(PORT)
 
     m1 = EchoWriteResponse(r="SMP Message 1").to_frame(sequence=0)
     m2 = EchoWriteResponse(r="SMP Message 2").to_frame(sequence=1)
@@ -276,8 +276,8 @@ async def test_receive_overrun_raises() -> None:
 
     SMP is strictly request/response; the server should never send unsolicited bytes.
     """
-    t = SMPSerialRawTransport(PORT)
-    await t.connect()
+    t = SMPSerialRawTransport()
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="Hello!").to_frame(sequence=0)
     t._conn.read_all = MagicMock(side_effect=[bytes(m) + b"\x00\x01\x02"])  # type: ignore
@@ -290,8 +290,8 @@ async def test_receive_overrun_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_polls_when_nothing_available() -> None:
-    t = SMPSerialRawTransport(PORT)
-    await t.connect()
+    t = SMPSerialRawTransport()
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="ok").to_frame(sequence=0)
     t._conn.read_all = MagicMock(side_effect=[b"", b"", bytes(m)])  # type: ignore
@@ -310,8 +310,8 @@ async def test_receive_oversized_header_raises() -> None:
     Defensive bound against noisy or corrupted UART traffic that would
     otherwise cause an unbounded wait.
     """
-    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(64))
-    await t.connect()
+    t = SMPSerialRawTransport(fragmentation_strategy=BufferSize(64))
+    await t.connect(PORT)
 
     bogus_header = smphdr.Header(
         op=smphdr.OP.WRITE_RSP,
@@ -332,7 +332,7 @@ async def test_receive_oversized_header_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_disconnected_raises() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     t._conn.read_all = MagicMock(side_effect=SerialException("disconnected"))  # type: ignore
 
     with pytest.raises(SMPTransportDisconnected):
@@ -341,7 +341,7 @@ async def test_receive_disconnected_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_send_and_receive() -> None:
-    t = SMPSerialRawTransport(PORT)
+    t = SMPSerialRawTransport()
     t.send = AsyncMock()  # type: ignore
     t.receive = AsyncMock()  # type: ignore
 
@@ -353,7 +353,7 @@ async def test_send_and_receive() -> None:
 
 @pytest.mark.asyncio
 async def test_send_with_cobs_framing_encodes() -> None:
-    t = SMPSerialRawTransport(PORT, framing=Cobs())
+    t = SMPSerialRawTransport(framing=Cobs())
     t._conn.write = MagicMock()  # type: ignore
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
@@ -367,8 +367,8 @@ async def test_send_with_cobs_framing_encodes() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_with_cobs_framing_decodes() -> None:
-    t = SMPSerialRawTransport(PORT, framing=Cobs())
-    await t.connect()
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
     (wire,) = Cobs().encode(bytes(m))
@@ -381,8 +381,8 @@ async def test_receive_with_cobs_framing_decodes() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_with_cobs_framing_fragmented() -> None:
-    t = SMPSerialRawTransport(PORT, framing=Cobs())
-    await t.connect()
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="fragment me across reads").to_frame(sequence=0)
     (wire,) = Cobs().encode(bytes(m))
@@ -399,8 +399,8 @@ async def test_receive_two_cobs_frames_in_one_read() -> None:
 
     The next receive returns it without consulting read_all again.
     """
-    t = SMPSerialRawTransport(PORT, framing=Cobs())
-    await t.connect()
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect(PORT)
 
     m1 = EchoWriteResponse(r="first").to_frame(sequence=0)
     m2 = EchoWriteResponse(r="second").to_frame(sequence=1)
@@ -422,8 +422,8 @@ async def test_receive_cobs_framing_resyncs_past_corrupt_frame() -> None:
     The two frames carry *different* payloads, so a decoder that wrongly accepted the
     corrupt frame would surface `dropped`, not `recovered`.
     """
-    t = SMPSerialRawTransport(PORT, framing=Cobs())
-    await t.connect()
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect(PORT)
 
     dropped = EchoWriteResponse(r="dropped").to_frame(sequence=0)
     recovered = EchoWriteResponse(r="recovered").to_frame(sequence=1)
@@ -446,8 +446,8 @@ async def test_receive_framed_yields_so_an_outer_timeout_can_fire() -> None:
     `_read_all` is synchronous, so the loop must yield each iteration; otherwise an outer
     `asyncio.timeout` could never fire on a wrong-baud / wrong-protocol / noisy peer.
     """
-    t = SMPSerialRawTransport(PORT, framing=Cobs())
-    await t.connect()
+    t = SMPSerialRawTransport(framing=Cobs())
+    await t.connect(PORT)
 
     m = EchoWriteResponse(r="never valid").to_frame(sequence=0)
     corrupt = cobs_encode(bytes(m) + CRC16_STRUCT.pack(crc16_func(bytes(m)) ^ 0xFFFF)) + b"\x00"

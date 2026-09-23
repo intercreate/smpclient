@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager
 from socket import AF_INET6
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 from smp import header as smphdr
-from typing_extensions import assert_never, override
+from typing_extensions import Self, assert_never, override
 
 from smpclient import _request
 from smpclient.exceptions import SMPClientException
@@ -54,10 +55,8 @@ each request as a single datagram into a single buffer.
 class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
     def __init__(
         self,
-        address: str,
-        port: int = 1337,
-        *,
         mtu: int = 1500,
+        *,
         fragmentation_strategy: UDPFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
         sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
@@ -65,8 +64,6 @@ class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
         """Initialize the SMP UDP transport.
 
         Args:
-            address: The server's IPv4 or IPv6 address, or a host name.
-            port: The server's SMP UDP port.
             mtu: The Maximum Transmission Unit (MTU) of the link layer in bytes.
                 IP and UDP header overhead will be subtracted to calculate the maximum
                 UDP payload size (MSS) to avoid fragmentation per RFC 8085 section 3.2.
@@ -76,31 +73,35 @@ class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
             sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
         super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
-        self._address: Final = address
-        self._port: Final = port
         self._mtu: Final = mtu
         self._is_ipv6 = False
 
         self._client: Final = UDPClient()
 
-    @override
-    async def connect(self) -> None:
-        logger.debug(f"Connecting to {self._address=} {self._port=}")
+    async def connect(self, address: str, port: int = 1337) -> None:
+        """Connect to `address`:`port`, then `negotiate()`; prefer `connected()`."""
+        logger.debug(f"Connecting to {address=} {port=}")
         await asyncio.wait_for(
-            self._client.connect(Addr(host=self._address, port=self._port)),
-            self._connect_timeout_s,
+            self._client.connect(Addr(host=address, port=port)), self._connect_timeout_s
         )
 
         if sock := self._client._transport.get_extra_info('socket'):
             self._is_ipv6 = sock.family == AF_INET6
             logger.debug(f"Detected {'IPv6' if self._is_ipv6 else 'IPv4'} connection")
 
-        logger.info(f"Connected to {self._address=} {self._port=}")
+        logger.info(f"Connected to {address=} {port=}")
         try:
             await self.negotiate()
         except (Exception, asyncio.CancelledError):
             await self.disconnect()
             raise
+
+    @asynccontextmanager
+    async def connected(self, address: str, port: int = 1337) -> AsyncIterator[Self]:
+        """Connect to `address`:`port` for the duration of the `async with`, then disconnect."""
+        await self.connect(address, port)
+        async with self._released_on_exit():
+            yield self
 
     @override
     async def disconnect(self) -> None:

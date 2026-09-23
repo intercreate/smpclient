@@ -124,10 +124,9 @@ async def test_non_default_line_length(fixture: ServerFixture) -> None:
     """
     async with serve(fixture) as endpoint:
         assert isinstance(endpoint, PtyEndpoint)
-        transport = SMPSerialTransport(
-            endpoint.pty, fragmentation_strategy=BufferParams(line_length=512, line_buffers=1)
-        )
-        async with transport.connected():
+        async with SMPSerialTransport(BufferParams(line_length=512, line_buffers=1)).connected(
+            endpoint.pty
+        ) as transport:
             client = SMPClient(transport)
             await _wait_until_answering(client)
             assert transport._line_length == 512

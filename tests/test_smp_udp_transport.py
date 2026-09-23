@@ -16,48 +16,48 @@ from tests.support import advertise, negotiated
 pytestmark = pytest.mark.usefixtures("skip_negotiation")
 
 ADDRESS = "192.168.0.1"
-"""An address; the UDP client is mocked or never connected."""
+"""An address; the UDP client is mocked."""
 
 
 def test_init() -> None:
-    t = SMPUDPTransport(ADDRESS)
+    t = SMPUDPTransport()
     assert t.mtu == 1500
     assert isinstance(t._client, UDPClient)
 
-    t = SMPUDPTransport(ADDRESS, mtu=512)
+    t = SMPUDPTransport(mtu=512)
     assert t.mtu == 512
 
 
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_connect(_: MagicMock) -> None:
-    t = SMPUDPTransport("192.168.0.1", connect_timeout_s=0.001)
+    t = SMPUDPTransport(connect_timeout_s=0.001)
     t._client = cast(MagicMock, t._client)  # type: ignore
 
     # Mock _transport for IPv4/IPv6 detection
     t._client._transport = MagicMock()
     t._client._transport.get_extra_info.return_value = None
 
-    await t.connect()
-    t._client.connect.assert_awaited_once_with(Addr(host="192.168.0.1", port=1337))
+    await t.connect(ADDRESS)
+    t._client.connect.assert_awaited_once_with(Addr(host=ADDRESS, port=1337))
 
 
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_connect_port(_: MagicMock) -> None:
-    t = SMPUDPTransport("192.168.0.1", 1338)
+    t = SMPUDPTransport()
     t._client = cast(MagicMock, t._client)  # type: ignore
     t._client._transport = MagicMock()
     t._client._transport.get_extra_info.return_value = None
 
-    await t.connect()
-    t._client.connect.assert_awaited_once_with(Addr(host="192.168.0.1", port=1338))
+    await t.connect(ADDRESS, 1338)
+    t._client.connect.assert_awaited_once_with(Addr(host=ADDRESS, port=1338))
 
 
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_disconnect(_: MagicMock) -> None:
-    t = SMPUDPTransport(ADDRESS)
+    t = SMPUDPTransport()
     t._client = cast(MagicMock, t._client)  # type: ignore
     t._client._protocol = MagicMock()
 
@@ -78,7 +78,7 @@ async def test_disconnect(_: MagicMock) -> None:
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_send(_: MagicMock) -> None:
-    t = SMPUDPTransport(ADDRESS)
+    t = SMPUDPTransport()
     t._client.send = cast(MagicMock, t._client.send)  # type: ignore
 
     await t.send(b"hello")
@@ -98,7 +98,7 @@ async def test_send(_: MagicMock) -> None:
 @patch("smpclient.transport.udp.UDPClient", autospec=True)
 @pytest.mark.asyncio
 async def test_receive(_: MagicMock) -> None:
-    t = SMPUDPTransport(ADDRESS)
+    t = SMPUDPTransport()
     t._client.receive = AsyncMock()  # type: ignore
 
     message = bytes(EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0))  # type: ignore # noqa
@@ -129,7 +129,7 @@ async def test_send_and_receive() -> None:
         patch("smpclient.transport.udp.SMPUDPTransport.send") as send_mock,
         patch("smpclient.transport.udp.SMPUDPTransport.receive") as receive_mock,
     ):
-        t = SMPUDPTransport(ADDRESS)
+        t = SMPUDPTransport()
         message: Final = b"hello"
         await t.send_and_receive(message)
         send_mock.assert_awaited_once_with(message)
@@ -138,7 +138,7 @@ async def test_send_and_receive() -> None:
 
 def test_max_unencoded_size_ipv4() -> None:
     """Test MSS calculation for IPv4 (default)."""
-    t = SMPUDPTransport(ADDRESS, mtu=1500)
+    t = SMPUDPTransport(mtu=1500)
     # Before connection, defaults to IPv4
     assert t.max_unencoded_size == 1500 - IPV4_UDP_OVERHEAD
     assert t.max_unencoded_size == 1472
@@ -146,7 +146,7 @@ def test_max_unencoded_size_ipv4() -> None:
 
 def test_max_unencoded_size_custom_mtu() -> None:
     """Test MSS calculation with custom MTU."""
-    t = SMPUDPTransport(ADDRESS, mtu=512)
+    t = SMPUDPTransport(mtu=512)
     assert t.max_unencoded_size == 512 - IPV4_UDP_OVERHEAD
     assert t.max_unencoded_size == 484
 
@@ -158,7 +158,7 @@ def test_max_unencoded_size_custom_mtu() -> None:
 @pytest.mark.asyncio
 async def test_max_unencoded_size_capped_by_server_buffer(buf_size: int, expected: int) -> None:
     """Zephyr copies each datagram into one `buf_size` buffer, so neither bound may be exceeded."""
-    t = await negotiated(SMPUDPTransport(ADDRESS, mtu=1500), buf_size)
+    t = await negotiated(SMPUDPTransport(mtu=1500), buf_size)
     assert t.max_unencoded_size == expected
 
 
@@ -167,7 +167,7 @@ async def test_max_unencoded_size_capped_by_server_buffer(buf_size: int, expecte
 async def test_buffer_size_is_capped_by_the_mss_and_never_reads(
     buf_size: int, expected: int
 ) -> None:
-    t = SMPUDPTransport(ADDRESS, mtu=1500, fragmentation_strategy=BufferSize(buf_size))
+    t = SMPUDPTransport(mtu=1500, fragmentation_strategy=BufferSize(buf_size))
     with advertise(4096) as read:
         await t.negotiate()
     read.assert_not_awaited()
@@ -177,10 +177,10 @@ async def test_buffer_size_is_capped_by_the_mss_and_never_reads(
 @pytest.mark.asyncio
 async def test_ipv4_detection_real_socket() -> None:
     """Test IPv4 auto-detection with real socket connection."""
-    t = SMPUDPTransport("127.0.0.1", mtu=1500, connect_timeout_s=1.0)
+    t = SMPUDPTransport(mtu=1500, connect_timeout_s=1.0)
 
     # Create a real UDP connection to localhost IPv4
-    await t.connect()
+    await t.connect("127.0.0.1")
 
     assert t._is_ipv6 is False
     assert t.max_unencoded_size == 1500 - IPV4_UDP_OVERHEAD
@@ -192,10 +192,10 @@ async def test_ipv4_detection_real_socket() -> None:
 @pytest.mark.asyncio
 async def test_ipv6_detection_real_socket() -> None:
     """Test IPv6 auto-detection with real socket connection."""
-    t = SMPUDPTransport("::1", mtu=1500, connect_timeout_s=1.0)
+    t = SMPUDPTransport(mtu=1500, connect_timeout_s=1.0)
 
     # Create a real UDP connection to localhost IPv6
-    await t.connect()
+    await t.connect("::1")
 
     assert t._is_ipv6 is True
     assert t.max_unencoded_size == 1500 - IPV6_UDP_OVERHEAD

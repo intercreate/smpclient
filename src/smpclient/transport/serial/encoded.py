@@ -150,7 +150,6 @@ class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
 
     def __init__(
         self,
-        port: str,
         fragmentation_strategy: SerialFragmentationStrategy = Auto(),
         *,
         connect_timeout_s: float = 2.5,
@@ -160,7 +159,6 @@ class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
         """Initialize the serial transport.
 
         Args:
-            port: The serial port, e.g. `/dev/ttyACM0` or `COM3`.
             fragmentation_strategy: how to size SMP messages.
             connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
                 parameters.
@@ -169,7 +167,7 @@ class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
 
         """
         self._validate_strategy(fragmentation_strategy)
-        super().__init__(port, fragmentation_strategy, connect_timeout_s, sequence, options)
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence, options)
 
         self._smp_packet_queue: asyncio.Queue[bytes] = asyncio.Queue()
         """Contains full SMP packets."""

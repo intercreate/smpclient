@@ -106,12 +106,8 @@ async def main() -> None:
 
     print("Connecting to SMP DUT...", end="", flush=True)
     async with SMPSerialTransport(
-        port_a.device,
-        fragmentation_strategy=BufferParams(
-            line_length=line_length,
-            line_buffers=line_buffers,
-        ),
-    ).connected() as transport:
+        BufferParams(line_length=line_length, line_buffers=line_buffers)
+    ).connected(port_a.device) as transport:
         client = SMPClient(transport)
         print("OK")
 
@@ -185,12 +181,8 @@ async def main() -> None:
 
     print("Connecting to B SMP DUT...", end="", flush=True)
     async with SMPSerialTransport(
-        port_b.device,
-        fragmentation_strategy=BufferParams(
-            line_length=line_length,
-            line_buffers=line_buffers,
-        ),
-    ).connected() as transport:
+        BufferParams(line_length=line_length, line_buffers=line_buffers)
+    ).connected(port_b.device) as transport:
         client = SMPClient(transport)
         print("OK")
 

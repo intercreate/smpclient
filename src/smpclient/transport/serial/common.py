@@ -113,7 +113,6 @@ class _SerialTransportBase(_ConnectableTransport[_TStrategy]):
 
     def __init__(
         self,
-        port: str,
         fragmentation_strategy: _TStrategy,
         connect_timeout_s: float,
         sequence: Callable[[], Iterator[u8]],
@@ -121,7 +120,6 @@ class _SerialTransportBase(_ConnectableTransport[_TStrategy]):
     ) -> None:
         """Hold a closed `Serial` with the `options` until `connect()` opens it."""
         super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
-        self._port: Final = port
         self._serial: Final = Serial(**options._asdict())
         self._link: _Link = _Owned()
 
@@ -138,17 +136,17 @@ class _SerialTransportBase(_ConnectableTransport[_TStrategy]):
     def _reset_state(self) -> None:
         """Reset any per-connection state. Subclasses override as needed."""
 
-    @override
-    async def connect(self) -> None:
+    async def connect(self, port: str) -> None:
+        """Open `port`, then `negotiate()`; prefer `connected()`."""
         try:
-            await self._open()
+            await self._open(port)
             await self.negotiate()
         except (Exception, asyncio.CancelledError):
             self._serial.close()
             raise
 
     async def borrow(self, port: SerialPort) -> None:
-        """Adopt the caller's open `port`, then `negotiate()`; `disconnect()` leaves it open."""
+        """Adopt the caller's open `port`, then `negotiate()`; prefer `borrowed()`."""
         self._reset_state()
         self._link = _Borrowed(port)
         try:
@@ -158,18 +156,23 @@ class _SerialTransportBase(_ConnectableTransport[_TStrategy]):
             raise
 
     @asynccontextmanager
+    async def connected(self, port: str) -> AsyncIterator[Self]:
+        """Open `port` for the duration of the `async with`, then close it."""
+        await self.connect(port)
+        async with self._released_on_exit():
+            yield self
+
+    @asynccontextmanager
     async def borrowed(self, port: SerialPort) -> AsyncIterator[Self]:
         """Borrow the caller's open `port` for the duration of the `async with`."""
         await self.borrow(port)
-        try:
+        async with self._released_on_exit():
             yield self
-        finally:
-            await self.disconnect()
 
-    async def _open(self) -> None:
-        """Open the port off the event loop, retrying until `connect_timeout_s`."""
+    async def _open(self, port: str) -> None:
+        """Open `port` off the event loop, retrying until `connect_timeout_s`."""
         self._reset_state()
-        self._serial.port = self._port
+        self._serial.port = port
         logger.debug(f"Connecting to {self._serial.port=}")
         start_time: Final = monotonic()
         while monotonic() - start_time <= self._connect_timeout_s:
@@ -186,7 +189,7 @@ class _SerialTransportBase(_ConnectableTransport[_TStrategy]):
                 logger.debug(f"Connected to {self._serial.port=}")
                 return
 
-        raise TimeoutError(f"Failed to connect to {self._port=}")
+        raise TimeoutError(f"Failed to connect to {port=}")
 
     @final
     @override

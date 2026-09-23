@@ -100,7 +100,7 @@ class SMPClient:
     from smpclient.transport.ble import SMPBLETransport
 
     async def main():
-        async with SMPBLETransport("00:11:22:33:44:55").connected() as transport:
+        async with SMPBLETransport().connected("00:11:22:33:44:55") as transport:
             client = SMPClient(transport)
             response = await client.request(EchoWriteRequest(d="Hello, World!"))
 

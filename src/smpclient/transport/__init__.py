@@ -112,7 +112,9 @@ _TStrategy = TypeVar("_TStrategy")
 class _ConnectableTransport(SMPTransport, Generic[_TStrategy]):
     """An `SMPTransport` that opens and closes its own link.
 
-    `SMPClient` sees only the `SMPTransport` part.
+    `SMPClient` sees only the `SMPTransport` part.  Open a link with the `connected()` or
+    `borrowed()` bracket: the bare `connect()`, `borrow()`, and `disconnect()` primitives give
+    up the bracket's guarantee that the link is released on error and on cancellation.
     """
 
     def __init__(
@@ -128,19 +130,8 @@ class _ConnectableTransport(SMPTransport, Generic[_TStrategy]):
         self._sequence: Final = sequence()
 
     @abstractmethod
-    async def connect(self) -> None:  # pragma: no cover
-        """Open the link, then `negotiate()`.
-
-        Prefer `connected()`: a bare `connect()` gives up the bracket's guarantee that the
-        link is closed, on error and on cancellation.
-        """
-
-    @abstractmethod
     async def disconnect(self) -> None:  # pragma: no cover
-        """Close the link.
-
-        Prefer `connected()`, which calls this for you on every exit.
-        """
+        """Release the link; prefer the bracket that opened it, which releases it on every exit."""
 
     @abstractmethod
     async def negotiate(self) -> None:  # pragma: no cover
@@ -154,9 +145,8 @@ class _ConnectableTransport(SMPTransport, Generic[_TStrategy]):
         return None if params is None else params.buf_size
 
     @asynccontextmanager
-    async def connected(self) -> AsyncIterator[Self]:
-        """Open the link for the duration of the `async with`, then close it."""
-        await self.connect()
+    async def _released_on_exit(self) -> AsyncIterator[Self]:
+        """Yield the open link, then release it best-effort on every exit."""
         try:
             yield self
         finally:

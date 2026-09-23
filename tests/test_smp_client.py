@@ -48,9 +48,6 @@ from smpclient.transport.serial import (
     SMPSerialTransport,
 )
 
-PORT = "/dev/ttyACM0"
-"""A port name for transports that are never opened."""
-
 FRAME_OVERHEAD = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
 """The SMP serial frame's 2-byte length + 2-byte CRC16 that share the decoded buffer."""
 
@@ -391,7 +388,6 @@ async def test_upload_hello_world_bin_encoded(
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
-        PORT,
         fragmentation_strategy=BufferParams(
             line_length=line_length,
             line_buffers=line_buffers,
@@ -457,7 +453,7 @@ async def test_upload_hello_world_bin_raw(mtu: int) -> None:
     ) as f:
         image = f.read()
 
-    m = SMPSerialRawTransport(PORT, fragmentation_strategy=smptransport.BufferSize(mtu))
+    m = SMPSerialRawTransport(fragmentation_strategy=smptransport.BufferSize(mtu))
     s = SMPClient(m)
     assert s._transport.mtu == mtu
     assert s._transport.max_unencoded_size == mtu, "The raw transport has no encoding overhead"
@@ -637,7 +633,6 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
-        PORT,
         fragmentation_strategy=BufferParams(
             line_length=line_length,
             line_buffers=line_buffers,
@@ -867,9 +862,7 @@ def test_maximize_upload_packet_fills_decoded_buffer(
     the wire -- larger than the buffer, which the server decodes incrementally as the
     lines arrive. The unified generic handles both `ImageUploadWriteRequest` and `FileUploadRequest`.
     """
-    client = SMPClient(
-        SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=buf_size))
-    )
+    client = SMPClient(SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size)))
     max_unencoded_size = client._transport.max_unencoded_size
     assert max_unencoded_size == buf_size - FRAME_OVERHEAD
 
