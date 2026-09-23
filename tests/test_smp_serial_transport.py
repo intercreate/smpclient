@@ -23,6 +23,11 @@ from smpclient.transport.serial import (
     SMPSerialTransport,
 )
 
+pytestmark = pytest.mark.usefixtures("skip_negotiation")
+
+PORT = "/dev/ttyACM0"
+"""A port name; `Serial` is mocked, so nothing is opened."""
+
 FRAME_OVERHEAD = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
 """The SMP serial frame's 2-byte length + 2-byte CRC16 that share the decoded buffer."""
 
@@ -35,14 +40,16 @@ def mock_serial() -> Generator[None, Any, None]:
 
 def test_constructor() -> None:
     # Test with Auto() (default): conservative 7.1.0-equivalent 128 * 2 budget pre-init
-    t = SMPSerialTransport()
+    t = SMPSerialTransport(PORT)
     assert t.mtu == 256  # 128 * 2, the conservative default before server params are read
     assert t._line_length == 128
     assert t._line_buffers == 2
     assert t._max_smp_encoded_frame_size == 256
 
     # Test with BufferParams
-    t = SMPSerialTransport(fragmentation_strategy=BufferParams(line_length=128, line_buffers=4))
+    t = SMPSerialTransport(
+        PORT, fragmentation_strategy=BufferParams(line_length=128, line_buffers=4)
+    )
     assert t.mtu == 512  # 128 * 4
     assert t._line_length == 128
     assert t._line_buffers == 4
@@ -50,7 +57,7 @@ def test_constructor() -> None:
     assert t.max_unencoded_size < 512
 
     # Test with BufferSize: fills the decoded buffer (buf_size - 4), like Auto
-    t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=1024))
+    t = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=1024))
     assert t.mtu == 1024
     assert t._line_length == 128
     assert t._max_smp_encoded_frame_size == 1024
@@ -61,11 +68,11 @@ def test_constructor() -> None:
 async def test_connect_disconnect() -> None:
     ports: list[str] = ["COM2", "/dev/ttyACM0", "/dev/ttyUSB0"]
 
-    t = SMPSerialTransport()
-    t._conn.read_all = MagicMock(return_value=b"")  # type: ignore
-
     for p in ports:
-        await asyncio.wait_for(t.connect(p, 1.0), timeout=1.0)
+        t = SMPSerialTransport(p, connect_timeout_s=1.0)
+        t._conn.read_all = MagicMock(return_value=b"")  # type: ignore
+
+        await asyncio.wait_for(t.connect(), timeout=1.0)
         t._conn.open.assert_called_once()  # type: ignore
 
         assert t._conn.port == p
@@ -78,7 +85,7 @@ async def test_connect_disconnect() -> None:
 
 @pytest.mark.asyncio
 async def test_send() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport(PORT)
     t._conn.write = MagicMock()  # type: ignore
     p = PropertyMock(return_value=0)
     type(t._conn).out_waiting = p  # type: ignore
@@ -99,7 +106,7 @@ async def test_send() -> None:
 
 @pytest.mark.asyncio
 async def test_receive() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport(PORT)
     m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
     p = [p for p in smppacket.encode(bytes(m), t.max_unencoded_size)]
     t._read_one_smp_packet = AsyncMock(side_effect=p)  # type: ignore
@@ -119,8 +126,8 @@ async def test_receive() -> None:
 
 @pytest.mark.asyncio
 async def test_read_one_smp_packet() -> None:
-    t = SMPSerialTransport()
-    await t.connect("COM2", timeout_s=1.0)
+    t = SMPSerialTransport(PORT)
+    await t.connect()
 
     m1 = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
     m2 = EchoWriteResponse(r="Hello computer!").to_frame(sequence=1)
@@ -157,7 +164,7 @@ async def test_read_one_smp_packet() -> None:
 
 @pytest.mark.asyncio
 async def test_send_and_receive() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport(PORT)
     t.send = AsyncMock()  # type: ignore
     t.receive = AsyncMock()  # type: ignore
 
@@ -169,7 +176,7 @@ async def test_send_and_receive() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_timeout() -> None:
-    t = SMPSerialTransport(timeout=0.1)
+    t = SMPSerialTransport(PORT, timeout=0.1)
     t._read_one_smp_packet = AsyncMock(side_effect=TimeoutError)  # type: ignore
 
     with pytest.raises(TimeoutError):
@@ -178,8 +185,8 @@ async def test_receive_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_only_serial_data_no_smp() -> None:
-    t = SMPSerialTransport()
-    await t.connect("/dev/ttyACM0", timeout_s=1.0)
+    t = SMPSerialTransport(PORT)
+    await t.connect()
 
     t._conn.read_all = MagicMock(  # type: ignore
         side_effect=[
@@ -215,8 +222,8 @@ async def test_only_serial_data_no_smp() -> None:
 
 @pytest.mark.asyncio
 async def test_only_smp_data_no_serial() -> None:
-    t = SMPSerialTransport()
-    await t.connect("/dev/ttyUSB0", timeout_s=1.0)
+    t = SMPSerialTransport(PORT)
+    await t.connect()
 
     m1 = EchoWriteResponse(r="SMP Message 1").to_frame(sequence=0)
     m2 = EchoWriteResponse(r="SMP Message 2").to_frame(sequence=1)
@@ -239,8 +246,8 @@ async def test_only_smp_data_no_serial() -> None:
 
 @pytest.mark.asyncio
 async def test_serial_and_smp_data() -> None:
-    t = SMPSerialTransport()
-    await t.connect("/dev/ttyUSB0", timeout_s=1.0)
+    t = SMPSerialTransport(PORT)
+    await t.connect()
 
     m1 = EchoWriteResponse(r="SMP1").to_frame(sequence=0)
     m2 = EchoWriteResponse(r="SMP2").to_frame(sequence=1)
@@ -283,7 +290,7 @@ async def test_serial_and_smp_data() -> None:
 
 @pytest.mark.asyncio
 async def test_not_connected_exception_handling() -> None:
-    t = SMPSerialTransport()
+    t = SMPSerialTransport(PORT)
     t._conn.is_open = False
     t._conn.read_all = MagicMock(side_effect=SerialException("Not connected"))  # type: ignore
 
@@ -293,7 +300,7 @@ async def test_not_connected_exception_handling() -> None:
 
 def test_initialize_with_auto() -> None:
     """Test that Auto mode updates parameters based on server's buffer size."""
-    t = SMPSerialTransport()  # Uses Auto() by default
+    t = SMPSerialTransport(PORT)  # Uses Auto() by default
 
     # Before initialize, uses the conservative 7.1.0-equivalent 128 * 2 defaults
     assert t._line_length == 128
@@ -313,7 +320,9 @@ def test_initialize_with_auto() -> None:
 
 def test_initialize_with_buffer_params() -> None:
     """Test that BufferParams mode doesn't change user-specified parameters."""
-    t = SMPSerialTransport(fragmentation_strategy=BufferParams(line_length=128, line_buffers=2))
+    t = SMPSerialTransport(
+        PORT, fragmentation_strategy=BufferParams(line_length=128, line_buffers=2)
+    )
 
     # Before initialize
     assert t._line_length == 128
@@ -331,10 +340,11 @@ def test_initialize_with_buffer_params() -> None:
 def test_initialize_with_buffer_params_warning(caplog: pytest.LogCaptureFixture) -> None:
     """Test that a warning is logged when user's params exceed server buffer size."""
     t = SMPSerialTransport(
+        PORT,
         fragmentation_strategy=BufferParams(
             line_length=128,
             line_buffers=4,  # 128 * 4 = 512
-        )
+        ),
     )
 
     with caplog.at_level(logging.WARNING):
@@ -346,7 +356,7 @@ def test_initialize_with_buffer_params_warning(caplog: pytest.LogCaptureFixture)
 def test_buffer_size() -> None:
     """BufferSize fills the decoded reassembly buffer: max message == buf_size - 4."""
     for buf_size in (96, 256, 384, 512, 1024, 2048):
-        t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size))
+        t = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=buf_size))
         assert t.mtu == buf_size
         assert t._line_length == 128
         assert t.max_unencoded_size == buf_size - FRAME_OVERHEAD
@@ -354,9 +364,9 @@ def test_buffer_size() -> None:
 
 def test_buffer_size_matches_initialized_auto() -> None:
     """BufferSize(n) is equivalent to Auto initialized with buf_size n."""
-    auto = SMPSerialTransport()
+    auto = SMPSerialTransport(PORT)
     auto.initialize(1024)
-    told = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=1024))
+    told = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=1024))
 
     assert told.max_unencoded_size == auto.max_unencoded_size == 1024 - FRAME_OVERHEAD
     assert told.mtu == auto.mtu == 1024
@@ -365,7 +375,7 @@ def test_buffer_size_matches_initialized_auto() -> None:
 
 def test_buffer_size_small_line_length() -> None:
     """A server with a sub-128 per-line buffer keeps the full decoded-buffer payload."""
-    t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=384, line_length=64))
+    t = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=384, line_length=64))
     assert t._line_length == 64
     assert t.max_unencoded_size == 384 - FRAME_OVERHEAD
 
@@ -373,15 +383,17 @@ def test_buffer_size_small_line_length() -> None:
 def test_line_buffers_never_misleading_zero() -> None:
     """Sub-line-length decoded buffers report >= 1 line buffer, never a misleading 0."""
     # BufferSize with a buffer smaller than one line still reports at least one line buffer.
-    assert SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=96))._line_buffers == 1
+    assert (
+        SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=96))._line_buffers == 1
+    )
 
     # Auto initialized against a sub-line-length server buffer, likewise.
-    auto_small = SMPSerialTransport()
+    auto_small = SMPSerialTransport(PORT)
     auto_small.initialize(96)
     assert auto_small._line_buffers == 1
 
     # A non-multiple server buffer floors to a sane count and still fills buf_size - overhead.
-    auto_400 = SMPSerialTransport()
+    auto_400 = SMPSerialTransport(PORT)
     auto_400.initialize(400)
     assert auto_400._line_buffers == 400 // 128  # 3
     assert auto_400.max_unencoded_size == 400 - FRAME_OVERHEAD
@@ -413,8 +425,8 @@ async def test_decoded_buffer_strategies_put_full_encoded_frame_on_the_wire() ->
     """
     expected_encoded = {384: 527, 512: 702, 1024: 1404, 2048: 2801}
     for buf_size, encoded_size in expected_encoded.items():
-        told = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size))
-        auto = SMPSerialTransport()
+        told = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=buf_size))
+        auto = SMPSerialTransport(PORT)
         auto.initialize(buf_size)
 
         for t in (told, auto):
@@ -425,7 +437,7 @@ async def test_decoded_buffer_strategies_put_full_encoded_frame_on_the_wire() ->
 
 def test_initialize_with_buffer_size_warning(caplog: pytest.LogCaptureFixture) -> None:
     """A BufferSize larger than the server's advertised buffer warns; the manual size wins."""
-    t = SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=1024))
+    t = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=1024))
 
     with caplog.at_level(logging.WARNING):
         t.initialize(512)
@@ -446,7 +458,7 @@ def test_fragmentation_strategy_alias() -> None:
     [
         pytest.param(
             lambda: SMPSerialTransport(
-                max_smp_encoded_frame_size=512, line_length=128, line_buffers=4
+                PORT, max_smp_encoded_frame_size=512, line_length=128, line_buffers=4
             ),
             512,
             128,
@@ -454,7 +466,7 @@ def test_fragmentation_strategy_alias() -> None:
             id="kw-frame-ll-lb",
         ),
         pytest.param(
-            lambda: SMPSerialTransport(line_length=64, line_buffers=4),
+            lambda: SMPSerialTransport(PORT, line_length=64, line_buffers=4),
             256,  # max_smp_encoded_frame_size defaults to the 7.1.0 256
             64,
             4,
@@ -462,13 +474,13 @@ def test_fragmentation_strategy_alias() -> None:
         ),
         # 7.1.0 positional layout was (max_smp_encoded_frame_size, line_length, line_buffers),
         # with the line_length=128, line_buffers=2 defaults.
-        pytest.param(lambda: SMPSerialTransport(256), 256, 128, 2, id="pos-frame"),
-        pytest.param(lambda: SMPSerialTransport(256, 128, 2), 256, 128, 2, id="pos-triple"),
+        pytest.param(lambda: SMPSerialTransport(PORT, 256), 256, 128, 2, id="pos-frame"),
+        pytest.param(lambda: SMPSerialTransport(PORT, 256, 128, 2), 256, 128, 2, id="pos-triple"),
         # A frame size larger than line_length * line_buffers still drives mtu (as in 7.1.0),
         # rather than being silently downgraded to the 128 * 2 == 256 budget.
-        pytest.param(lambda: SMPSerialTransport(512), 512, 128, 2, id="pos-frame-gt-budget"),
+        pytest.param(lambda: SMPSerialTransport(PORT, 512), 512, 128, 2, id="pos-frame-gt-budget"),
         pytest.param(
-            lambda: SMPSerialTransport(max_smp_encoded_frame_size=1024),
+            lambda: SMPSerialTransport(PORT, max_smp_encoded_frame_size=1024),
             1024,
             128,
             2,
@@ -506,7 +518,7 @@ def test_deprecated_frame_size_matches_7_1_0_throughput(
     (which halved, or worse, the per-request payload for upgraders).
     """
     with pytest.warns(DeprecationWarning):
-        t = SMPSerialTransport(max_smp_encoded_frame_size=frame_size)
+        t = SMPSerialTransport(PORT, max_smp_encoded_frame_size=frame_size)
     assert t.mtu == expected_mtu
     assert t.max_unencoded_size == expected_max_unencoded
 
@@ -514,9 +526,11 @@ def test_deprecated_frame_size_matches_7_1_0_throughput(
 def test_deprecated_params_match_equivalent_buffer_params() -> None:
     """A *consistent* deprecated call (frame == line_length*line_buffers) equals its BufferParams."""
     with pytest.warns(DeprecationWarning):
-        legacy = SMPSerialTransport(max_smp_encoded_frame_size=512, line_length=128, line_buffers=4)
+        legacy = SMPSerialTransport(
+            PORT, max_smp_encoded_frame_size=512, line_length=128, line_buffers=4
+        )
     modern = SMPSerialTransport(
-        fragmentation_strategy=BufferParams(line_length=128, line_buffers=4)
+        PORT, fragmentation_strategy=BufferParams(line_length=128, line_buffers=4)
     )
 
     assert legacy.mtu == modern.mtu  # 512 == 128 * 4
@@ -532,13 +546,15 @@ def test_deprecated_frame_size_mismatch_is_logged(caplog: pytest.LogCaptureFixtu
     explicit max_smp_encoded_frame_size; this reproduces that, rather than downgrading mtu.
     """
     with caplog.at_level(logging.WARNING), pytest.warns(DeprecationWarning):
-        t = SMPSerialTransport(max_smp_encoded_frame_size=512, line_length=128, line_buffers=2)
+        t = SMPSerialTransport(
+            PORT, max_smp_encoded_frame_size=512, line_length=128, line_buffers=2
+        )
     assert any("is not equal to" in record.message for record in caplog.records)
     assert t.mtu == 512  # the explicit frame size wins, as in 7.1.0 (not 128 * 2 == 256)
 
     caplog.clear()
     with caplog.at_level(logging.ERROR), pytest.warns(DeprecationWarning):
-        t = SMPSerialTransport(max_smp_encoded_frame_size=64, line_length=128, line_buffers=2)
+        t = SMPSerialTransport(PORT, max_smp_encoded_frame_size=64, line_length=128, line_buffers=2)
     assert any(
         record.levelno == logging.ERROR and "is less than" in record.message
         for record in caplog.records
@@ -549,11 +565,13 @@ def test_deprecated_frame_size_mismatch_is_logged(caplog: pytest.LogCaptureFixtu
 @pytest.mark.parametrize(
     "make",
     [
-        pytest.param(lambda: SMPSerialTransport(), id="auto-default"),
-        pytest.param(lambda: SMPSerialTransport(fragmentation_strategy=Auto()), id="auto-explicit"),
-        pytest.param(lambda: SMPSerialTransport(BufferSize(buf_size=1024)), id="buffersize"),
+        pytest.param(lambda: SMPSerialTransport(PORT), id="auto-default"),
         pytest.param(
-            lambda: SMPSerialTransport(BufferParams(line_length=128, line_buffers=4)),
+            lambda: SMPSerialTransport(PORT, fragmentation_strategy=Auto()), id="auto-explicit"
+        ),
+        pytest.param(lambda: SMPSerialTransport(PORT, BufferSize(buf_size=1024)), id="buffersize"),
+        pytest.param(
+            lambda: SMPSerialTransport(PORT, BufferParams(line_length=128, line_buffers=4)),
             id="bufferparams",
         ),
     ],
@@ -590,7 +608,7 @@ def test_explicit_strategy_wins_over_stray_legacy_args(caplog: pytest.LogCapture
 def test_invalid_strategy_raises_value_error(strategy: FragmentationStrategy) -> None:
     """The modern API rejects sizes that would hang the encoder or yield a non-positive payload."""
     with pytest.raises(ValueError):
-        SMPSerialTransport(fragmentation_strategy=strategy)
+        SMPSerialTransport(PORT, fragmentation_strategy=strategy)
 
 
 @pytest.mark.parametrize(
@@ -605,12 +623,12 @@ def test_invalid_strategy_raises_value_error(strategy: FragmentationStrategy) ->
 )
 def test_valid_strategy_does_not_raise(strategy: FragmentationStrategy) -> None:
     """Valid strategies construct and report a positive max_unencoded_size."""
-    t = SMPSerialTransport(fragmentation_strategy=strategy)
+    t = SMPSerialTransport(PORT, fragmentation_strategy=strategy)
     assert t.max_unencoded_size > 0
 
 
 def test_auto_rejects_tiny_server_buffer() -> None:
     """Auto raises if the server advertises a buffer too small to hold a framed message."""
-    t = SMPSerialTransport()
+    t = SMPSerialTransport(PORT)
     with pytest.raises(ValueError, match="frame overhead"):
         t.initialize(FRAME_OVERHEAD)  # buf_size == overhead -> zero-byte payload

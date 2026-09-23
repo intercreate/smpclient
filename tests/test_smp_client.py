@@ -47,6 +47,9 @@ from smpclient.transport.serial import (
     SMPSerialTransport,
 )
 
+PORT = "/dev/ttyACM0"
+"""A port name for transports that are never opened."""
+
 FRAME_OVERHEAD = smppacket.FRAME_LENGTH_STRUCT.size + smppacket.CRC16_STRUCT.size
 """The SMP serial frame's 2-byte length + 2-byte CRC16 that share the decoded buffer."""
 
@@ -79,8 +82,6 @@ class SMPMockTransport:
     """Satisfies the `SMPTransport` `Protocol`."""
 
     def __init__(self) -> None:
-        self.connect = AsyncMock()
-        self.disconnect = AsyncMock()
         self.send = AsyncMock()
         self.receive = AsyncMock()
         self._smp_server_transport_buffer_size: int | None = None
@@ -126,26 +127,14 @@ def sent_frame(m: SMPMockTransport) -> Any:
 
 def test_constructor() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
     assert s._transport is m
-    assert s._address == "address"
-
-
-@pytest.mark.asyncio
-async def test_connect() -> None:
-    m = SMPMockTransport()
-    s = SMPClient(m, "address", 5.0)
-    s._initialize = AsyncMock()  # type: ignore
-    await s.connect()
-
-    m.connect.assert_awaited_once_with("address", 5.0)
-    s._initialize.assert_awaited_once_with(5.0)
 
 
 @pytest.mark.asyncio
 async def test_request() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     req = ResetWriteRequest()
     m.receive.return_value = bytes(ResetWriteResponse().to_frame(sequence=0))
@@ -209,7 +198,7 @@ async def test_request() -> None:
 async def test_request_unparseable_frame() -> None:
     """A frame matching none of the Response/ErrorV1/ErrorV2 types raises with diagnostics."""
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     req = ResetWriteRequest()
     # Same group, so the frame reaches the decoders -- but `r` is a field of none of
@@ -238,7 +227,7 @@ def test_wrapping_sequence() -> None:
 async def test_injected_sequence() -> None:
     """The sequence space is injectable, so a test can pin what goes on the wire."""
     m = SMPMockTransport()
-    s = SMPClient(m, "address", sequence=iter((7, 9)))
+    s = SMPClient(m, sequence=iter((7, 9)))
     m.receive.return_value = bytes(ResetWriteResponse().to_frame(sequence=0))
 
     for expected in (7, 9):
@@ -254,7 +243,7 @@ async def test_request_mismatched_group_propagates() -> None:
     instead of being collected as one more parse failure.
     """
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     m.receive.return_value = bytes(ImageUploadWriteResponse(off=0).to_frame(sequence=0))
 
@@ -270,7 +259,7 @@ async def test_request_truncated_payload_is_diagnosed() -> None:
     decode chain catches the wider type.
     """
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     truncated = b"\xbf\x61\x72"  # an indefinite-length map that simply stops
     m.receive.return_value = (
@@ -295,7 +284,7 @@ async def test_request_truncated_payload_is_diagnosed() -> None:
 @pytest.mark.asyncio
 async def test_upload() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address", 2.5)
+    s = SMPClient(m, timeout_s=2.5)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -368,7 +357,7 @@ async def test_upload_hello_world_bin(
         image = f.read()
 
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     accumulated_image = bytearray([])
 
@@ -403,12 +392,13 @@ async def test_upload_hello_world_bin_encoded(
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
+        PORT,
         fragmentation_strategy=BufferParams(
             line_length=line_length,
             line_buffers=line_buffers,
-        )
+        ),
     )
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
     # MTU is line_length * line_buffers, which may be <= max_smp_encoded_frame_size
     # due to integer division
     assert s._transport.mtu == line_length * line_buffers
@@ -468,8 +458,8 @@ async def test_upload_hello_world_bin_raw(mtu: int) -> None:
     ) as f:
         image = f.read()
 
-    m = SMPSerialRawTransport(mtu=mtu)
-    s = SMPClient(m, "address")
+    m = SMPSerialRawTransport(PORT, mtu=mtu)
+    s = SMPClient(m)
     assert s._transport.mtu == mtu
     assert s._transport.max_unencoded_size == mtu, "The raw transport has no encoding overhead"
 
@@ -509,7 +499,7 @@ async def test_upload_hello_world_bin_raw(mtu: int) -> None:
 @pytest.mark.asyncio
 async def test_upload_file() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address", 2.5)
+    s = SMPClient(m, timeout_s=2.5)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -581,7 +571,7 @@ async def test_file_upload_test_txt(
         data = f.read()
 
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     accumulated_data = bytearray([])
 
@@ -615,7 +605,7 @@ async def test_file_upload_test_255_bytes_file(
         data = f.read()
 
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     accumulated_data = bytearray([])
 
@@ -648,12 +638,13 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
         pytest.skip("The line buffer size is too small")
 
     m = SMPSerialTransport(
+        PORT,
         fragmentation_strategy=BufferParams(
             line_length=line_length,
             line_buffers=line_buffers,
-        )
+        ),
     )
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
     # MTU is line_length * line_buffers, which may be <= max_smp_encoded_frame_size
     # due to integer division
     assert s._transport.mtu == line_length * line_buffers
@@ -707,7 +698,7 @@ async def test_file_upload_test_encoded(max_smp_encoded_frame_size: int, line_bu
 @pytest.mark.asyncio
 async def test_download_file() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address", 2.5)
+    s = SMPClient(m, timeout_s=2.5)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -804,7 +795,7 @@ async def test_download_file() -> None:
 @pytest.mark.asyncio
 async def test_download_file_error_first() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -822,7 +813,7 @@ async def test_download_file_error_first() -> None:
 @pytest.mark.asyncio
 async def test_download_file_no_len_first() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -841,7 +832,7 @@ async def test_download_file_no_len_first() -> None:
 @pytest.mark.asyncio
 async def test_download_file_error_not_first() -> None:
     m = SMPMockTransport()
-    s = SMPClient(m, "address")
+    s = SMPClient(m)
 
     s.request = AsyncMock()  # type: ignore
 
@@ -878,8 +869,7 @@ def test_maximize_upload_packet_fills_decoded_buffer(
     lines arrive. The unified generic handles both `ImageUploadWriteRequest` and `FileUploadRequest`.
     """
     client = SMPClient(
-        SMPSerialTransport(fragmentation_strategy=BufferSize(buf_size=buf_size)),
-        "address",
+        SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=buf_size))
     )
     max_unencoded_size = client._transport.max_unencoded_size
     assert max_unencoded_size == buf_size - FRAME_OVERHEAD

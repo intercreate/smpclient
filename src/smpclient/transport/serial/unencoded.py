@@ -11,9 +11,12 @@ you need shell interleaving, use `SMPSerialTransport` from
 `smpclient.transport.serial.encoded`.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Final
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Final
 
 from smp import header as smphdr
 from typing_extensions import override
@@ -22,15 +25,21 @@ from smpclient.exceptions import SMPClientException
 from smpclient.transport.serial.common import _SerialTransportBase
 from smpclient.transport.serial.framing import SerialFraming
 
+if TYPE_CHECKING:
+    from types_bits import u8
+
 logger = logging.getLogger(__name__)
 
 
 class SMPSerialRawTransport(_SerialTransportBase):
     def __init__(
         self,
+        port: str,
         mtu: int = 384,
         *,
         framing: SerialFraming | None = None,
+        connect_timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
@@ -46,12 +55,17 @@ class SMPSerialRawTransport(_SerialTransportBase):
         """Initialize the raw serial transport.
 
         Args:
+            port: The serial port, e.g. `/dev/ttyACM0` or `COM3`.
             mtu: The maximum size of one SMP message (header + payload), in
                 bytes.  A serial link has no MTU of its own, but the SMP
                 server's receive buffer does -- this should match the server's
                 `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE` (Zephyr default 384).
             framing: optional wire framing for each SMP message (e.g. `Cobs()`);
                 `None` sends the bare `[header][payload]`.
+            connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
+                parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from;
+                defaults to `wrapping_sequence()`.
             baudrate: The baudrate of the serial connection.  OK to ignore for
                 USB CDC ACM.
             bytesize: The number of data bits.
@@ -68,6 +82,9 @@ class SMPSerialRawTransport(_SerialTransportBase):
                 exclusive access mode.
         """
         super().__init__(
+            port,
+            connect_timeout_s,
+            sequence,
             baudrate=baudrate,
             bytesize=bytesize,
             parity=parity,

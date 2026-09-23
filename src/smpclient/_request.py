@@ -13,13 +13,15 @@ from smp import SMPRequest
 from smp import error as smperror
 from smp import header as smpheader
 from smp import message as smpmsg
-from typing_extensions import TypeIs
+from smp.os_management import MCUMgrParametersReadRequest, MCUMgrParametersReadResponse
+from typing_extensions import TypeIs, assert_never
 
 from smpclient.exceptions import SMPBadSequence, SMPValidationException
-from smpclient.transport import SMPTransport
 
 if TYPE_CHECKING:
     from types_bits import u8
+
+    from smpclient.transport import SMPTransport
 
 try:
     from asyncio import timeout  # type: ignore
@@ -189,3 +191,34 @@ async def exchange(
     summary, details = _validation_failure(header, frame, tuple(errors))
     logger.error(summary + details)
     raise SMPValidationException(summary, details) from None
+
+
+async def read_mcumgr_parameters(
+    transport: SMPTransport, sequence: u8, timeout_s: float
+) -> MCUMgrParametersReadResponse | None:
+    """Read the server's MCUmgr parameters over `transport`.
+
+    Args:
+        transport: the live transport to read the parameters over
+        sequence: the SMP sequence number to send the request as
+        timeout_s: the timeout for the exchange in seconds
+
+    Returns:
+        The parameters, or `None` (with a warning) if the server answers with an error or
+        not at all
+    """
+    try:
+        response: Final = await exchange(
+            transport, MCUMgrParametersReadRequest(), sequence, timeout_s
+        )
+    except TimeoutError:
+        logger.warning("Timeout waiting for MCUMgr parameters")
+        return None
+    if success(response):
+        logger.debug(f"MCUMgr parameters: {response}")
+        return response
+    elif error(response):
+        logger.warning(f"Error reading MCUMgr parameters: {response}")
+        return None
+    else:
+        assert_never(response)

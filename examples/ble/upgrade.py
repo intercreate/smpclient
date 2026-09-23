@@ -64,7 +64,8 @@ async def main() -> None:
     print("OK")
 
     print("Connecting to A SMP DUT...", end="", flush=True)
-    async with SMPClient(SMPBLETransport(), a_smp_dut.name or a_smp_dut.address) as client:
+    async with SMPBLETransport(a_smp_dut.name or a_smp_dut.address).connected() as transport:
+        client = SMPClient(transport)
         print("OK")
 
         async def ensure_request(request: SMPRequest[TRep, TEr1, TEr2]) -> TRep:
@@ -119,7 +120,8 @@ async def main() -> None:
     b_smp_dut = cast(BLEDevice, b_smp_dut)
 
     print("Connecting to B SMP DUT...", end="", flush=True)
-    async with SMPClient(SMPBLETransport(), b_smp_dut.name or b_smp_dut.address) as client:
+    async with SMPBLETransport(b_smp_dut.name or b_smp_dut.address).connected() as transport:
+        client = SMPClient(transport)
         print("OK")
 
         print()

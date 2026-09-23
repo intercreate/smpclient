@@ -170,8 +170,9 @@ async def test_upload_to_mcuboot_recovery(variant: _Recovery, fixture: ServerFix
         assert isinstance(cs.endpoint, SocketSerialEndpoint)
         transport = _build_transport(variant, cs.endpoint.url)
 
-        async with reboot_into_recovery(cs.client, transport, cs.endpoint.url) as bootloader:
-            await bootloader._initialize()  # negotiate buf_size (a no-op for explicit BufferSize)
+        async with reboot_into_recovery(cs, transport) as bootloader:
+            # Re-negotiate in case the first read raced the bootloader coming up.
+            await transport.negotiate()
 
             params = await bootloader.request(MCUMgrParametersReadRequest(), timeout_s=2.0)
             assert success(params)

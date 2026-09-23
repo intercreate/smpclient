@@ -1,10 +1,13 @@
 """Shared connection management for the encoded and unencoded serial transports."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
+from collections.abc import Iterator
 from contextlib import contextmanager
 from time import monotonic
-from typing import Final, Generator, final
+from typing import TYPE_CHECKING, Final, Generator, final
 
 try:
     from serial import Serial, SerialException
@@ -16,12 +19,16 @@ except ModuleNotFoundError as e:
     raise
 from typing_extensions import override
 
-from smpclient.transport import SMPTransport, SMPTransportDisconnected
+from smpclient import _request
+from smpclient.transport import SMPTransportDisconnected, _ConnectableTransport
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 logger = logging.getLogger(__name__)
 
 
-class _SerialTransportBase(SMPTransport):
+class _SerialTransportBase(_ConnectableTransport):
     """Connection-management base class for serial-port-backed SMP transports.
 
     Holds the `pyserial` `Serial` instance, the open/retry connect loop, disconnect,
@@ -30,7 +37,7 @@ class _SerialTransportBase(SMPTransport):
 
     Subclasses implement `send` and `receive` with their framing of choice, may
     override `_reset_state` to clear per-connection state on `connect`, and may
-    override `connect` to back the transport with a byte pipe other than a local
+    override `_open` to back the transport with a byte pipe other than a local
     serial port (e.g. an emulator's `socket://` chardev).
     """
 
@@ -39,6 +46,9 @@ class _SerialTransportBase(SMPTransport):
 
     def __init__(
         self,
+        port: str,
+        connect_timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
@@ -54,6 +64,11 @@ class _SerialTransportBase(SMPTransport):
         """Initialize the underlying `pyserial` `Serial` instance.
 
         Args:
+            port: The serial port, e.g. `/dev/ttyACM0` or `COM3`.
+            connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
+                parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from;
+                defaults to `wrapping_sequence()`.
             baudrate: The baudrate of the serial connection.  OK to ignore for
                 USB CDC ACM.
             bytesize: The number of data bits.
@@ -69,6 +84,9 @@ class _SerialTransportBase(SMPTransport):
                 opened in exclusive access mode if it is already open in
                 exclusive access mode.
         """
+        self._port: Final = port
+        self._connect_timeout_s = connect_timeout_s
+        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._conn: Final = Serial(
             baudrate=baudrate,
             bytesize=bytesize,
@@ -87,12 +105,21 @@ class _SerialTransportBase(SMPTransport):
         """Reset any per-connection state. Subclasses override as needed."""
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
+    async def connect(self) -> None:
+        await self._open()
+        try:
+            await self.negotiate()
+        except (Exception, asyncio.CancelledError):
+            self._conn.close()
+            raise
+
+    async def _open(self) -> None:
+        """Open the port, retrying until `connect_timeout_s`."""
         self._reset_state()
-        self._conn.port = address
+        self._conn.port = self._port
         logger.debug(f"Connecting to {self._conn.port=}")
         start_time: Final = monotonic()
-        while monotonic() - start_time <= timeout_s:
+        while monotonic() - start_time <= self._connect_timeout_s:
             try:
                 self._conn.open()
                 self._conn.reset_input_buffer()
@@ -105,7 +132,7 @@ class _SerialTransportBase(SMPTransport):
                 )
                 await asyncio.sleep(self._CONNECTION_RETRY_INTERVAL_S)
 
-        raise TimeoutError(f"Failed to connect to {address=}")
+        raise TimeoutError(f"Failed to connect to {self._port=}")
 
     @final
     @override

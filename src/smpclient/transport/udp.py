@@ -1,16 +1,23 @@
 """A UDP SMPTransport for Network connections like Wi-Fi or Ethernet."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
+from collections.abc import Iterator
 from socket import AF_INET6
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from smp import header as smphdr
 from typing_extensions import override
 
+from smpclient import _request
 from smpclient.exceptions import SMPClientException
-from smpclient.transport import SMPTransport
+from smpclient.transport import _ConnectableTransport
 from smpclient.transport._udp_client import Addr, UDPClient
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 logger = logging.getLogger(__name__)
 
@@ -36,30 +43,56 @@ Per RFC 8085 section 3.2, applications must subtract IP and UDP header sizes fro
 PMTU to avoid fragmentation."""
 
 
-class SMPUDPTransport(SMPTransport):
-    def __init__(self, mtu: int = 1500) -> None:
+class SMPUDPTransport(_ConnectableTransport):
+    def __init__(
+        self,
+        address: str,
+        port: int = 1337,
+        *,
+        mtu: int = 1500,
+        connect_timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
+    ) -> None:
         """Initialize the SMP UDP transport.
 
         Args:
+            address: The server's IPv4 or IPv6 address, or a host name.
+            port: The server's SMP UDP port.
             mtu: The Maximum Transmission Unit (MTU) of the link layer in bytes.
                 IP and UDP header overhead will be subtracted to calculate the maximum
                 UDP payload size (MSS) to avoid fragmentation per RFC 8085 section 3.2.
+            connect_timeout_s: Bounds connecting, and reading the server's MCUmgr
+                parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from;
+                defaults to `wrapping_sequence()`.
         """
+        self._address: Final = address
+        self._port: Final = port
+        self._connect_timeout_s = connect_timeout_s
+        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._mtu = mtu
         self._is_ipv6 = False
 
         self._client: Final = UDPClient()
 
     @override
-    async def connect(self, address: str, timeout_s: float, port: int = 1337) -> None:
-        logger.debug(f"Connecting to {address=} {port=}")
-        await asyncio.wait_for(self._client.connect(Addr(host=address, port=port)), timeout_s)
+    async def connect(self) -> None:
+        logger.debug(f"Connecting to {self._address=} {self._port=}")
+        await asyncio.wait_for(
+            self._client.connect(Addr(host=self._address, port=self._port)),
+            self._connect_timeout_s,
+        )
 
         if sock := self._client._transport.get_extra_info('socket'):
             self._is_ipv6 = sock.family == AF_INET6
             logger.debug(f"Detected {'IPv6' if self._is_ipv6 else 'IPv4'} connection")
 
-        logger.info(f"Connected to {address=} {port=}")
+        logger.info(f"Connected to {self._address=} {self._port=}")
+        try:
+            await self.negotiate()
+        except (Exception, asyncio.CancelledError):
+            await self.disconnect()
+            raise
 
     @override
     async def disconnect(self) -> None:

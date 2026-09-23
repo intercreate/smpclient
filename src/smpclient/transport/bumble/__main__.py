@@ -93,10 +93,13 @@ async def _pair(args: _PairArgs) -> int:
 
 
 async def _echo(args: _EchoArgs) -> int:
-    async with SMPClient(
-        SMPBumbleTransport(hci=args.hci), args.address, timeout_s=args.timeout
-    ) as client:
-        response = await client.request(EchoWriteRequest(d=args.message))
+    transport: Final = SMPBumbleTransport(
+        args.address, hci=args.hci, connect_timeout_s=args.timeout
+    )
+    async with transport.connected():
+        response = await SMPClient(transport, timeout_s=args.timeout).request(
+            EchoWriteRequest(d=args.message)
+        )
         if success(response):
             print(response.r)
             return 0

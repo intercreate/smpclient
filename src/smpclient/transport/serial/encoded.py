@@ -19,17 +19,23 @@ size is the `fragmentation_strategy` (`FragmentationStrategy`) -- see `Auto` (th
 default), `BufferSize`, and `BufferParams`.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import math
 import warnings
+from collections.abc import Iterator
 from enum import IntEnum, unique
-from typing import Final, NamedTuple, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from smp import packet as smppacket
 from typing_extensions import assert_never, deprecated, overload, override
 
 from smpclient.transport.serial.common import _SerialTransportBase
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 logger = logging.getLogger(__name__)
 
@@ -190,8 +196,11 @@ class SMPSerialTransport(_SerialTransportBase):
     @overload
     def __init__(
         self,
+        port: str,
         fragmentation_strategy: FragmentationStrategy = ...,
         *,
+        connect_timeout_s: float = ...,
+        sequence: Iterator[u8] | None = ...,
         baudrate: int = ...,
         bytesize: int = ...,
         parity: str = ...,
@@ -212,10 +221,13 @@ class SMPSerialTransport(_SerialTransportBase):
     )
     def __init__(
         self,
+        port: str,
         *,
         max_smp_encoded_frame_size: int = ...,
         line_length: int = ...,
         line_buffers: int = ...,
+        connect_timeout_s: float = ...,
+        sequence: Iterator[u8] | None = ...,
         baudrate: int = ...,
         bytesize: int = ...,
         parity: str = ...,
@@ -236,11 +248,14 @@ class SMPSerialTransport(_SerialTransportBase):
     )
     def __init__(
         self,
+        port: str,
         max_smp_encoded_frame_size: int,
         line_length: int = ...,
         line_buffers: int = ...,
         /,
         *,
+        connect_timeout_s: float = ...,
+        sequence: Iterator[u8] | None = ...,
         baudrate: int = ...,
         bytesize: int = ...,
         parity: str = ...,
@@ -256,11 +271,14 @@ class SMPSerialTransport(_SerialTransportBase):
 
     def __init__(  # noqa: DOC301
         self,
+        port: str,
         fragmentation_strategy: FragmentationStrategy | int | None = None,
         line_length: int | None = None,
         line_buffers: int | None = None,
         *,
         max_smp_encoded_frame_size: int | None = None,
+        connect_timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
         baudrate: int = 115200,
         bytesize: int = 8,
         parity: str = "N",
@@ -276,6 +294,7 @@ class SMPSerialTransport(_SerialTransportBase):
         """Initialize the serial transport.
 
         Args:
+            port: The serial port, e.g. `/dev/ttyACM0` or `COM3`.
             fragmentation_strategy: how to size SMP messages; one of `Auto`
                 (default), `BufferSize`, or `BufferParams`.
             line_length: Deprecated; pass `BufferParams(line_length=...)` (or `BufferSize`).
@@ -283,6 +302,10 @@ class SMPSerialTransport(_SerialTransportBase):
             max_smp_encoded_frame_size: Deprecated, but still honored for backward
                 compatibility -- it drives `mtu` exactly as in 7.1.0.  Prefer an explicit
                 `BufferSize(buf_size=...)` (decoded netbuf) for new code.
+            connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
+                parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from;
+                defaults to `wrapping_sequence()`.
             baudrate: The baudrate of the serial connection.  OK to ignore for
                 USB CDC ACM.
             bytesize: The number of data bits.
@@ -298,6 +321,9 @@ class SMPSerialTransport(_SerialTransportBase):
 
         """
         super().__init__(
+            port,
+            connect_timeout_s,
+            sequence,
             baudrate=baudrate,
             bytesize=bytesize,
             parity=parity,

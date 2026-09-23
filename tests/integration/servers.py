@@ -327,7 +327,7 @@ async def _connect_socket_chardev(
 class QemuSocketSerialTransport(SMPSerialTransport):
     """`SMPSerialTransport` whose byte pipe is a TCP socket (an emulator's serial chardev).
 
-    Only `connect` differs -- it binds a `socket://` chardev instead of a local serial
+    Only `_open` differs -- it binds a `socket://` chardev instead of a local serial
     port, sidestepping the PTY held-byte quirk of an emulated UART.  Framing,
     fragmentation, `send`, and `receive` are inherited unchanged, so the suite exercises
     the real transport rather than a copy of it.
@@ -339,31 +339,31 @@ class QemuSocketSerialTransport(SMPSerialTransport):
         fragmentation_strategy: FragmentationStrategy | None = None,
     ) -> None:
         if fragmentation_strategy is None:
-            super().__init__()
+            super().__init__(url)
         else:
-            super().__init__(fragmentation_strategy=fragmentation_strategy)
+            super().__init__(url, fragmentation_strategy=fragmentation_strategy)
         self._url: Final = url
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
-        await _connect_socket_chardev(self, self._url, timeout_s)
+    async def _open(self) -> None:
+        await _connect_socket_chardev(self, self._url, self._connect_timeout_s)
 
 
 class QemuSocketSerialRawTransport(SMPSerialRawTransport):
     """`SMPSerialRawTransport` whose byte pipe is a TCP socket (an emulator's serial chardev).
 
-    The raw counterpart of `QemuSocketSerialTransport`: only `connect` differs; the raw
+    The raw counterpart of `QemuSocketSerialTransport`: only `_open` differs; the raw
     `[header][payload]` framing, `send`, and `receive` are inherited from
     `SMPSerialRawTransport` unchanged.
     """
 
     def __init__(self, url: str, mtu: int = 384, framing: SerialFraming | None = None) -> None:  # noqa: DOC301
-        super().__init__(mtu=mtu, framing=framing)
+        super().__init__(url, mtu=mtu, framing=framing)
         self._url: Final = url
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
-        await _connect_socket_chardev(self, self._url, timeout_s, _PacedSocketChardev)
+    async def _open(self) -> None:
+        await _connect_socket_chardev(self, self._url, self._connect_timeout_s, _PacedSocketChardev)
 
 
 def _verify_sha256(artifact: Path) -> str | None:

@@ -1,11 +1,13 @@
 """A Bluetooth Low Energy (BLE) SMPTransport."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
 import sys
-from collections.abc import Coroutine
-from typing import Any, Final, Protocol, TypeAlias, TypeGuard, TypeVar
+from collections.abc import Coroutine, Iterator
+from typing import TYPE_CHECKING, Any, Final, Protocol, TypeAlias, TypeGuard, TypeVar
 from uuid import UUID
 
 try:
@@ -21,13 +23,17 @@ except ModuleNotFoundError as e:
 from smp import header as smphdr
 from typing_extensions import override
 
+from smpclient import _request
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import (
     SMP_CHARACTERISTIC_UUID,
     SMP_SERVICE_UUID,
-    SMPTransport,
     SMPTransportDisconnected,
+    _ConnectableTransport,
 )
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 if sys.platform == "linux":
     from bleak.backends.bluezdbus.client import BleakClientBlueZDBus
@@ -82,10 +88,30 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 
-class SMPBLETransport(SMPTransport):
+class SMPBLETransport(_ConnectableTransport):
     """A Bluetooth Low Energy (BLE) SMPTransport."""
 
-    def __init__(self, winrt: WinRTClientArgs = {}) -> None:
+    def __init__(
+        self,
+        address: str,
+        *,
+        winrt: WinRTClientArgs = {},
+        connect_timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
+    ) -> None:
+        """Initialize the BLE transport; `connect()` scans for and connects to `address`.
+
+        Args:
+            address: The device's MAC address, macOS UUID, or advertised name.
+            winrt: WinRT backend arguments, e.g. `use_cached_services`.
+            connect_timeout_s: Bounds scanning and connecting, and reading the server's
+                MCUmgr parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from;
+                defaults to `wrapping_sequence()`.
+        """
+        self._address: Final = address
+        self._connect_timeout_s = connect_timeout_s
+        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._buffer = bytearray()
         self._notify_condition = asyncio.Condition()
         self._disconnected_event = asyncio.Event()
@@ -98,9 +124,13 @@ class SMPBLETransport(SMPTransport):
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
+    async def connect(self) -> None:
         try:
-            await asyncio.wait_for(self._connect(address, timeout_s), timeout=timeout_s)
+            await asyncio.wait_for(
+                self._connect(self._address, self._connect_timeout_s),
+                timeout=self._connect_timeout_s,
+            )
+            await self.negotiate()
         except (Exception, asyncio.CancelledError):
             await self._best_effort_disconnect()
             raise

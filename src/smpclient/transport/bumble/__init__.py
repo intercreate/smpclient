@@ -1,10 +1,13 @@
 """A bumble-backed `SMPTransport` driving an external HCI controller over GATT."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
+from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
+from typing import TYPE_CHECKING, AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
 from uuid import UUID
 
 try:
@@ -25,15 +28,19 @@ except ModuleNotFoundError as e:
     raise
 
 from smp import header as smphdr
-from typing_extensions import assert_never, override
+from typing_extensions import Self, assert_never, override
 
+from smpclient import _request
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import (
     SMP_CHARACTERISTIC_UUID,
     SMP_SERVICE_UUID,
-    SMPTransport,
     SMPTransportDisconnected,
+    _ConnectableTransport,
 )
+
+if TYPE_CHECKING:
+    from types_bits import u8
 from smpclient.transport.bumble.device import (
     DEFAULT_HCI_TRANSPORT,
     DEFAULT_HOST_ADDRESS,
@@ -122,11 +129,12 @@ class ConnectedBorrowed(NamedTuple):
 _State: TypeAlias = Disconnected | Connecting | Connected | ConnectedBorrowed
 
 
-class SMPBumbleTransport(SMPTransport):
+class SMPBumbleTransport(_ConnectableTransport):
     """An `SMPTransport` backed by Google's bumble Bluetooth stack."""
 
     def __init__(
         self,
+        address: str,
         *,
         hci: str = DEFAULT_HCI_TRANSPORT,
         host_address: Address = DEFAULT_HOST_ADDRESS,
@@ -136,10 +144,13 @@ class SMPBumbleTransport(SMPTransport):
         pair_on_connect: PairingDelegate | None = None,
         pair_timeout_s: float = DEFAULT_PAIR_TIMEOUT_S,
         settle_s: float = DEFAULT_POST_PAIR_SETTLE_S,
+        connect_timeout_s: float = 2.5,
+        sequence: Iterator[u8] | None = None,
     ) -> None:
         """Initialize the bumble transport.
 
         Args:
+            address: The peer's BD_ADDR, or an advertised name to scan for.
             hci: The bumble HCI transport spec, e.g. `"usb:0"` or
                 `"tcp-client:host:port"`.  See bumble's `open_transport()` for
                 the full list of supported schemes.
@@ -160,7 +171,14 @@ class SMPBumbleTransport(SMPTransport):
                 `pair_on_connect` and `pair()`.
             settle_s: Wait between successful pair and proceeding (or
                 disconnecting) so the peer can finalize bonding.
+            connect_timeout_s: Bounds scanning for a name, and reading the server's
+                MCUmgr parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from;
+                defaults to `wrapping_sequence()`.
         """
+        self._address: Final = address
+        self._connect_timeout_s = connect_timeout_s
+        self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._hci: Final = hci
         self._host_address: Final = host_address
         self._host_name: Final = host_name
@@ -186,7 +204,7 @@ class SMPBumbleTransport(SMPTransport):
         logger.debug(f"Initialized {self.__class__.__name__}(hci={hci!r})")
 
     @override
-    async def connect(self, address: str, timeout_s: float) -> None:
+    async def connect(self) -> None:
         if not isinstance(self._state, Disconnected):
             raise SMPBumbleTransportException(
                 f"connect() called while in state {type(self._state).__name__}"
@@ -221,7 +239,9 @@ class SMPBumbleTransport(SMPTransport):
                 )
             await self._state.device.power_on()
 
-            target = await _resolve_target(self._state.device, address, timeout_s)
+            target = await _resolve_target(
+                self._state.device, self._address, self._connect_timeout_s
+            )
             logger.info(f"Connecting to {target}")
             self._state.connection = await self._state.device.connect(Address(target))
             self._state.connection.on(Connection.EVENT_DISCONNECTION, self._on_disconnection)
@@ -263,6 +283,7 @@ class SMPBumbleTransport(SMPTransport):
                 max_write=max_write,
             )
             logger.info(f"Connected to {target}, max_write={max_write}")
+            await self.negotiate()
         except Exception:
             logger.exception("connect() failed; tearing down partial state")
             await self.disconnect()
@@ -331,16 +352,16 @@ class SMPBumbleTransport(SMPTransport):
         async with bumble_device(hci=hci) as device:
             return await scan_for_devices(device, timeout_s, mode, service_uuid=service_uuid)
 
-    async def use_connection(
+    async def borrow(
         self,
         connection: Connection,
         *,
         peer: Peer | None = None,
     ) -> None:
-        """Adopt a caller-owned `Connection`; `disconnect()` only unsubscribes."""
+        """Adopt a caller-owned `Connection`, then `negotiate()`; `disconnect()` only unsubscribes."""
         if not isinstance(self._state, Disconnected):
             raise SMPBumbleTransportException(
-                f"use_connection() called while in state {type(self._state).__name__}"
+                f"borrow() called while in state {type(self._state).__name__}"
             )
 
         while not self._notifications.empty():
@@ -362,6 +383,21 @@ class SMPBumbleTransport(SMPTransport):
             max_write=max_write,
         )
         logger.info(f"Borrowing connection to {connection.peer_address}, max_write={max_write}")
+        await self.negotiate()
+
+    @asynccontextmanager
+    async def borrowed(
+        self,
+        connection: Connection,
+        *,
+        peer: Peer | None = None,
+    ) -> AsyncIterator[Self]:
+        """Borrow the caller's `connection` for the duration of the `async with`."""
+        try:
+            await self.borrow(connection, peer=peer)
+            yield self
+        finally:
+            await self.disconnect()
 
     async def bonded_devices(self) -> tuple[str, ...]:
         """Return the BD_ADDRs of peers currently in the keystore."""
@@ -625,18 +661,3 @@ def _find_smp_characteristic(peer: Peer) -> CharacteristicProxy[bytes]:
             f"SMP characteristic {SMP_CHARACTERISTIC_UUID} not found on peer"
         )
     return characteristics[0]
-
-
-@asynccontextmanager
-async def borrowed_connection(
-    transport: SMPBumbleTransport,
-    connection: Connection,
-    *,
-    peer: Peer | None = None,
-) -> AsyncIterator[SMPBumbleTransport]:
-    """`async with`-friendly wrapper around `use_connection()` + `disconnect()`."""
-    await transport.use_connection(connection, peer=peer)
-    try:
-        yield transport
-    finally:
-        await transport.disconnect()

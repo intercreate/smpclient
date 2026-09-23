@@ -38,10 +38,8 @@ or in your local clone at `examples/`.
 from __future__ import annotations
 
 import logging
-import traceback
 from collections.abc import AsyncIterator, Iterator
 from hashlib import sha256
-from types import TracebackType
 from typing import TYPE_CHECKING, Final, TypeVar
 
 import msgspec
@@ -50,7 +48,6 @@ from smp import header as smpheader
 from smp import message as smpmsg
 from smp.file_management import FileDownloadRequest, FileUploadRequest
 from smp.image_management import ImageUploadWriteRequest
-from smp.os_management import MCUMgrParametersReadRequest
 from smp.user import intercreate as smpic
 from typing_extensions import assert_never
 
@@ -81,7 +78,7 @@ TUploadRequest = TypeVar(
 
 
 class SMPClient:
-    """Create a client to the SMP server `address`, using `transport`.
+    """Create a client to the SMP server at the other end of the live `transport`.
 
     This class provides a high-level interface to an SMP server.  Other than
     the `request` method, all methods are abstractions of common SMP routines,
@@ -91,8 +88,7 @@ class SMPClient:
     the response or error.
 
     Args:
-        transport: the `SMPTransport` to use
-        address: the address of the SMP server, see `smpclient.transport` for details
+        transport: the connected `SMPTransport`; the client never opens or closes it
         timeout_s: the default timeout in seconds for SMP requests
         sequence: this client's SMP sequence space; defaults to `wrapping_sequence()`
 
@@ -104,7 +100,8 @@ class SMPClient:
     from smpclient.transport.ble import SMPBLETransport
 
     async def main():
-        async with SMPClient(SMPBLETransport(), "00:11:22:33:44:55") as client:
+        async with SMPBLETransport("00:11:22:33:44:55").connected() as transport:
+            client = SMPClient(transport)
             response = await client.request(EchoWriteRequest(d="Hello, World!"))
 
             if success(response):
@@ -120,29 +117,13 @@ class SMPClient:
     def __init__(  # noqa: DOC301
         self,
         transport: SMPTransport,
-        address: str,
+        *,
         timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
     ):
         self._transport: Final = transport
-        self._address: Final = address
         self._timeout_s = timeout_s
         self._sequence: Final = wrapping_sequence() if sequence is None else sequence
-
-    async def connect(self, connect_timeout_s: float | None = None) -> None:
-        """Connect to the SMP server.
-
-        Args:
-            connect_timeout_s: the timeout for the connection attempt in seconds
-        """
-        connect_timeout_s = connect_timeout_s if connect_timeout_s is not None else self._timeout_s
-
-        await self._transport.connect(self._address, connect_timeout_s)
-        await self._initialize(self._timeout_s)
-
-    async def disconnect(self) -> None:
-        """Disconnect from the SMP server."""
-        await self._transport.disconnect()
 
     async def request(
         self, request: SMPRequest[TRep, TEr1, TEr2], timeout_s: float | None = None
@@ -410,25 +391,6 @@ class SMPClient:
         logger.info("Download complete")
         return file_data
 
-    @property
-    def address(self) -> str:
-        """The SMP server address."""
-        return self._address
-
-    async def __aenter__(self) -> "SMPClient":
-        await self.connect()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        if exc_value is not None:
-            logger.error(f"Exception in SMPClient:\n{traceback.format_exc()}")
-        await self.disconnect()
-
     @staticmethod
     def _cbor_integer_size(integer: int) -> int:
         """CBOR integers are packed as small as possible."""
@@ -485,21 +447,3 @@ class SMPClient:
         data_size: Final = min(max_data_size, len(data) - request.off)
 
         return msgspec.structs.replace(request, data=data[request.off : request.off + data_size])
-
-    async def _initialize(self, timeout_s: float | None = None) -> None:
-        """Gather initialization information from the SMP server."""
-        timeout_s = timeout_s if timeout_s is not None else self._timeout_s
-
-        try:
-            mcumgr_parameters = await self.request(
-                MCUMgrParametersReadRequest(), timeout_s=timeout_s
-            )
-            if success(mcumgr_parameters):
-                logger.debug(f"MCUMgr parameters: {mcumgr_parameters}")
-                self._transport.initialize(mcumgr_parameters.buf_size)
-            elif error(mcumgr_parameters):
-                logger.warning(f"Error reading MCUMgr parameters: {mcumgr_parameters}")
-            else:
-                assert_never(mcumgr_parameters)
-        except TimeoutError:
-            logger.warning("Timeout waiting for MCUMgr parameters")

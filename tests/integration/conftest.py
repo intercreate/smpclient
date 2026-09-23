@@ -15,7 +15,7 @@ import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
 import pytest
 import pytest_asyncio
@@ -26,7 +26,6 @@ from typing_extensions import assert_never
 
 from smpclient import SMPClient, success
 from smpclient.exceptions import SMPBadSequence
-from smpclient.transport import SMPTransport
 from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.udp import SMPUDPTransport
 from tests.integration.servers import (
@@ -46,10 +45,14 @@ logger = logging.getLogger(__name__)
 _READY_PROBE = "smpclient-integration-ready"
 
 
+FixtureTransport = SMPSerialTransport | SMPSerialRawTransport | SMPUDPTransport
+
+
 class ConnectedServer(NamedTuple):
-    """A live `SMPClient`, the `ServerFixture` it is connected to, and its `Endpoint`."""
+    """A live `SMPClient`, its transport, its `ServerFixture`, and its `Endpoint`."""
 
     client: SMPClient
+    transport: FixtureTransport
     fixture: ServerFixture
     endpoint: Endpoint
 
@@ -71,18 +74,14 @@ def fixture_params(
     ]
 
 
-_SMP_UDP_DEFAULT_PORT = 1337
-"""`SMPUDPTransport.connect`'s default port; `SMPClient.connect` cannot override it."""
-
-
-def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> tuple[SMPTransport, str]:
+def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> FixtureTransport:
     match endpoint:
         case PtyEndpoint(pty):
             match fixture.transport:
                 case "serial" | "shell":
-                    return SMPSerialTransport(), pty
+                    return SMPSerialTransport(pty)
                 case "serial_raw":
-                    return SMPSerialRawTransport(), pty
+                    return SMPSerialRawTransport(pty)
                 case "udp":
                     pytest.fail("UDP fixtures do not present as a PTY serial endpoint")
                 case _ as unreachable:
@@ -90,20 +89,15 @@ def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> tuple[SMPTra
         case SocketSerialEndpoint(url):
             match fixture.transport:
                 case "serial" | "shell":
-                    return QemuSocketSerialTransport(url), url
+                    return QemuSocketSerialTransport(url)
                 case "serial_raw":
-                    return QemuSocketSerialRawTransport(url), url
+                    return QemuSocketSerialRawTransport(url)
                 case "udp":
                     pytest.fail("UDP fixtures do not present as a socket serial endpoint")
                 case _ as unreachable:
                     assert_never(unreachable)
         case UdpEndpoint(host, port):
-            if port != _SMP_UDP_DEFAULT_PORT:
-                pytest.skip(
-                    f"UDP fixture port {port} is unreachable: SMPClient.connect cannot pass a "
-                    f"non-default UDP port (only {_SMP_UDP_DEFAULT_PORT})"
-                )
-            return SMPUDPTransport(), host
+            return SMPUDPTransport(host, port)
         case _:
             assert_never(endpoint)
 
@@ -146,7 +140,7 @@ async def _wait_until_answering(client: SMPClient, *, attempts: int = 30) -> Non
         return success(response) and response.r == _READY_PROBE
 
     if not await _poll_until_answering(client, echoes, attempts=attempts):
-        raise TimeoutError(f"{client.address} never answered an echo")
+        raise TimeoutError("the SMP server never answered an echo")
 
 
 def signed_image(fixture: ServerFixture) -> Path:
@@ -233,16 +227,16 @@ generous than the app-mode default to absorb erase latency under emulation and h
 
 @asynccontextmanager
 async def reboot_into_recovery(
-    app_client: SMPClient,
+    app: ConnectedServer,
     transport: SMPSerialTransport | SMPSerialRawTransport,
-    address: str,
 ) -> AsyncIterator[SMPClient]:
     """Reboot the device into MCUboot serial recovery and yield a recovery-connected client.
 
-    The app at `app_client` reboots via `os reset boot_mode=BOOTLOADER` (smp 4.1.0);
-    `transport` then connects to the bootloader on the same serial endpoint, probed until
-    it answers (the recovery server speaks the img group, not echo).
+    The app at `app` reboots via `os reset boot_mode=BOOTLOADER` (smp 4.1.0) and its link
+    closes; `transport` then connects to the bootloader on the same serial endpoint, probed
+    until it answers (the recovery server speaks the img group, not echo).
     """
+    app_client: Final = app.client
     assert success(await app_client.request(ImageStatesReadRequest()))
     try:
         assert success(
@@ -252,40 +246,32 @@ async def reboot_into_recovery(
         )
     except TimeoutError:
         pass  # some servers reset before sending the response
-    await app_client.disconnect()
+    await app.transport.disconnect()
     await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
 
     async def lists_images(c: SMPClient) -> bool:
         return success(await c.request(ImageStatesReadRequest(), timeout_s=1.0))
 
-    bootloader = SMPClient(transport, address)
-    await bootloader.connect()
-    try:
+    async with transport.connected():
+        bootloader = SMPClient(transport)
         if not await _poll_until_answering(bootloader, lists_images, interval_s=0.2):
             pytest.fail("MCUboot serial recovery SMP server never answered")
         yield bootloader
-    finally:
-        await bootloader.disconnect()
 
 
 @asynccontextmanager
 async def connected(fixture: ServerFixture) -> AsyncIterator[ConnectedServer]:
     """Launch `fixture`, connect an `SMPClient`, and wait until the server answers."""
     async with serve(fixture) as endpoint:
-        transport, address = _build_transport(fixture, endpoint)
-        client = SMPClient(transport, address)
-        await client.connect()
-        await _wait_until_answering(client)
-        # Re-initialize in case the first MCUMgr parameter read raced server boot.
-        await client._initialize()
-        try:
-            yield ConnectedServer(client, fixture, endpoint)
-        finally:
-            # Tolerant: a recovery test may have rebooted the server out from under us.
-            try:
-                await client.disconnect()
-            except Exception as e:
-                logger.debug(f"disconnect during teardown failed: {e}")
+        transport = _build_transport(fixture, endpoint)
+        # Tolerant on exit: `connected()` closes best-effort, and a recovery test may have
+        # rebooted the server out from under us.
+        async with transport.connected():
+            client = SMPClient(transport)
+            await _wait_until_answering(client)
+            # Re-negotiate in case the first MCUMgr parameter read raced server boot.
+            await transport.negotiate()
+            yield ConnectedServer(client, transport, fixture, endpoint)
 
 
 @pytest_asyncio.fixture(params=fixture_params())
