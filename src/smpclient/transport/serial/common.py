@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from time import monotonic
-from typing import TYPE_CHECKING, Final, Generator, NamedTuple, final
+from typing import TYPE_CHECKING, Final, Generator, NamedTuple, Protocol, TypeAlias, final
 
 try:
     from serial import Serial, SerialException
@@ -17,15 +17,44 @@ except ModuleNotFoundError as e:
             "Serial transport requires the 'serial' extra. Use smpclient[serial]"
         ) from e
     raise
-from typing_extensions import override
+from typing_extensions import Self, assert_never, override
 
 from smpclient import _request
 from smpclient.transport import SMPTransportDisconnected, _ConnectableTransport
 
 if TYPE_CHECKING:
+    from _typeshed import ReadableBuffer
     from types_bits import u8
 
 logger = logging.getLogger(__name__)
+
+
+class SerialPort(Protocol):
+    """The part of an open `pyserial` port that the serial transports use.
+
+    Satisfied by `serial.Serial`, and by a `serial.serial_for_url` port that reports
+    `out_waiting`.
+    """
+
+    @property
+    def port(self) -> str | None: ...  # pragma: no cover
+    @property
+    def out_waiting(self) -> int: ...  # pragma: no cover
+    def write(self, b: ReadableBuffer, /) -> int | None: ...  # pragma: no cover
+    def read_all(self) -> bytes | None: ...  # pragma: no cover
+
+
+class _Owned(NamedTuple):
+    """The link is the transport's own `Serial`, which `connect()` opens."""
+
+
+class _Borrowed(NamedTuple):
+    """The link is a caller's open port, which the caller closes."""
+
+    port: SerialPort
+
+
+_Link: TypeAlias = _Owned | _Borrowed
 
 
 class SerialOptions(NamedTuple):
@@ -69,14 +98,12 @@ class SerialOptions(NamedTuple):
 class _SerialTransportBase(_ConnectableTransport):
     """Connection-management base class for serial-port-backed SMP transports.
 
-    Holds the `pyserial` `Serial` instance, the open/retry connect loop, disconnect,
-    and the small TX/RX helpers that wrap `SerialException` into
-    `SMPTransportDisconnected`.
+    Holds the `pyserial` `Serial` instance, the open/retry connect loop, borrowing a
+    caller's open port (e.g. an emulator's `socket://` chardev), disconnect, and the small
+    TX/RX helpers that wrap `SerialException` into `SMPTransportDisconnected`.
 
-    Subclasses implement `send` and `receive` with their framing of choice, may
-    override `_reset_state` to clear per-connection state on `connect`, and may
-    override `_open` to back the transport with a byte pipe other than a local
-    serial port (e.g. an emulator's `socket://` chardev).
+    Subclasses implement `send` and `receive` with their framing of choice, and may
+    override `_reset_state` to clear per-connection state on `connect` and `borrow`.
     """
 
     _POLLING_INTERVAL_S: Final = 0.005
@@ -102,7 +129,18 @@ class _SerialTransportBase(_ConnectableTransport):
         self._port: Final = port
         self._connect_timeout_s = connect_timeout_s
         self._sequence = _request.wrapping_sequence() if sequence is None else sequence
-        self._conn: Final = Serial(**options._asdict())
+        self._serial: Final = Serial(**options._asdict())
+        self._link: _Link = _Owned()
+
+    @property
+    def _conn(self) -> SerialPort:
+        match self._link:
+            case _Owned():
+                return self._serial
+            case _Borrowed(port=port):
+                return port
+            case _ as unreachable:
+                assert_never(unreachable)
 
     def _reset_state(self) -> None:
         """Reset any per-connection state. Subclasses override as needed."""
@@ -113,27 +151,46 @@ class _SerialTransportBase(_ConnectableTransport):
             await self._open()
             await self.negotiate()
         except (Exception, asyncio.CancelledError):
-            self._conn.close()
+            self._serial.close()
             raise
+
+    async def borrow(self, port: SerialPort) -> None:
+        """Adopt the caller's open `port`, then `negotiate()`; `disconnect()` leaves it open."""
+        self._reset_state()
+        self._link = _Borrowed(port)
+        try:
+            await self.negotiate()
+        except (Exception, asyncio.CancelledError):
+            self._link = _Owned()
+            raise
+
+    @asynccontextmanager
+    async def borrowed(self, port: SerialPort) -> AsyncIterator[Self]:
+        """Borrow the caller's open `port` for the duration of the `async with`."""
+        await self.borrow(port)
+        try:
+            yield self
+        finally:
+            await self.disconnect()
 
     async def _open(self) -> None:
         """Open the port off the event loop, retrying until `connect_timeout_s`."""
         self._reset_state()
-        self._conn.port = self._port
-        logger.debug(f"Connecting to {self._conn.port=}")
+        self._serial.port = self._port
+        logger.debug(f"Connecting to {self._serial.port=}")
         start_time: Final = monotonic()
         while monotonic() - start_time <= self._connect_timeout_s:
             try:
-                await asyncio.to_thread(self._conn.open)
+                await asyncio.to_thread(self._serial.open)
             except SerialException as e:
                 logger.debug(
-                    f"Failed to connect to {self._conn.port=}: {e}, "
+                    f"Failed to connect to {self._serial.port=}: {e}, "
                     f"retrying in {self._CONNECTION_RETRY_INTERVAL_S} seconds"
                 )
                 await asyncio.sleep(self._CONNECTION_RETRY_INTERVAL_S)
             else:
-                await asyncio.to_thread(self._conn.reset_input_buffer)
-                logger.debug(f"Connected to {self._conn.port=}")
+                await asyncio.to_thread(self._serial.reset_input_buffer)
+                logger.debug(f"Connected to {self._serial.port=}")
                 return
 
         raise TimeoutError(f"Failed to connect to {self._port=}")
@@ -141,9 +198,16 @@ class _SerialTransportBase(_ConnectableTransport):
     @final
     @override
     async def disconnect(self) -> None:
-        logger.debug(f"Disconnecting from {self._conn.port=}")
-        self._conn.close()
-        logger.debug(f"Disconnected from {self._conn.port=}")
+        match self._link:
+            case _Owned():
+                logger.debug(f"Disconnecting from {self._serial.port=}")
+                self._serial.close()
+                logger.debug(f"Disconnected from {self._serial.port=}")
+            case _Borrowed(port=port):
+                logger.debug(f"Returning the borrowed {port.port=}")
+                self._link = _Owned()
+            case _ as unreachable:
+                assert_never(unreachable)
 
     @final
     @override

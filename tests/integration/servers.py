@@ -33,20 +33,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, closing
 from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, NamedTuple
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, TypeVar
 
 import serial as pyserial
 from serial.urlhandler.protocol_socket import Serial as _SocketSerial
-from typing_extensions import override
+from typing_extensions import assert_never, override
 
-from smpclient.transport import Auto, SMPTransportDisconnected
-from smpclient.transport.serial import (
-    RawSerialFragmentationStrategy,
-    SerialFragmentationStrategy,
-    SerialFraming,
-    SMPSerialRawTransport,
-    SMPSerialTransport,
-)
+from smpclient.transport import SMPTransportDisconnected
+from smpclient.transport.serial import SMPSerialRawTransport, SMPSerialTransport
 
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
@@ -287,89 +281,47 @@ class _PacedSocketChardev(_SocketChardev):
 FIXTURES: Final = _load_fixtures()
 
 
-async def _connect_socket_chardev(
-    transport: SMPSerialTransport | SMPSerialRawTransport,
-    url: str,
-    timeout_s: float,
-    chardev: type[_SocketChardev] = _SocketChardev,
-) -> None:
-    """Back `transport` with an emulator's `socket://` serial chardev, retrying until it accepts.
+_CHARDEV_CONNECT_TIMEOUT_S: Final = 2.5
+_CHARDEV_RETRY_INTERVAL_S: Final = 0.5
 
-    Replaces the `Final` pyserial `_conn` with a socket-backed `Serial`, sidestepping the
-    PTY held-byte quirk of an emulated UART.  Shared by the encoded and raw socket
-    transports, which differ only in their on-wire framing.
+_LinkedTransport = TypeVar("_LinkedTransport", bound=SMPSerialTransport | SMPSerialRawTransport)
 
-    Args:
-        transport: the socket-backed serial transport whose `_conn` to (re)bind.
-        url: the emulator's `socket://host:port` chardev URL.
-        timeout_s: how long to keep retrying before the socket must have accepted.
-        chardev: the chardev class to bind; `_PacedSocketChardev` for the raw transport.
 
-    Raises:
-        TimeoutError: if the emulator's serial socket never accepts within `timeout_s`.
-    """
-    transport._reset_state()
+def _chardev_for(transport: SMPSerialTransport | SMPSerialRawTransport) -> type[_SocketChardev]:
+    match transport:
+        case SMPSerialRawTransport():
+            return _PacedSocketChardev
+        case SMPSerialTransport():
+            return _SocketChardev
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+async def _open_socket_chardev(url: str, chardev: type[_SocketChardev]) -> _SocketChardev:
+    """Open an emulator's `socket://` serial chardev, retrying until it accepts."""
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout_s
+    deadline = loop.time() + _CHARDEV_CONNECT_TIMEOUT_S
     while True:
         try:
-            conn = chardev(url, timeout=0, write_timeout=_WRITE_TIMEOUT_S)
+            return chardev(url, timeout=0, write_timeout=_WRITE_TIMEOUT_S)
         except (OSError, pyserial.SerialException) as e:
             if loop.time() >= deadline:
                 raise TimeoutError(f"emulator serial socket {url} never accepted: {e}")
-            await asyncio.sleep(transport._CONNECTION_RETRY_INTERVAL_S)
-            continue
-        # `_conn` is `Final` on the base class; replace it for the socket backend.
-        object.__setattr__(transport, "_conn", conn)
-        logger.debug(f"Connected to {url}")
-        return
+            await asyncio.sleep(_CHARDEV_RETRY_INTERVAL_S)
 
 
-class QemuSocketSerialTransport(SMPSerialTransport):
-    """`SMPSerialTransport` whose byte pipe is a TCP socket (an emulator's serial chardev).
+@asynccontextmanager
+async def socket_link(transport: _LinkedTransport, url: str) -> AsyncIterator[_LinkedTransport]:
+    """Lend `transport` an emulator's `socket://` serial chardev, closing it on exit.
 
-    Only `_open` differs -- it binds a `socket://` chardev instead of a local serial
-    port, sidestepping the PTY held-byte quirk of an emulated UART.  Framing,
-    fragmentation, `send`, and `receive` are inherited unchanged, so the suite exercises
-    the real transport rather than a copy of it.
+    The socket sidesteps the PTY held-byte quirk of an emulated UART.  The transport
+    borrows it, so its framing, fragmentation, `send`, and `receive` run unchanged -- the
+    suite exercises the real transport rather than a copy of it.
     """
-
-    def __init__(  # noqa: DOC301
-        self,
-        url: str,
-        fragmentation_strategy: SerialFragmentationStrategy | None = None,
-    ) -> None:
-        if fragmentation_strategy is None:
-            super().__init__(url)
-        else:
-            super().__init__(url, fragmentation_strategy=fragmentation_strategy)
-        self._url: Final = url
-
-    @override
-    async def _open(self) -> None:
-        await _connect_socket_chardev(self, self._url, self._connect_timeout_s)
-
-
-class QemuSocketSerialRawTransport(SMPSerialRawTransport):
-    """`SMPSerialRawTransport` whose byte pipe is a TCP socket (an emulator's serial chardev).
-
-    The raw counterpart of `QemuSocketSerialTransport`: only `_open` differs; the raw
-    `[header][payload]` framing, `send`, and `receive` are inherited from
-    `SMPSerialRawTransport` unchanged.
-    """
-
-    def __init__(  # noqa: DOC301
-        self,
-        url: str,
-        fragmentation_strategy: RawSerialFragmentationStrategy = Auto(),
-        framing: SerialFraming | None = None,
-    ) -> None:
-        super().__init__(url, fragmentation_strategy, framing=framing)
-        self._url: Final = url
-
-    @override
-    async def _open(self) -> None:
-        await _connect_socket_chardev(self, self._url, self._connect_timeout_s, _PacedSocketChardev)
+    with closing(await _open_socket_chardev(url, _chardev_for(transport))) as chardev:
+        async with transport.borrowed(chardev):
+            logger.debug(f"Borrowing {url}")
+            yield transport
 
 
 def _verify_sha256(artifact: Path) -> str | None:

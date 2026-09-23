@@ -126,6 +126,20 @@ async def test_send() -> None:
 
 
 @pytest.mark.asyncio
+async def test_borrowed_receives_from_the_port_and_leaves_it_open() -> None:
+    m: Final = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
+    port: Final = MagicMock(read_all=MagicMock(side_effect=smppacket.encode(bytes(m), 8)))
+    t = SMPSerialTransport(PORT)
+
+    async with t.borrowed(port):
+        assert await t.receive() == bytes(m)
+
+    port.close.assert_not_called()
+    t._serial.open.assert_not_called()  # type: ignore
+    assert t._conn is t._serial
+
+
+@pytest.mark.asyncio
 async def test_receive() -> None:
     t = SMPSerialTransport(PORT)
     m = EchoWriteResponse(r="Hello pytest!").to_frame(sequence=0)
@@ -312,7 +326,7 @@ async def test_serial_and_smp_data() -> None:
 @pytest.mark.asyncio
 async def test_not_connected_exception_handling() -> None:
     t = SMPSerialTransport(PORT)
-    t._conn.is_open = False
+    t._serial.is_open = False
     t._conn.read_all = MagicMock(side_effect=SerialException("Not connected"))  # type: ignore
 
     with pytest.raises(SMPTransportDisconnected):

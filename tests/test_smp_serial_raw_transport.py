@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Generator
-from typing import Any
+from typing import Any, Final
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -113,6 +113,50 @@ async def test_connect_closes_the_port_when_cancelled_while_negotiating() -> Non
         await t.connect()
 
     t._conn.close.assert_called_once()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_borrowed_uses_the_port_and_leaves_it_open() -> None:
+    port: Final = MagicMock(out_waiting=0)
+    t = SMPSerialRawTransport(PORT)
+    r = EchoWriteRequest(d="Hello pytest!").to_frame(sequence=0)
+
+    async with t.borrowed(port) as borrowed:
+        assert borrowed is t
+        await t.send(bytes(r))
+
+    port.write.assert_called_once_with(bytes(r))
+    port.close.assert_not_called()
+    t._serial.open.assert_not_called()  # type: ignore
+    t._serial.close.assert_not_called()  # type: ignore
+    assert t._conn is t._serial
+
+
+@pytest.mark.asyncio
+async def test_borrow_negotiates_the_fragmentation_strategy() -> None:
+    t = SMPSerialRawTransport(PORT)
+
+    with advertise(2048) as read_mcumgr_parameters:
+        await t.borrow(MagicMock())
+
+    read_mcumgr_parameters.assert_awaited_once()
+    assert t.max_unencoded_size == 2048
+
+
+@pytest.mark.asyncio
+async def test_borrow_reverts_to_the_owned_port_when_negotiation_fails() -> None:
+    t = SMPSerialRawTransport(PORT)
+
+    with (
+        patch(
+            "smpclient._request.read_mcumgr_parameters",
+            AsyncMock(side_effect=asyncio.CancelledError),
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await t.borrow(MagicMock())
+
+    assert t._conn is t._serial
 
 
 @pytest.mark.asyncio

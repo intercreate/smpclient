@@ -13,7 +13,7 @@ import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Final, NamedTuple
 
@@ -32,12 +32,11 @@ from tests.integration.servers import (
     FIXTURES,
     Endpoint,
     PtyEndpoint,
-    QemuSocketSerialRawTransport,
-    QemuSocketSerialTransport,
     ServerFixture,
     SocketSerialEndpoint,
     UdpEndpoint,
     serve,
+    socket_link,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,12 +48,13 @@ FixtureTransport = SMPSerialTransport | SMPSerialRawTransport | SMPUDPTransport
 
 
 class ConnectedServer(NamedTuple):
-    """A live `SMPClient`, its transport, its `ServerFixture`, and its `Endpoint`."""
+    """A live `SMPClient`, its transport, its `ServerFixture`, `Endpoint`, and open link."""
 
     client: SMPClient
     transport: FixtureTransport
     fixture: ServerFixture
     endpoint: Endpoint
+    link: AsyncExitStack
 
 
 def fixture_params(
@@ -74,14 +74,16 @@ def fixture_params(
     ]
 
 
-def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> FixtureTransport:
+def _link(
+    fixture: ServerFixture, endpoint: Endpoint
+) -> AbstractAsyncContextManager[FixtureTransport]:
     match endpoint:
         case PtyEndpoint(pty):
             match fixture.transport:
                 case "serial" | "shell":
-                    return SMPSerialTransport(pty)
+                    return SMPSerialTransport(pty).connected()
                 case "serial_raw":
-                    return SMPSerialRawTransport(pty)
+                    return SMPSerialRawTransport(pty).connected()
                 case "udp":
                     pytest.fail("UDP fixtures do not present as a PTY serial endpoint")
                 case _ as unreachable:
@@ -89,15 +91,15 @@ def _build_transport(fixture: ServerFixture, endpoint: Endpoint) -> FixtureTrans
         case SocketSerialEndpoint(url):
             match fixture.transport:
                 case "serial" | "shell":
-                    return QemuSocketSerialTransport(url)
+                    return socket_link(SMPSerialTransport(url), url)
                 case "serial_raw":
-                    return QemuSocketSerialRawTransport(url)
+                    return socket_link(SMPSerialRawTransport(url), url)
                 case "udp":
                     pytest.fail("UDP fixtures do not present as a socket serial endpoint")
                 case _ as unreachable:
                     assert_never(unreachable)
         case UdpEndpoint(host, port):
-            return SMPUDPTransport(host, port)
+            return SMPUDPTransport(host, port).connected()
         case _:
             assert_never(endpoint)
 
@@ -228,13 +230,13 @@ generous than the app-mode default to absorb erase latency under emulation and h
 @asynccontextmanager
 async def reboot_into_recovery(
     app: ConnectedServer,
-    transport: SMPSerialTransport | SMPSerialRawTransport,
+    recovery: AbstractAsyncContextManager[SMPSerialTransport | SMPSerialRawTransport],
 ) -> AsyncIterator[SMPClient]:
     """Reboot the device into MCUboot serial recovery and yield a recovery-connected client.
 
     The app at `app` reboots via `os reset boot_mode=BOOTLOADER` (smp 4.1.0) and its link
-    closes; `transport` then connects to the bootloader on the same serial endpoint, probed
-    until it answers (the recovery server speaks the img group, not echo).
+    closes; the `recovery` link then opens to the bootloader on the same serial endpoint,
+    probed until it answers (the recovery server speaks the img group, not echo).
     """
     app_client: Final = app.client
     assert success(await app_client.request(ImageStatesReadRequest()))
@@ -246,13 +248,13 @@ async def reboot_into_recovery(
         )
     except TimeoutError:
         pass  # some servers reset before sending the response
-    await app.transport.disconnect()
+    await app.link.aclose()
     await asyncio.sleep(2.0)  # let MCUboot serial recovery come up
 
     async def lists_images(c: SMPClient) -> bool:
         return success(await c.request(ImageStatesReadRequest(), timeout_s=1.0))
 
-    async with transport.connected():
+    async with recovery as transport:
         bootloader = SMPClient(transport)
         if not await _poll_until_answering(bootloader, lists_images, interval_s=0.2):
             pytest.fail("MCUboot serial recovery SMP server never answered")
@@ -262,16 +264,15 @@ async def reboot_into_recovery(
 @asynccontextmanager
 async def connected(fixture: ServerFixture) -> AsyncIterator[ConnectedServer]:
     """Launch `fixture`, connect an `SMPClient`, and wait until the server answers."""
-    async with serve(fixture) as endpoint:
-        transport = _build_transport(fixture, endpoint)
+    async with serve(fixture) as endpoint, AsyncExitStack() as link:
         # Tolerant on exit: `connected()` closes best-effort, and a recovery test may have
         # rebooted the server out from under us.
-        async with transport.connected():
-            client = SMPClient(transport)
-            await _wait_until_answering(client)
-            # Re-negotiate in case the first MCUMgr parameter read raced server boot.
-            await transport.negotiate()
-            yield ConnectedServer(client, transport, fixture, endpoint)
+        transport = await link.enter_async_context(_link(fixture, endpoint))
+        client = SMPClient(transport)
+        await _wait_until_answering(client)
+        # Re-negotiate in case the first MCUMgr parameter read raced server boot.
+        await transport.negotiate()
+        yield ConnectedServer(client, transport, fixture, endpoint, link)
 
 
 @pytest_asyncio.fixture(params=fixture_params())

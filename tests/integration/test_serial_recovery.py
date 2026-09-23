@@ -34,7 +34,7 @@ from typing_extensions import assert_never
 
 from smpclient import success
 from smpclient.transport import Auto
-from smpclient.transport.serial import BufferSize, Cobs, SMPSerialTransport
+from smpclient.transport.serial import BufferSize, Cobs, SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.serial.encoded import _FRAME_OVERHEAD
 from tests.integration.conftest import (
     RECOVERY_UPLOAD_TIMEOUT_S,
@@ -46,15 +46,14 @@ from tests.integration.conftest import (
 )
 from tests.integration.servers import (
     FIXTURES,
-    QemuSocketSerialRawTransport,
-    QemuSocketSerialTransport,
     ServerFixture,
     SocketSerialEndpoint,
+    socket_link,
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
-_SocketTransport = QemuSocketSerialTransport | QemuSocketSerialRawTransport
+_SocketTransport = SMPSerialTransport | SMPSerialRawTransport
 
 
 class Console(NamedTuple):
@@ -103,11 +102,11 @@ def _fixture(variant: _Recovery) -> tuple[str, str]:
 def _build_transport(variant: _Recovery, url: str) -> _SocketTransport:
     match variant:
         case Console(strategy=strategy):
-            return QemuSocketSerialTransport(url, fragmentation_strategy=strategy)
+            return SMPSerialTransport(url, fragmentation_strategy=strategy)
         case Raw():
-            return QemuSocketSerialRawTransport(url)
+            return SMPSerialRawTransport(url)
         case RawCobs():
-            return QemuSocketSerialRawTransport(url, framing=Cobs())
+            return SMPSerialRawTransport(url, framing=Cobs())
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -171,7 +170,7 @@ async def test_upload_to_mcuboot_recovery(variant: _Recovery, fixture: ServerFix
         assert isinstance(cs.endpoint, SocketSerialEndpoint)
         transport = _build_transport(variant, cs.endpoint.url)
 
-        async with reboot_into_recovery(cs, transport) as bootloader:
+        async with reboot_into_recovery(cs, socket_link(transport, cs.endpoint.url)) as bootloader:
             # Re-negotiate in case the first read raced the bootloader coming up.
             await transport.negotiate()
 

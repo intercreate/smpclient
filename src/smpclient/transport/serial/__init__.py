@@ -4,6 +4,7 @@ In addition to UART, these transports can be used with USB CDC ACM and CAN.
 """
 
 from smpclient.transport.serial.common import SerialOptions as SerialOptions
+from smpclient.transport.serial.common import SerialPort as SerialPort
 from smpclient.transport.serial.encoded import BufferParams as BufferParams
 from smpclient.transport.serial.encoded import BufferSize as BufferSize
 from smpclient.transport.serial.encoded import (
