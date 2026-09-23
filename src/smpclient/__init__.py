@@ -40,7 +40,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from hashlib import sha256
-from typing import TYPE_CHECKING, Final, TypeVar
+from typing import TYPE_CHECKING, Final, Generic, TypeVar
 
 import msgspec
 from smp import SMPRequest
@@ -76,8 +76,11 @@ TUploadRequest = TypeVar(
 )
 """A single-shot upload request whose `data` field is filled to maximize throughput."""
 
+TTransport = TypeVar("TTransport", bound=SMPTransport)
+"""The type of the client's transport."""
 
-class SMPClient:
+
+class SMPClient(Generic[TTransport]):
     """Create a client to the SMP server at the other end of the live `transport`.
 
     This class provides a high-level interface to an SMP server.  Other than
@@ -116,14 +119,19 @@ class SMPClient:
 
     def __init__(  # noqa: DOC301
         self,
-        transport: SMPTransport,
+        transport: TTransport,
         *,
         timeout_s: float = 2.5,
         sequence: Callable[[], Iterator[u8]] = wrapping_sequence,
-    ):
+    ) -> None:
         self._transport: Final = transport
         self._timeout_s: Final = timeout_s
         self._sequence: Final = sequence()
+
+    @property
+    def transport(self) -> TTransport:
+        """The live transport this client exchanges requests over."""
+        return self._transport
 
     async def request(
         self, request: SMPRequest[TRep, TEr1, TEr2], timeout_s: float | None = None

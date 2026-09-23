@@ -4,11 +4,11 @@ from collections.abc import AsyncIterator
 
 from smp.user import intercreate as ic
 
-from smpclient import SMPClient, error, success
+from smpclient import SMPClient, TTransport, error, success
 from smpclient.exceptions import SMPUploadError
 
 
-class ICUploadClient(SMPClient):
+class ICUploadClient(SMPClient[TTransport]):
     """Support for Intercreate Group Upload."""
 
     async def ic_upload(self, data: bytes, image: int = 0) -> AsyncIterator[int]:

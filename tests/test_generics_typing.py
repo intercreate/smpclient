@@ -21,6 +21,14 @@ from smp.user import intercreate as ic
 from typing_extensions import assert_never, assert_type
 
 from smpclient import SMPClient, error, error_v1, error_v2, success
+from smpclient.extensions.intercreate import ICUploadClient
+from smpclient.transport.serial import SMPSerialTransport
+
+
+def _check_client_keeps_its_transport_type(transport: SMPSerialTransport) -> None:
+    """A client's `transport` is the transport it was given, e.g. for `read_serial()`."""
+    assert_type(SMPClient(transport).transport, SMPSerialTransport)
+    assert_type(ICUploadClient(transport).transport, SMPSerialTransport)
 
 
 async def _check_exhaustive_narrowing(client: SMPClient) -> None:
