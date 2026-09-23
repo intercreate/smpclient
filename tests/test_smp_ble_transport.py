@@ -1,7 +1,7 @@
 """Tests for `SMPBLETransport`."""
 
 import asyncio
-from typing import cast
+from typing import Final, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
@@ -9,6 +9,7 @@ import pytest
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
 from smp.os_management import EchoWriteResponse
 
 from smpclient.transport import BufferSize, SMPTransportDisconnected, Unfragmented
@@ -153,6 +154,111 @@ async def test_disconnect() -> None:
     t._client = MagicMock(spec=BleakClient)
     await t.disconnect()
     t._client.disconnect.assert_awaited_once_with()
+
+
+def _borrowable_client(max_write: int = 244) -> MagicMock:
+    """A caller's connected `BleakClient` that serves the SMP characteristic."""
+    client = MagicMock(spec=BleakClient, name="BorrowedBleakClient")
+    client._backend = MockBleakClient.Backend()
+    client.address = ADDRESS
+    client.is_connected = True
+    client.services.get_characteristic.return_value = MagicMock(
+        spec=BleakGATTCharacteristic, max_write_without_response_size=max_write
+    )
+    return client
+
+
+@pytest.mark.asyncio
+async def test_borrowed_subscribes_and_leaves_the_client_connected() -> None:
+    client: Final = _borrowable_client(max_write=244)
+    t = SMPBLETransport(ADDRESS)
+
+    async with t.borrowed(client) as borrowed:
+        assert borrowed is t
+        assert t.mtu == 244
+        await t.send(b"Hello pytest!")
+
+    client.start_notify.assert_awaited_once_with(SMP_CHARACTERISTIC_UUID, t._notify_callback)
+    client.write_gatt_char.assert_awaited_once_with(
+        t._smp_characteristic, b"Hello pytest!", response=False
+    )
+    client.stop_notify.assert_awaited_once_with(SMP_CHARACTERISTIC_UUID)
+    client.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_borrowed_receive_raises_once_the_client_disconnects() -> None:
+    """The owner holds the client's disconnect callback, so a borrowed wait polls instead."""
+    client: Final = _borrowable_client()
+    t = SMPBLETransport(ADDRESS)
+
+    async with t.borrowed(client):
+        client.is_connected = False
+        with pytest.raises(SMPTransportDisconnected):
+            await asyncio.wait_for(t.receive(), timeout=1.0)
+
+
+@pytest.mark.asyncio
+async def test_borrowed_receive_leaves_no_task_polling_when_cancelled() -> None:
+    t = SMPBLETransport(ADDRESS)
+
+    async with t.borrowed(_borrowable_client()):
+        tasks_before: Final = asyncio.all_tasks()
+        receive: Final = asyncio.create_task(t.receive())
+        await asyncio.sleep(0.01)  # the receive is waiting on a notify or a disconnect
+        receive.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await receive
+
+        assert asyncio.all_tasks() == tasks_before
+
+
+@pytest.mark.asyncio
+async def test_borrow_negotiates_the_fragmentation_strategy() -> None:
+    t = SMPBLETransport(ADDRESS)
+
+    with advertise(2048) as read_mcumgr_parameters:
+        await t.borrow(_borrowable_client())
+
+    read_mcumgr_parameters.assert_awaited_once()
+    assert t.max_unencoded_size == 2048
+
+
+@pytest.mark.asyncio
+async def test_borrow_returns_the_client_when_negotiation_fails() -> None:
+    client: Final = _borrowable_client()
+    t = SMPBLETransport(ADDRESS)
+
+    with (
+        patch(
+            "smpclient._request.read_mcumgr_parameters",
+            AsyncMock(side_effect=asyncio.CancelledError),
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await t.borrow(client)
+
+    client.stop_notify.assert_awaited_once_with(SMP_CHARACTERISTIC_UUID)
+    client.disconnect.assert_not_awaited()
+
+
+async def _never_returns(*_args: object) -> None:
+    await asyncio.Event().wait()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stop_notify", [BleakError("Not connected"), _never_returns], ids=["raises", "hangs"]
+)
+async def test_returning_a_borrowed_client_survives_its_unsubscribe(stop_notify: object) -> None:
+    client: Final = _borrowable_client()
+    client.stop_notify.side_effect = stop_notify
+    t = SMPBLETransport(ADDRESS, connect_timeout_s=0.1)
+
+    async with t.borrowed(client):
+        pass
+
+    client.disconnect.assert_not_awaited()
 
 
 @pytest.mark.asyncio

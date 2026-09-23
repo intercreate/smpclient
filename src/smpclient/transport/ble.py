@@ -6,8 +6,9 @@ import asyncio
 import logging
 import re
 import sys
-from collections.abc import Coroutine, Iterator
-from typing import TYPE_CHECKING, Any, Final, Protocol, TypeAlias, TypeGuard, TypeVar
+from collections.abc import AsyncIterator, Coroutine, Iterator
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, TypeAlias, TypeGuard, TypeVar
 from uuid import UUID
 
 try:
@@ -21,7 +22,7 @@ except ModuleNotFoundError as e:
         raise ImportError("BLE transport requires the 'ble' extra. Use smpclient[ble]") from e
     raise
 from smp import header as smphdr
-from typing_extensions import override
+from typing_extensions import Self, assert_never, override
 
 from smpclient import _request
 from smpclient.exceptions import SMPClientException
@@ -89,6 +90,22 @@ logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
+_BORROWED_DISCONNECT_POLL_S: Final = 0.1
+"""How often a wait on a borrowed client checks `is_connected`; its owner holds the callback."""
+
+
+class _Owned(NamedTuple):
+    """The link is the transport's own `BleakClient`, which `connect()` creates."""
+
+
+class _Borrowed(NamedTuple):
+    """The link is a caller's connected `BleakClient`, which the caller disconnects."""
+
+    client: BleakClient
+
+
+_Link: TypeAlias = _Owned | _Borrowed
+
 
 class SMPBLETransport(_GATTTransport):
     """A Bluetooth Low Energy (BLE) SMPTransport."""
@@ -123,6 +140,7 @@ class SMPBLETransport(_GATTTransport):
         self._disconnected_event = asyncio.Event()
         self._disconnected_event.set()
         self._winrt = winrt
+        self._link: _Link = _Owned()
 
         self._max_write_without_response_size = 20
         """Initially set to BLE minimum; may be mutated by the `connect()` method."""
@@ -164,8 +182,43 @@ class SMPBLETransport(_GATTTransport):
         await self._client.connect()
         self._disconnected_event.clear()
         logger.debug(f"Connected to {device=}")
+        await self._start_smp()
 
-        smp_characteristic = self._client.services.get_characteristic(SMP_CHARACTERISTIC_UUID)
+    async def borrow(self, client: BleakClient) -> None:
+        """Adopt the caller's connected `client`, then `negotiate()`; `disconnect()` leaves it up."""
+        self._link = _Borrowed(client)
+        try:
+            await self._start_smp()
+            await self.negotiate()
+        except (Exception, asyncio.CancelledError):
+            await self.disconnect()
+            raise
+
+    @asynccontextmanager
+    async def borrowed(self, client: BleakClient) -> AsyncIterator[Self]:
+        """Borrow the caller's connected `client` for the duration of the `async with`."""
+        await self.borrow(client)
+        try:
+            yield self
+        finally:
+            await self.disconnect()
+
+    @property
+    def _active_client(self) -> BleakClient:
+        match self._link:
+            case _Owned():
+                return self._client
+            case _Borrowed(client=client):
+                return client
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    async def _start_smp(self) -> None:
+        """Find the SMP characteristic, size writes to the link, and subscribe to it."""
+        self._buffer.clear()
+        smp_characteristic = self._active_client.services.get_characteristic(
+            SMP_CHARACTERISTIC_UUID
+        )
         if smp_characteristic is None:
             raise SMPBLETransportNotSMPServer("Missing the SMP characteristic UUID.")
 
@@ -173,7 +226,7 @@ class SMPBLETransport(_GATTTransport):
         logger.info(f"{smp_characteristic.max_write_without_response_size=}")
         self._max_write_without_response_size = smp_characteristic.max_write_without_response_size
         if (
-            self._winrt_backend(self._client._backend)
+            self._winrt_backend(self._active_client._backend)
             and self._max_write_without_response_size == 20
         ):
             # https://github.com/hbldh/bleak/pull/1552#issuecomment-2105573291
@@ -182,38 +235,51 @@ class SMPBLETransport(_GATTTransport):
             )
             await asyncio.sleep(2)
             smp_characteristic._max_write_without_response_size = (  # pyright: ignore[reportAttributeAccessIssue]
-                self._client._backend._session.max_pdu_size - 3  # type: ignore
+                self._active_client._backend._session.max_pdu_size - 3  # type: ignore
             )
             self._max_write_without_response_size = (
                 smp_characteristic.max_write_without_response_size
             )
             logger.warning(f"{smp_characteristic.max_write_without_response_size=}")
-        elif self._bluez_backend(self._client._backend):
+        elif self._bluez_backend(self._active_client._backend):
             logger.debug("Getting MTU from BlueZ backend")
-            await self._client._backend._acquire_mtu()
-            logger.debug(f"Got MTU: {self._client.mtu_size}")
-            self._max_write_without_response_size = self._client.mtu_size - 3
+            await self._active_client._backend._acquire_mtu()
+            logger.debug(f"Got MTU: {self._active_client.mtu_size}")
+            self._max_write_without_response_size = self._active_client.mtu_size - 3
 
         logger.info(f"{self._max_write_without_response_size=}")
         self._smp_characteristic = smp_characteristic
 
         logger.debug(f"Starting notify on {SMP_CHARACTERISTIC_UUID=}")
         await self._await_or_disconnect(
-            self._client.start_notify(SMP_CHARACTERISTIC_UUID, self._notify_callback)
+            self._active_client.start_notify(SMP_CHARACTERISTIC_UUID, self._notify_callback)
         )
         logger.debug(f"Started notify on {SMP_CHARACTERISTIC_UUID=}")
 
     @override
     async def disconnect(self) -> None:
-        logger.debug(f"Disonnecting from {self._client.address}")
-        await self._client.disconnect()
-        logger.debug(f"Disconnected from {self._client.address}")
+        match self._link:
+            case _Owned():
+                logger.debug(f"Disonnecting from {self._client.address}")
+                await self._client.disconnect()
+                logger.debug(f"Disconnected from {self._client.address}")
+            case _Borrowed(client=client):
+                logger.debug(f"Returning the borrowed client for {client.address}")
+                self._link = _Owned()
+                try:
+                    await asyncio.wait_for(
+                        client.stop_notify(SMP_CHARACTERISTIC_UUID), timeout=self._connect_timeout_s
+                    )
+                except Exception as e:
+                    logger.warning(f"Error unsubscribing from the borrowed client: {e}")
+            case _ as unreachable:
+                assert_never(unreachable)
 
     @override
     async def send(self, data: bytes) -> None:
         logger.debug(f"Sending {len(data)} bytes, {self.mtu=}")
         for offset in range(0, len(data), self.mtu):
-            await self._client.write_gatt_char(
+            await self._active_client.write_gatt_char(
                 self._smp_characteristic, data[offset : offset + self.mtu], response=False
             )
         logger.debug(f"Sent {len(data)} bytes")
@@ -291,21 +357,30 @@ class SMPBLETransport(_GATTTransport):
         logger.warning(f"Disconnected from {client.address}")
         self._disconnected_event.set()
 
+    async def _until_disconnected(self) -> None:
+        match self._link:
+            case _Owned():
+                await self._disconnected_event.wait()
+            case _Borrowed(client=client):
+                while client.is_connected:
+                    await asyncio.sleep(_BORROWED_DISCONNECT_POLL_S)
+            case _ as unreachable:
+                assert_never(unreachable)
+
     async def _notify_or_disconnect(self) -> None:
-        disconnected_task: Final = asyncio.create_task(self._disconnected_event.wait())
+        disconnected_task: Final = asyncio.create_task(self._until_disconnected())
         notify_task: Final = asyncio.create_task(self._notify_condition.wait())
-        done, pending = await asyncio.wait(
-            (disconnected_task, notify_task), return_when=asyncio.FIRST_COMPLETED
-        )
-        for task in pending:
-            task.cancel()
         try:
-            await asyncio.gather(*pending)
-        except asyncio.CancelledError:
-            pass
+            done, _ = await asyncio.wait(
+                (disconnected_task, notify_task), return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            for task in (disconnected_task, notify_task):
+                task.cancel()
+            await asyncio.gather(disconnected_task, notify_task, return_exceptions=True)
         if disconnected_task in done:
             raise SMPTransportDisconnected(
-                f"{self.__class__.__name__} disconnected from {self._client.address}"
+                f"{self.__class__.__name__} disconnected from {self._active_client.address}"
             )
 
     async def _await_or_disconnect(self, coro: Coroutine[Any, Any, _T]) -> _T:
@@ -316,7 +391,7 @@ class SMPBLETransport(_GATTTransport):
         https://github.com/intercreate/smpmgr/issues/97.
         """
         op_task: Final = asyncio.create_task(coro)
-        disconnected_task: Final = asyncio.create_task(self._disconnected_event.wait())
+        disconnected_task: Final = asyncio.create_task(self._until_disconnected())
         try:
             done, _ = await asyncio.wait(
                 (op_task, disconnected_task), return_when=asyncio.FIRST_COMPLETED
@@ -328,7 +403,7 @@ class SMPBLETransport(_GATTTransport):
             await asyncio.gather(op_task, disconnected_task, return_exceptions=True)
         if disconnected_task in done:
             raise SMPTransportDisconnected(
-                f"{self.__class__.__name__} disconnected from {self._client.address}"
+                f"{self.__class__.__name__} disconnected from {self._active_client.address}"
             )
         return op_task.result()
 
