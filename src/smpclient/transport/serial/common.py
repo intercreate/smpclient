@@ -109,31 +109,32 @@ class _SerialTransportBase(_ConnectableTransport):
 
     @override
     async def connect(self) -> None:
-        await self._open()
         try:
+            await self._open()
             await self.negotiate()
         except (Exception, asyncio.CancelledError):
             self._conn.close()
             raise
 
     async def _open(self) -> None:
-        """Open the port, retrying until `connect_timeout_s`."""
+        """Open the port off the event loop, retrying until `connect_timeout_s`."""
         self._reset_state()
         self._conn.port = self._port
         logger.debug(f"Connecting to {self._conn.port=}")
         start_time: Final = monotonic()
         while monotonic() - start_time <= self._connect_timeout_s:
             try:
-                self._conn.open()
-                self._conn.reset_input_buffer()
-                logger.debug(f"Connected to {self._conn.port=}")
-                return
+                await asyncio.to_thread(self._conn.open)
             except SerialException as e:
                 logger.debug(
                     f"Failed to connect to {self._conn.port=}: {e}, "
                     f"retrying in {self._CONNECTION_RETRY_INTERVAL_S} seconds"
                 )
                 await asyncio.sleep(self._CONNECTION_RETRY_INTERVAL_S)
+            else:
+                await asyncio.to_thread(self._conn.reset_input_buffer)
+                logger.debug(f"Connected to {self._conn.port=}")
+                return
 
         raise TimeoutError(f"Failed to connect to {self._port=}")
 

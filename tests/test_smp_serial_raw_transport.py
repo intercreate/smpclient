@@ -87,6 +87,35 @@ async def test_connect_retries_until_timeout() -> None:
 
 
 @pytest.mark.asyncio
+async def test_connect_closes_the_port_when_the_flush_fails() -> None:
+    """The flush is outside the retry, which would reopen the open port until the timeout."""
+    t = SMPSerialRawTransport(PORT)
+    t._conn.reset_input_buffer = MagicMock(side_effect=SerialException("flush"))  # type: ignore
+
+    with pytest.raises(SerialException):
+        await t.connect()
+
+    t._conn.open.assert_called_once()  # type: ignore
+    t._conn.close.assert_called_once()  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_connect_closes_the_port_when_cancelled_while_negotiating() -> None:
+    t = SMPSerialRawTransport(PORT)
+
+    with (
+        patch(
+            "smpclient._request.read_mcumgr_parameters",
+            AsyncMock(side_effect=asyncio.CancelledError),
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await t.connect()
+
+    t._conn.close.assert_called_once()  # type: ignore
+
+
+@pytest.mark.asyncio
 async def test_send() -> None:
     t = SMPSerialRawTransport(PORT)
     t._conn.write = MagicMock()  # type: ignore
