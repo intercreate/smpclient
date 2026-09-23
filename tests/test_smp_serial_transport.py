@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 import serial
 from serial import SerialException
+from serial.serialutil import SerialBase
 from smp import packet as smppacket
 from smp.os_management import EchoWriteRequest, EchoWriteResponse
 
@@ -68,10 +69,14 @@ def test_constructor() -> None:
 
 
 def test_serial_options_lock_pyserial() -> None:
-    """`SerialOptions` is `serial.Serial`'s settings, in order, with its defaults but the baudrate."""
+    """`SerialOptions` is pyserial's settings, in order, with its defaults but the baudrate.
+
+    The settings are `SerialBase`'s: on Windows, `serial.Serial.__init__` is `*args, **kwargs`.
+    """
+    assert issubclass(serial.Serial, SerialBase)
     pyserial_defaults: Final = {
         name: parameter.default
-        for name, parameter in inspect.signature(serial.Serial).parameters.items()
+        for name, parameter in inspect.signature(SerialBase).parameters.items()
         if name != "port" and parameter.kind is not inspect.Parameter.VAR_KEYWORD
     }
     assert tuple(pyserial_defaults) == SerialOptions._fields
