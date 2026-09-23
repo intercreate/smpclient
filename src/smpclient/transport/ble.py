@@ -95,8 +95,14 @@ _BORROWED_DISCONNECT_POLL_S: Final = 0.1
 """How often a wait on a borrowed client checks `is_connected`; its owner holds the callback."""
 
 
+class _Closed(NamedTuple):
+    """No link: not yet connected, disconnected, or a borrowed client returned."""
+
+
 class _Owned(NamedTuple):
-    """The link is the transport's own `BleakClient`, which `connect()` creates."""
+    """The link is the transport's own `BleakClient`, which `connect()` created."""
+
+    client: BleakClient
 
 
 class _Borrowed(NamedTuple):
@@ -105,7 +111,7 @@ class _Borrowed(NamedTuple):
     client: BleakClient
 
 
-_Link: TypeAlias = _Owned | _Borrowed
+_Link: TypeAlias = _Closed | _Owned | _Borrowed
 
 
 class SMPBLETransport(_GATTTransport):
@@ -144,7 +150,7 @@ class SMPBLETransport(_GATTTransport):
         self._disconnected_event.set()
         self._winrt = winrt
         self._bluez: Final = bluez
-        self._link: _Link = _Owned()
+        self._link: _Link = _Closed()
 
         self._max_write_without_response_size = 20
         """Initially set to BLE minimum; may be mutated by the `connect()` method."""
@@ -176,19 +182,21 @@ class SMPBLETransport(_GATTTransport):
         )
 
         if type(device) is BLEDevice:
-            self._client = BleakClient(
-                device,
-                services=(str(SMP_SERVICE_UUID),),
-                winrt=self._winrt,
-                bluez=self._bluez,
-                timeout=timeout_s,
-                disconnected_callback=self._set_disconnected_event,
+            self._link = _Owned(
+                BleakClient(
+                    device,
+                    services=(str(SMP_SERVICE_UUID),),
+                    winrt=self._winrt,
+                    bluez=self._bluez,
+                    timeout=timeout_s,
+                    disconnected_callback=self._set_disconnected_event,
+                )
             )
         else:
             raise SMPBLETransportDeviceNotFound(f"Device '{address}' not found")
 
         logger.debug(f"Found device: {device=}, connecting...")
-        await self._client.connect()
+        await self._active_client.connect()
         self._disconnected_event.clear()
         logger.debug(f"Connected to {device=}")
         await self._start_smp()
@@ -215,9 +223,9 @@ class SMPBLETransport(_GATTTransport):
     @property
     def _active_client(self) -> BleakClient:
         match self._link:
-            case _Owned():
-                return self._client
-            case _Borrowed(client=client):
+            case _Closed():
+                raise SMPTransportDisconnected(f"{self.__class__.__name__} is not connected")
+            case _Owned(client=client) | _Borrowed(client=client):
                 return client
             case _ as unreachable:
                 assert_never(unreachable)
@@ -268,13 +276,16 @@ class SMPBLETransport(_GATTTransport):
     @override
     async def disconnect(self) -> None:
         match self._link:
-            case _Owned():
-                logger.debug(f"Disonnecting from {self._client.address}")
-                await self._client.disconnect()
-                logger.debug(f"Disconnected from {self._client.address}")
+            case _Closed():
+                pass
+            case _Owned(client=client):
+                logger.debug(f"Disonnecting from {client.address}")
+                self._link = _Closed()
+                await client.disconnect()
+                logger.debug(f"Disconnected from {client.address}")
             case _Borrowed(client=client):
                 logger.debug(f"Returning the borrowed client for {client.address}")
-                self._link = _Owned()
+                self._link = _Closed()
                 try:
                     await asyncio.wait_for(
                         client.stop_notify(SMP_CHARACTERISTIC_UUID), timeout=self._connect_timeout_s
@@ -359,15 +370,22 @@ class SMPBLETransport(_GATTTransport):
         return client_backend.__class__.__name__ == "BleakClientWinRT"
 
     def _set_disconnected_event(self, client: BleakClient) -> None:
-        if client is not self._client:
-            raise SMPBLETransportException(
-                f"Unexpected client disconnected: {client=}, {self._client=}"
-            )
+        match self._link:
+            case _Owned(client=owned) if owned is not client:
+                raise SMPBLETransportException(
+                    f"Unexpected client disconnected: {client=}, {owned=}"
+                )
+            case _Closed() | _Owned() | _Borrowed():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
         logger.warning(f"Disconnected from {client.address}")
         self._disconnected_event.set()
 
     async def _until_disconnected(self) -> None:
         match self._link:
+            case _Closed():
+                pass
             case _Owned():
                 await self._disconnected_event.wait()
             case _Borrowed(client=client):
@@ -418,10 +436,7 @@ class SMPBLETransport(_GATTTransport):
 
     async def _best_effort_disconnect(self) -> None:
         """Best-effort cleanup after a failed `connect()`; never raises."""
-        client: Final = getattr(self, "_client", None)
-        if client is None:
-            return
         try:
-            await client.disconnect()
+            await self.disconnect()
         except Exception:
             logger.warning("Best-effort disconnect after failed connect raised", exc_info=True)
