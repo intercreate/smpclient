@@ -39,9 +39,10 @@ import serial as pyserial
 from serial.urlhandler.protocol_socket import Serial as _SocketSerial
 from typing_extensions import override
 
-from smpclient.transport import SMPTransportDisconnected
+from smpclient.transport import Auto, SMPTransportDisconnected
 from smpclient.transport.serial import (
-    FragmentationStrategy,
+    RawSerialFragmentationStrategy,
+    SerialFragmentationStrategy,
     SerialFraming,
     SMPSerialRawTransport,
     SMPSerialTransport,
@@ -336,7 +337,7 @@ class QemuSocketSerialTransport(SMPSerialTransport):
     def __init__(  # noqa: DOC301
         self,
         url: str,
-        fragmentation_strategy: FragmentationStrategy | None = None,
+        fragmentation_strategy: SerialFragmentationStrategy | None = None,
     ) -> None:
         if fragmentation_strategy is None:
             super().__init__(url)
@@ -357,8 +358,13 @@ class QemuSocketSerialRawTransport(SMPSerialRawTransport):
     `SMPSerialRawTransport` unchanged.
     """
 
-    def __init__(self, url: str, mtu: int = 384, framing: SerialFraming | None = None) -> None:  # noqa: DOC301
-        super().__init__(url, mtu=mtu, framing=framing)
+    def __init__(  # noqa: DOC301
+        self,
+        url: str,
+        fragmentation_strategy: RawSerialFragmentationStrategy = Auto(),
+        framing: SerialFraming | None = None,
+    ) -> None:
+        super().__init__(url, fragmentation_strategy, framing=framing)
         self._url: Final = url
 
     @override

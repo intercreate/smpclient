@@ -14,14 +14,14 @@ from serial import SerialException
 from smp import packet as smppacket
 from smp.os_management import EchoWriteRequest, EchoWriteResponse
 
-from smpclient.transport import SMPTransportDisconnected
+from smpclient.transport import Auto, SMPTransportDisconnected
 from smpclient.transport.serial import (
-    Auto,
     BufferParams,
     BufferSize,
-    FragmentationStrategy,
+    SerialFragmentationStrategy,
     SMPSerialTransport,
 )
+from tests.support import advertise, negotiated
 
 pytestmark = pytest.mark.usefixtures("skip_negotiation")
 
@@ -298,17 +298,18 @@ async def test_not_connected_exception_handling() -> None:
         await t.receive()
 
 
-def test_initialize_with_auto() -> None:
+@pytest.mark.asyncio
+async def test_negotiate_with_auto() -> None:
     """Test that Auto mode updates parameters based on server's buffer size."""
     t = SMPSerialTransport(PORT)  # Uses Auto() by default
 
-    # Before initialize, uses the conservative 7.1.0-equivalent 128 * 2 defaults
+    # Before negotiating, uses the conservative 7.1.0-equivalent 128 * 2 defaults
     assert t._line_length == 128
     assert t._line_buffers == 2
     assert t._max_smp_encoded_frame_size == 256
 
-    # After initialize with server buffer size
-    t.initialize(512)
+    # After negotiating against the server buffer size
+    await negotiated(t, 512)
     assert t._line_length == 128
     assert t._line_buffers == 512 // 128  # 4
     assert t._max_smp_encoded_frame_size == 512
@@ -318,39 +319,36 @@ def test_initialize_with_auto() -> None:
     assert t.max_unencoded_size == 512 - FRAME_OVERHEAD
 
 
-def test_initialize_with_buffer_params() -> None:
+@pytest.mark.asyncio
+async def test_negotiate_with_buffer_params() -> None:
     """Test that BufferParams mode doesn't change user-specified parameters."""
     t = SMPSerialTransport(
         PORT, fragmentation_strategy=BufferParams(line_length=128, line_buffers=2)
     )
 
-    # Before initialize
+    # Before negotiating
     assert t._line_length == 128
     assert t._line_buffers == 2
     assert t._max_smp_encoded_frame_size == 256  # 128 * 2
 
-    # After initialize - parameters should NOT change
-    t.initialize(512)
+    # After negotiating - parameters should NOT change
+    await negotiated(t, 512)
     assert t._line_length == 128
     assert t._line_buffers == 2
     assert t._max_smp_encoded_frame_size == 256
     assert t.mtu == 256
 
 
-def test_initialize_with_buffer_params_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """Test that a warning is logged when user's params exceed server buffer size."""
-    t = SMPSerialTransport(
-        PORT,
-        fragmentation_strategy=BufferParams(
-            line_length=128,
-            line_buffers=4,  # 128 * 4 = 512
-        ),
-    )
-
-    with caplog.at_level(logging.WARNING):
-        t.initialize(256)  # Server buffer (256) is smaller than calculated size (512)
-
-    assert any("exceeds server buffer size" in record.message for record in caplog.records)
+@pytest.mark.asyncio
+async def test_negotiate_never_reads_for_pinned_strategies() -> None:
+    """A pinned strategy knows its size, so negotiating never reads the server's params."""
+    for strategy in (BufferParams(line_length=128, line_buffers=4), BufferSize(buf_size=1024)):
+        t = SMPSerialTransport(PORT, fragmentation_strategy=strategy)
+        max_unencoded_size = t.max_unencoded_size
+        with advertise(256) as read:
+            await t.negotiate()
+        read.assert_not_awaited()
+        assert t.max_unencoded_size == max_unencoded_size
 
 
 def test_buffer_size() -> None:
@@ -362,10 +360,11 @@ def test_buffer_size() -> None:
         assert t.max_unencoded_size == buf_size - FRAME_OVERHEAD
 
 
-def test_buffer_size_matches_initialized_auto() -> None:
-    """BufferSize(n) is equivalent to Auto initialized with buf_size n."""
+@pytest.mark.asyncio
+async def test_buffer_size_matches_negotiated_auto() -> None:
+    """BufferSize(n) is equivalent to Auto negotiated against buf_size n."""
     auto = SMPSerialTransport(PORT)
-    auto.initialize(1024)
+    await negotiated(auto, 1024)
     told = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=1024))
 
     assert told.max_unencoded_size == auto.max_unencoded_size == 1024 - FRAME_OVERHEAD
@@ -380,21 +379,22 @@ def test_buffer_size_small_line_length() -> None:
     assert t.max_unencoded_size == 384 - FRAME_OVERHEAD
 
 
-def test_line_buffers_never_misleading_zero() -> None:
+@pytest.mark.asyncio
+async def test_line_buffers_never_misleading_zero() -> None:
     """Sub-line-length decoded buffers report >= 1 line buffer, never a misleading 0."""
     # BufferSize with a buffer smaller than one line still reports at least one line buffer.
     assert (
         SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=96))._line_buffers == 1
     )
 
-    # Auto initialized against a sub-line-length server buffer, likewise.
+    # Auto negotiated against a sub-line-length server buffer, likewise.
     auto_small = SMPSerialTransport(PORT)
-    auto_small.initialize(96)
+    await negotiated(auto_small, 96)
     assert auto_small._line_buffers == 1
 
     # A non-multiple server buffer floors to a sane count and still fills buf_size - overhead.
     auto_400 = SMPSerialTransport(PORT)
-    auto_400.initialize(400)
+    await negotiated(auto_400, 400)
     assert auto_400._line_buffers == 400 // 128  # 3
     assert auto_400.max_unencoded_size == 400 - FRAME_OVERHEAD
 
@@ -427,7 +427,7 @@ async def test_decoded_buffer_strategies_put_full_encoded_frame_on_the_wire() ->
     for buf_size, encoded_size in expected_encoded.items():
         told = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=buf_size))
         auto = SMPSerialTransport(PORT)
-        auto.initialize(buf_size)
+        await negotiated(auto, buf_size)
 
         for t in (told, auto):
             on_wire = await _frame_on_the_wire(t, b"\x5a" * t.max_unencoded_size)
@@ -435,22 +435,9 @@ async def test_decoded_buffer_strategies_put_full_encoded_frame_on_the_wire() ->
             assert len(on_wire) > buf_size  # more encoded bytes on the wire than the buffer holds
 
 
-def test_initialize_with_buffer_size_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """A BufferSize larger than the server's advertised buffer warns; the manual size wins."""
-    t = SMPSerialTransport(PORT, fragmentation_strategy=BufferSize(buf_size=1024))
-
-    with caplog.at_level(logging.WARNING):
-        t.initialize(512)
-
-    assert any(
-        "exceeds the server's advertised buffer size" in record.message for record in caplog.records
-    )
-    assert t.max_unencoded_size == 1024 - FRAME_OVERHEAD
-
-
 def test_fragmentation_strategy_alias() -> None:
-    """`FragmentationStrategy` is the union of the three strategy types."""
-    assert set(get_args(FragmentationStrategy)) == {Auto, BufferSize, BufferParams}
+    """`SerialFragmentationStrategy` is the union of the three strategy types."""
+    assert set(get_args(SerialFragmentationStrategy)) == {Auto, BufferSize, BufferParams}
 
 
 @pytest.mark.parametrize(
@@ -605,7 +592,7 @@ def test_explicit_strategy_wins_over_stray_legacy_args(caplog: pytest.LogCapture
         pytest.param(BufferParams(line_length=128, line_buffers=0), id="bufferparams-zero-buffers"),
     ],
 )
-def test_invalid_strategy_raises_value_error(strategy: FragmentationStrategy) -> None:
+def test_invalid_strategy_raises_value_error(strategy: SerialFragmentationStrategy) -> None:
     """The modern API rejects sizes that would hang the encoder or yield a non-positive payload."""
     with pytest.raises(ValueError):
         SMPSerialTransport(PORT, fragmentation_strategy=strategy)
@@ -621,14 +608,15 @@ def test_invalid_strategy_raises_value_error(strategy: FragmentationStrategy) ->
         pytest.param(BufferParams(line_length=128, line_buffers=1), id="bufferparams"),
     ],
 )
-def test_valid_strategy_does_not_raise(strategy: FragmentationStrategy) -> None:
+def test_valid_strategy_does_not_raise(strategy: SerialFragmentationStrategy) -> None:
     """Valid strategies construct and report a positive max_unencoded_size."""
     t = SMPSerialTransport(PORT, fragmentation_strategy=strategy)
     assert t.max_unencoded_size > 0
 
 
-def test_auto_rejects_tiny_server_buffer() -> None:
+@pytest.mark.asyncio
+async def test_auto_rejects_tiny_server_buffer() -> None:
     """Auto raises if the server advertises a buffer too small to hold a framed message."""
     t = SMPSerialTransport(PORT)
     with pytest.raises(ValueError, match="frame overhead"):
-        t.initialize(FRAME_OVERHEAD)  # buf_size == overhead -> zero-byte payload
+        await negotiated(t, FRAME_OVERHEAD)  # buf_size == overhead -> zero-byte payload

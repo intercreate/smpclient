@@ -11,7 +11,7 @@ from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from smp.os_management import EchoWriteResponse
 
-from smpclient.transport import SMPTransportDisconnected
+from smpclient.transport import BufferSize, SMPTransportDisconnected, Unfragmented
 from smpclient.transport.ble import (
     MAC_ADDRESS_PATTERN,
     SMP_CHARACTERISTIC_UUID,
@@ -20,6 +20,7 @@ from smpclient.transport.ble import (
     SMPBLETransport,
     SMPBLETransportDeviceNotFound,
 )
+from tests.support import advertise, negotiated
 
 
 class MockBleakClient:
@@ -214,11 +215,32 @@ def test_max_unencoded_size() -> None:
     assert t.max_unencoded_size == 42
 
 
-def test_max_unencoded_size_mcumgr_param() -> None:
+@pytest.mark.asyncio
+async def test_max_unencoded_size_mcumgr_param() -> None:
     t = SMPBLETransport(ADDRESS)
     t._client = MagicMock(spec=BleakClient)
-    t._smp_server_transport_buffer_size = 9001
-    assert t.max_unencoded_size == 9001
+    t._max_write_without_response_size = 42
+    assert (await negotiated(t, 9001)).max_unencoded_size == 9001
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("buf_size, expected", [(9001, 42), (30, 30)])
+async def test_unfragmented_caps_at_the_write_size(buf_size: int, expected: int) -> None:
+    """One message per write: never more than one write, nor more than the server holds."""
+    t = SMPBLETransport(ADDRESS, fragmentation_strategy=Unfragmented())
+    t._client = MagicMock(spec=BleakClient)
+    t._max_write_without_response_size = 42
+    assert (await negotiated(t, buf_size)).max_unencoded_size == expected
+
+
+@pytest.mark.asyncio
+async def test_buffer_size_never_reads() -> None:
+    t = SMPBLETransport(ADDRESS, fragmentation_strategy=BufferSize(512))
+    t._client = MagicMock(spec=BleakClient)
+    with advertise(9001) as read:
+        await t.negotiate()
+    read.assert_not_awaited()
+    assert t.max_unencoded_size == 512
 
 
 class _HangingBleakClient:

@@ -8,8 +8,10 @@ import pytest
 from smp.os_management import EchoWriteResponse
 
 from smpclient.exceptions import SMPClientException
+from smpclient.transport import BufferSize
 from smpclient.transport._udp_client import Addr, UDPClient
 from smpclient.transport.udp import IPV4_UDP_OVERHEAD, IPV6_UDP_OVERHEAD, SMPUDPTransport
+from tests.support import advertise, negotiated
 
 pytestmark = pytest.mark.usefixtures("skip_negotiation")
 
@@ -153,10 +155,22 @@ def test_max_unencoded_size_custom_mtu() -> None:
     "buf_size, expected",
     [(384, 384), (1472, 1472), (2048, 1472)],
 )
-def test_max_unencoded_size_capped_by_server_buffer(buf_size: int, expected: int) -> None:
+@pytest.mark.asyncio
+async def test_max_unencoded_size_capped_by_server_buffer(buf_size: int, expected: int) -> None:
     """Zephyr copies each datagram into one `buf_size` buffer, so neither bound may be exceeded."""
-    t = SMPUDPTransport(ADDRESS, mtu=1500)
-    t.initialize(buf_size)
+    t = await negotiated(SMPUDPTransport(ADDRESS, mtu=1500), buf_size)
+    assert t.max_unencoded_size == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("buf_size, expected", [(384, 384), (1472, 1472), (2048, 1472)])
+async def test_buffer_size_is_capped_by_the_mss_and_never_reads(
+    buf_size: int, expected: int
+) -> None:
+    t = SMPUDPTransport(ADDRESS, mtu=1500, fragmentation_strategy=BufferSize(buf_size))
+    with advertise(4096) as read:
+        await t.negotiate()
+    read.assert_not_awaited()
     assert t.max_unencoded_size == expected
 
 

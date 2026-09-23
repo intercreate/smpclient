@@ -6,14 +6,14 @@ import asyncio
 import logging
 from collections.abc import Iterator
 from socket import AF_INET6
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from smp import header as smphdr
-from typing_extensions import override
+from typing_extensions import assert_never, override
 
 from smpclient import _request
 from smpclient.exceptions import SMPClientException
-from smpclient.transport import _ConnectableTransport
+from smpclient.transport import Auto, BufferSize, _ConnectableTransport
 from smpclient.transport._udp_client import Addr, UDPClient
 
 if TYPE_CHECKING:
@@ -43,6 +43,14 @@ Per RFC 8085 section 3.2, applications must subtract IP and UDP header sizes fro
 PMTU to avoid fragmentation."""
 
 
+UDPFragmentationStrategy: TypeAlias = Auto | BufferSize
+"""How `SMPUDPTransport` sizes SMP messages: `Auto` or `BufferSize`.
+
+Either way a message never exceeds one datagram's payload (the MSS): the server receives
+each request as a single datagram into a single buffer.
+"""
+
+
 class SMPUDPTransport(_ConnectableTransport):
     def __init__(
         self,
@@ -50,6 +58,7 @@ class SMPUDPTransport(_ConnectableTransport):
         port: int = 1337,
         *,
         mtu: int = 1500,
+        fragmentation_strategy: UDPFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
     ) -> None:
@@ -61,6 +70,7 @@ class SMPUDPTransport(_ConnectableTransport):
             mtu: The Maximum Transmission Unit (MTU) of the link layer in bytes.
                 IP and UDP header overhead will be subtracted to calculate the maximum
                 UDP payload size (MSS) to avoid fragmentation per RFC 8085 section 3.2.
+            fragmentation_strategy: How to size SMP messages: `Auto` or `BufferSize`.
             connect_timeout_s: Bounds connecting, and reading the server's MCUmgr
                 parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from;
@@ -71,6 +81,7 @@ class SMPUDPTransport(_ConnectableTransport):
         self._connect_timeout_s = connect_timeout_s
         self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._mtu = mtu
+        self._fragmentation_strategy: Final = fragmentation_strategy
         self._is_ipv6 = False
 
         self._client: Final = UDPClient()
@@ -164,14 +175,33 @@ class SMPUDPTransport(_ConnectableTransport):
     def mtu(self) -> int:
         return self._mtu
 
+    @override
+    async def negotiate(self) -> None:
+        match self._fragmentation_strategy:
+            case Auto():
+                self._negotiated_buf_size = await self._read_buf_size()
+            case BufferSize():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+
     @property
     @override
     def max_unencoded_size(self) -> int:
-        """Maximum UDP payload size (MSS) to avoid fragmentation.
+        """Maximum UDP payload size (MSS) to avoid fragmentation, capped at the server's buffer.
 
         Subtracts IPv4/IPv6 and UDP header overhead from MTU per RFC 8085 section 3.2.
-        The IP version is auto-detected after connection.  Once the server's MCUmgr
-        parameters are known, the payload is also capped at its advertised buffer.
+        The IP version is auto-detected after connection.
         """
-        overhead = IPV6_UDP_OVERHEAD if self._is_ipv6 else IPV4_UDP_OVERHEAD
-        return min(self._mtu - overhead, self._smp_server_transport_buffer_size or self._mtu)
+        mss: Final = self._mtu - (IPV6_UDP_OVERHEAD if self._is_ipv6 else IPV4_UDP_OVERHEAD)
+        match self._fragmentation_strategy:
+            case Auto():
+                return (
+                    mss
+                    if self._negotiated_buf_size is None
+                    else min(mss, self._negotiated_buf_size)
+                )
+            case BufferSize(buf_size=buf_size):
+                return min(mss, buf_size)
+            case _ as unreachable:
+                assert_never(unreachable)

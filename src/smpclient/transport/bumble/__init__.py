@@ -35,8 +35,10 @@ from smpclient.exceptions import SMPClientException
 from smpclient.transport import (
     SMP_CHARACTERISTIC_UUID,
     SMP_SERVICE_UUID,
+    Auto,
+    GATTFragmentationStrategy,
     SMPTransportDisconnected,
-    _ConnectableTransport,
+    _GATTTransport,
 )
 
 if TYPE_CHECKING:
@@ -129,7 +131,7 @@ class ConnectedBorrowed(NamedTuple):
 _State: TypeAlias = Disconnected | Connecting | Connected | ConnectedBorrowed
 
 
-class SMPBumbleTransport(_ConnectableTransport):
+class SMPBumbleTransport(_GATTTransport):
     """An `SMPTransport` backed by Google's bumble Bluetooth stack."""
 
     def __init__(
@@ -144,6 +146,7 @@ class SMPBumbleTransport(_ConnectableTransport):
         pair_on_connect: PairingDelegate | None = None,
         pair_timeout_s: float = DEFAULT_PAIR_TIMEOUT_S,
         settle_s: float = DEFAULT_POST_PAIR_SETTLE_S,
+        fragmentation_strategy: GATTFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
     ) -> None:
@@ -171,12 +174,15 @@ class SMPBumbleTransport(_ConnectableTransport):
                 `pair_on_connect` and `pair()`.
             settle_s: Wait between successful pair and proceeding (or
                 disconnecting) so the peer can finalize bonding.
+            fragmentation_strategy: How to size SMP messages: `Auto`, `Unfragmented`, or
+                `BufferSize`.
             connect_timeout_s: Bounds scanning for a name, and reading the server's
                 MCUmgr parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from;
                 defaults to `wrapping_sequence()`.
         """
         self._address: Final = address
+        self._fragmentation_strategy = fragmentation_strategy
         self._connect_timeout_s = connect_timeout_s
         self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._hci: Final = hci

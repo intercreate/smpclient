@@ -39,6 +39,7 @@ from smp.os_management import (
 )
 
 from smpclient import SMPClient, error, error_v1, error_v2, success, wrapping_sequence
+from smpclient import transport as smptransport
 from smpclient.exceptions import SMPBadSequence, SMPUploadError, SMPValidationException
 from smpclient.transport.serial import (
     BufferParams,
@@ -84,8 +85,6 @@ class SMPMockTransport:
     def __init__(self) -> None:
         self.send = AsyncMock()
         self.receive = AsyncMock()
-        self._smp_server_transport_buffer_size: int | None = None
-        self.initialize = AsyncMock()
         self._mtu = 0
         self._max_unencoded_size = 0
         self.sequence_offset = 0
@@ -458,7 +457,7 @@ async def test_upload_hello_world_bin_raw(mtu: int) -> None:
     ) as f:
         image = f.read()
 
-    m = SMPSerialRawTransport(PORT, mtu=mtu)
+    m = SMPSerialRawTransport(PORT, fragmentation_strategy=smptransport.BufferSize(mtu))
     s = SMPClient(m)
     assert s._transport.mtu == mtu
     assert s._transport.max_unencoded_size == mtu, "The raw transport has no encoding overhead"

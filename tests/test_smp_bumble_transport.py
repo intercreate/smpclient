@@ -11,7 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smpclient.transport import SMPTransportDisconnected
+from smpclient.transport import (
+    Auto,
+    BufferSize,
+    GATTFragmentationStrategy,
+    SMPTransportDisconnected,
+    Unfragmented,
+)
 from smpclient.transport.bumble import (
     ATT_WRITE_OVERHEAD,
     SMP_CHARACTERISTIC_UUID,
@@ -46,6 +52,7 @@ from smpclient.transport.bumble.pairing import (
     PairingSucceeded,
     PairingTimedOut,
 )
+from tests.support import advertise, negotiated
 
 pytestmark = pytest.mark.usefixtures("skip_negotiation")
 
@@ -125,8 +132,10 @@ async def test_connect_while_connected_raises() -> None:
         await t.connect()
 
 
-def _make_connected(max_write: int = 244) -> tuple[SMPBumbleTransport, MagicMock]:
-    t = SMPBumbleTransport(ADDRESS)
+def _make_connected(
+    max_write: int = 244, fragmentation_strategy: GATTFragmentationStrategy = Auto()
+) -> tuple[SMPBumbleTransport, MagicMock]:
+    t = SMPBumbleTransport(ADDRESS, fragmentation_strategy=fragmentation_strategy)
     smp_char = MagicMock()
     smp_char.write_value = AsyncMock()
     t._state = Connected(
@@ -139,6 +148,30 @@ def _make_connected(max_write: int = 244) -> tuple[SMPBumbleTransport, MagicMock
     )
     t._disconnected_event.clear()
     return t, smp_char
+
+
+@pytest.mark.asyncio
+async def test_auto_adopts_the_server_buffer() -> None:
+    t, _ = _make_connected(max_write=244)
+    assert t.max_unencoded_size == 244
+    assert (await negotiated(t, 2048)).max_unencoded_size == 2048
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("buf_size, expected", [(2048, 244), (128, 128)])
+async def test_unfragmented_caps_at_the_write_size(buf_size: int, expected: int) -> None:
+    """One message per write: never more than one write, nor more than the server holds."""
+    t, _ = _make_connected(max_write=244, fragmentation_strategy=Unfragmented())
+    assert (await negotiated(t, buf_size)).max_unencoded_size == expected
+
+
+@pytest.mark.asyncio
+async def test_buffer_size_never_reads() -> None:
+    t, _ = _make_connected(max_write=244, fragmentation_strategy=BufferSize(512))
+    with advertise(2048) as read:
+        await t.negotiate()
+    read.assert_not_awaited()
+    assert t.max_unencoded_size == 512
 
 
 @pytest.mark.asyncio

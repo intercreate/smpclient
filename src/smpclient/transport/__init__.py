@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, TypeAlias
 from uuid import UUID
 
-from typing_extensions import Self
+from typing_extensions import Self, assert_never, override
 
 from smpclient import _request
 
@@ -32,10 +32,30 @@ class SMPTransportDisconnected(Exception):
     """Raised when the SMP transport is disconnected."""
 
 
-class SMPTransport(Protocol):
-    _smp_server_transport_buffer_size: int | None = None
-    """The SMP server transport buffer size, in 8-bit bytes."""
+class Auto(NamedTuple):
+    """Size messages from the server's MCUmgr parameters, read while the transport connects."""
 
+
+class BufferSize(NamedTuple):
+    """Size messages from a known server buffer; the server's parameters are not read."""
+
+    buf_size: int
+    """The server's SMP reassembly buffer (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`)."""
+
+
+class Unfragmented(NamedTuple):
+    """Like `Auto`, but one SMP message per GATT write.
+
+    For a server that does not reassemble a message split across writes (Zephyr without
+    `CONFIG_MCUMGR_TRANSPORT_BT_REASSEMBLY`).
+    """
+
+
+GATTFragmentationStrategy: TypeAlias = Auto | Unfragmented | BufferSize
+"""How a GATT transport (`ble`, `bumble`) sizes SMP messages."""
+
+
+class SMPTransport(Protocol):
     async def send(self, data: bytes) -> None:  # pragma: no cover
         """Send the encoded `SMPRequest` `data`.
 
@@ -63,14 +83,6 @@ class SMPTransport(Protocol):
         """
         ...
 
-    def initialize(self, smp_server_transport_buffer_size: int) -> None:  # pragma: no cover
-        """Initialize the `SMPTransport` with the server transport buffer size.
-
-        Args:
-            smp_server_transport_buffer_size: The SMP server transport buffer size, in 8-bit bytes.
-        """
-        self._smp_server_transport_buffer_size = smp_server_transport_buffer_size
-
     @property
     def mtu(self) -> int:  # pragma: no cover
         """The Maximum Transmission Unit (MTU) in 8-bit bytes."""
@@ -89,8 +101,7 @@ class SMPTransport(Protocol):
         # an error in some write, then some of the writes that have already been
         # sent out are no longer valid.  That is, the response to each
         # concurrent write needs to be tracked very carefully!
-
-        return self._smp_server_transport_buffer_size or self.mtu
+        ...
 
 
 class _ConnectableTransport(SMPTransport, Protocol):
@@ -106,6 +117,9 @@ class _ConnectableTransport(SMPTransport, Protocol):
     _connect_timeout_s: float
     """Bounds establishing the link, including reading the MCUmgr parameters."""
 
+    _negotiated_buf_size: int | None = None
+    """The server's advertised `buf_size`, once a fragmentation strategy that asks has read it."""
+
     async def connect(self) -> None:  # pragma: no cover
         """Open the link, then `negotiate()`."""
         ...
@@ -114,13 +128,16 @@ class _ConnectableTransport(SMPTransport, Protocol):
         """Close the link."""
         ...
 
-    async def negotiate(self) -> None:
-        """Adopt the server's MCUmgr parameters, if it provides them."""
+    async def negotiate(self) -> None:  # pragma: no cover
+        """Adopt the server's MCUmgr parameters, if the fragmentation strategy asks for them."""
+        ...
+
+    async def _read_buf_size(self) -> int | None:
+        """The server's advertised `buf_size`, or `None` if it doesn't provide one."""
         params: Final = await _request.read_mcumgr_parameters(
             self, next(self._sequence), self._connect_timeout_s
         )
-        if params is not None:
-            self.initialize(params.buf_size)
+        return None if params is None else params.buf_size
 
     @asynccontextmanager
     async def connected(self) -> AsyncIterator[Self]:
@@ -133,3 +150,36 @@ class _ConnectableTransport(SMPTransport, Protocol):
                 await self.disconnect()
             except Exception as e:
                 logger.warning(f"Error during disconnect: {e}")
+
+
+class _GATTTransport(_ConnectableTransport):
+    """A `_ConnectableTransport` that writes SMP messages to a GATT characteristic."""
+
+    _fragmentation_strategy: GATTFragmentationStrategy
+
+    @override
+    async def negotiate(self) -> None:
+        match self._fragmentation_strategy:
+            case Auto() | Unfragmented():
+                self._negotiated_buf_size = await self._read_buf_size()
+            case BufferSize():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    @property
+    @override
+    def max_unencoded_size(self) -> int:
+        match self._fragmentation_strategy:
+            case Auto():
+                return self.mtu if self._negotiated_buf_size is None else self._negotiated_buf_size
+            case Unfragmented():
+                return (
+                    self.mtu
+                    if self._negotiated_buf_size is None
+                    else min(self.mtu, self._negotiated_buf_size)
+                )
+            case BufferSize(buf_size=buf_size):
+                return buf_size
+            case _ as unreachable:
+                assert_never(unreachable)

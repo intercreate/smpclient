@@ -28,8 +28,10 @@ from smpclient.exceptions import SMPClientException
 from smpclient.transport import (
     SMP_CHARACTERISTIC_UUID,
     SMP_SERVICE_UUID,
+    Auto,
+    GATTFragmentationStrategy,
     SMPTransportDisconnected,
-    _ConnectableTransport,
+    _GATTTransport,
 )
 
 if TYPE_CHECKING:
@@ -88,7 +90,7 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 
-class SMPBLETransport(_ConnectableTransport):
+class SMPBLETransport(_GATTTransport):
     """A Bluetooth Low Energy (BLE) SMPTransport."""
 
     def __init__(
@@ -96,6 +98,7 @@ class SMPBLETransport(_ConnectableTransport):
         address: str,
         *,
         winrt: WinRTClientArgs = {},
+        fragmentation_strategy: GATTFragmentationStrategy = Auto(),
         connect_timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
     ) -> None:
@@ -104,12 +107,15 @@ class SMPBLETransport(_ConnectableTransport):
         Args:
             address: The device's MAC address, macOS UUID, or advertised name.
             winrt: WinRT backend arguments, e.g. `use_cached_services`.
+            fragmentation_strategy: How to size SMP messages: `Auto`, `Unfragmented`, or
+                `BufferSize`.
             connect_timeout_s: Bounds scanning and connecting, and reading the server's
                 MCUmgr parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from;
                 defaults to `wrapping_sequence()`.
         """
         self._address: Final = address
+        self._fragmentation_strategy = fragmentation_strategy
         self._connect_timeout_s = connect_timeout_s
         self._sequence = _request.wrapping_sequence() if sequence is None else sequence
         self._buffer = bytearray()

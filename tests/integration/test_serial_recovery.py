@@ -33,7 +33,8 @@ from smp.os_management import MCUMgrParametersReadRequest
 from typing_extensions import assert_never
 
 from smpclient import success
-from smpclient.transport.serial import Auto, BufferSize, Cobs, SMPSerialTransport
+from smpclient.transport import Auto
+from smpclient.transport.serial import BufferSize, Cobs, SMPSerialTransport
 from smpclient.transport.serial.encoded import _FRAME_OVERHEAD
 from tests.integration.conftest import (
     RECOVERY_UPLOAD_TIMEOUT_S,

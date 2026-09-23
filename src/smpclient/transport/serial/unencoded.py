@@ -16,12 +16,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from smp import header as smphdr
-from typing_extensions import override
+from typing_extensions import assert_never, override
 
 from smpclient.exceptions import SMPClientException
+from smpclient.transport import Auto, BufferSize
 from smpclient.transport.serial.common import _SerialTransportBase
 from smpclient.transport.serial.framing import SerialFraming
 
@@ -31,11 +32,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_DEFAULT_BUF_SIZE: Final = 384
+"""The server buffer `Auto` assumes until it reads the MCUmgr parameters: Zephyr's default
+`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`."""
+
+RawSerialFragmentationStrategy: TypeAlias = Auto | BufferSize
+"""How `SMPSerialRawTransport` sizes SMP messages: `Auto` or `BufferSize`."""
+
+
 class SMPSerialRawTransport(_SerialTransportBase):
     def __init__(
         self,
         port: str,
-        mtu: int = 384,
+        fragmentation_strategy: RawSerialFragmentationStrategy = Auto(),
         *,
         framing: SerialFraming | None = None,
         connect_timeout_s: float = 2.5,
@@ -56,10 +65,9 @@ class SMPSerialRawTransport(_SerialTransportBase):
 
         Args:
             port: The serial port, e.g. `/dev/ttyACM0` or `COM3`.
-            mtu: The maximum size of one SMP message (header + payload), in
-                bytes.  A serial link has no MTU of its own, but the SMP
-                server's receive buffer does -- this should match the server's
-                `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE` (Zephyr default 384).
+            fragmentation_strategy: How to size one SMP message (header + payload): `Auto`
+                or `BufferSize`.  A serial link has no MTU of its own, but the SMP server's
+                receive buffer (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`) does.
             framing: optional wire framing for each SMP message (e.g. `Cobs()`);
                 `None` sends the bare `[header][payload]`.
             connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
@@ -97,7 +105,7 @@ class SMPSerialRawTransport(_SerialTransportBase):
             inter_byte_timeout=inter_byte_timeout,
             exclusive=exclusive,
         )
-        self._mtu: Final = mtu
+        self._fragmentation_strategy: Final = fragmentation_strategy
         self._framing: Final = framing
 
         logger.debug(f"Initialized {self.__class__.__name__}")
@@ -190,7 +198,32 @@ class SMPSerialRawTransport(_SerialTransportBase):
         else:
             await asyncio.sleep(self._POLLING_INTERVAL_S)
 
+    @override
+    async def negotiate(self) -> None:
+        match self._fragmentation_strategy:
+            case Auto():
+                self._negotiated_buf_size = await self._read_buf_size()
+            case BufferSize():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+
     @property
     @override
     def mtu(self) -> int:
-        return self._mtu
+        return self.max_unencoded_size
+
+    @property
+    @override
+    def max_unencoded_size(self) -> int:
+        match self._fragmentation_strategy:
+            case Auto():
+                return (
+                    _DEFAULT_BUF_SIZE
+                    if self._negotiated_buf_size is None
+                    else self._negotiated_buf_size
+                )
+            case BufferSize(buf_size=buf_size):
+                return buf_size
+            case _ as unreachable:
+                assert_never(unreachable)

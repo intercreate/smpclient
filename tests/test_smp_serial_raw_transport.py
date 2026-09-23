@@ -14,9 +14,10 @@ from smp.os_management import EchoWriteRequest, EchoWriteResponse
 from smp.packet import CRC16_STRUCT, crc16_func
 
 from smpclient.exceptions import SMPClientException
-from smpclient.transport import SMPTransportDisconnected
+from smpclient.transport import BufferSize, SMPTransportDisconnected
 from smpclient.transport.serial import Cobs, SMPSerialRawTransport
 from smpclient.transport.serial.framing.cobs import cobs_encode
+from tests.support import advertise, negotiated
 
 pytestmark = pytest.mark.usefixtures("skip_negotiation")
 
@@ -31,7 +32,7 @@ def mock_serial() -> Generator[None, Any, None]:
 
 
 def test_constructor() -> None:
-    t = SMPSerialRawTransport(PORT, mtu=512)
+    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(512))
     assert t.mtu == 512
     assert t.max_unencoded_size == 512
 
@@ -39,6 +40,22 @@ def test_constructor() -> None:
 def test_constructor_defaults() -> None:
     t = SMPSerialRawTransport(PORT)
     assert t.mtu == 384
+
+
+@pytest.mark.asyncio
+async def test_negotiate_with_auto() -> None:
+    """`Auto` adopts the server's buffer: the whole message rides in it, with no framing."""
+    t = await negotiated(SMPSerialRawTransport(PORT), 1024)
+    assert t.mtu == t.max_unencoded_size == 1024
+
+
+@pytest.mark.asyncio
+async def test_negotiate_never_reads_for_buffer_size() -> None:
+    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(512))
+    with advertise(1024) as read:
+        await t.negotiate()
+    read.assert_not_awaited()
+    assert t.max_unencoded_size == 512
 
 
 @pytest.mark.asyncio
@@ -97,7 +114,7 @@ async def test_send_waits_for_tx_drain() -> None:
 
 @pytest.mark.asyncio
 async def test_send_too_large_raises() -> None:
-    t = SMPSerialRawTransport(PORT, mtu=16)
+    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(16))
     with pytest.raises(ValueError):
         await t.send(b"\x00" * 32)
 
@@ -220,7 +237,7 @@ async def test_receive_oversized_header_raises() -> None:
     Defensive bound against noisy or corrupted UART traffic that would
     otherwise cause an unbounded wait.
     """
-    t = SMPSerialRawTransport(PORT, mtu=64)
+    t = SMPSerialRawTransport(PORT, fragmentation_strategy=BufferSize(64))
     await t.connect()
 
     bogus_header = smphdr.Header(
