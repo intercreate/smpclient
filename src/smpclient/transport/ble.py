@@ -169,8 +169,7 @@ class SMPBLETransport(_GATTTransport):
 
         Args:
             backend: The bleak backend options to scan and connect with.
-            fragmentation_strategy: How to size SMP messages: `Auto`, `Unfragmented`, or
-                `BufferSize`.
+            fragmentation_strategy: How to size SMP messages.
             connect_timeout_s: Bounds scanning and connecting, and reading the server's
                 MCUmgr parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from.

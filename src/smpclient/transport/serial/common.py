@@ -7,7 +7,7 @@ import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from time import monotonic
-from typing import TYPE_CHECKING, Final, Generator, NamedTuple, Protocol, TypeAlias, TypeVar, final
+from typing import TYPE_CHECKING, Final, Generator, NamedTuple, Protocol, TypeAlias, final
 
 try:
     from serial import Serial, SerialException
@@ -19,7 +19,7 @@ except ModuleNotFoundError as e:
     raise
 from typing_extensions import Self, assert_never, override
 
-from smpclient.transport import SMPTransportDisconnected, _ConnectableTransport
+from smpclient.transport import SMPTransportDisconnected, _ConnectableTransport, _TStrategy
 
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
@@ -92,9 +92,6 @@ class SerialOptions(NamedTuple):
     exclusive: bool | None = None
     """Set exclusive access mode (POSIX only).  A port cannot be opened in exclusive access
     mode if it is already open in exclusive access mode."""
-
-
-_TStrategy = TypeVar("_TStrategy")
 
 
 class _SerialTransportBase(_ConnectableTransport[_TStrategy]):

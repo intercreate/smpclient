@@ -171,8 +171,7 @@ class SMPBumbleTransport(_GATTTransport):
                 `pair_on_connect` and `pair()`.
             settle_s: Wait between successful pair and proceeding (or
                 disconnecting) so the peer can finalize bonding.
-            fragmentation_strategy: How to size SMP messages: `Auto`, `Unfragmented`, or
-                `BufferSize`.
+            fragmentation_strategy: How to size SMP messages.
             connect_timeout_s: Bounds scanning for a name, and reading the server's
                 MCUmgr parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from.
@@ -592,7 +591,7 @@ class SMPBumbleTransport(_GATTTransport):
 
 
 async def bonded_devices(
-    *, keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
+    keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
 ) -> tuple[str, ...]:
     """Return the BD_ADDRs of peers in the keystore that `host_address` bonds with."""
     return tuple(
@@ -603,7 +602,6 @@ async def bonded_devices(
 
 async def clear_bond(
     address: str,
-    *,
     keystore: KeystoreStrategy = Tempfile(),
     host_address: Address = DEFAULT_HOST_ADDRESS,
 ) -> None:
@@ -613,7 +611,7 @@ async def clear_bond(
 
 
 async def clear_bonds(
-    *, keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
+    keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
 ) -> None:
     """Delete every bond from the keystore that `host_address` bonds with."""
     await resolve_keystore(keystore, namespace=str(host_address)).delete_all()

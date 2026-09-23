@@ -139,22 +139,7 @@ async def exchange(
     sequence: u8,
     timeout_s: float,
 ) -> TRep | TEr1 | TEr2:
-    """Send `request` as SMP sequence `sequence` and return the typed Response or Error.
-
-    Args:
-        transport: the live transport to exchange the request over
-        request: the `SMPRequest` to send
-        sequence: the SMP sequence number to send `request` as
-        timeout_s: the timeout for the exchange in seconds
-
-    Returns:
-        The typed and validated Response or Error
-
-    Raises:
-        TimeoutError: if the request times out
-        SMPBadSequence: if the response sequence does not match the request sequence
-        SMPValidationException: if the response cannot be parsed as a Response or Error
-    """
+    """The core of `SMPClient.request`, as SMP sequence number `sequence`."""
     request_frame: Final = request.to_frame(sequence)
 
     try:
@@ -196,17 +181,7 @@ async def exchange(
 async def read_mcumgr_parameters(
     transport: SMPTransport, sequence: u8, timeout_s: float
 ) -> MCUMgrParametersReadResponse | None:
-    """Read the server's MCUmgr parameters over `transport`.
-
-    Args:
-        transport: the live transport to read the parameters over
-        sequence: the SMP sequence number to send the request as
-        timeout_s: the timeout for the exchange in seconds
-
-    Returns:
-        The parameters, or `None` (with a warning) if the server answers with an error or
-        not at all
-    """
+    """The server's MCUmgr parameters, or `None` (warned) if it answers an error or not at all."""
     try:
         response: Final = await exchange(
             transport, MCUMgrParametersReadRequest(), sequence, timeout_s

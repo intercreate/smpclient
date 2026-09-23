@@ -45,11 +45,7 @@ PMTU to avoid fragmentation."""
 
 
 UDPFragmentationStrategy: TypeAlias = Auto | BufferSize
-"""How `SMPUDPTransport` sizes SMP messages: `Auto` or `BufferSize`.
-
-Either way a message never exceeds one datagram's payload (the MSS): the server receives
-each request as a single datagram into a single buffer.
-"""
+"""How `SMPUDPTransport` sizes SMP messages."""
 
 
 class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
@@ -67,7 +63,7 @@ class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
             mtu: The Maximum Transmission Unit (MTU) of the link layer in bytes.
                 IP and UDP header overhead will be subtracted to calculate the maximum
                 UDP payload size (MSS) to avoid fragmentation per RFC 8085 section 3.2.
-            fragmentation_strategy: How to size SMP messages: `Auto` or `BufferSize`.
+            fragmentation_strategy: How to size SMP messages.
             connect_timeout_s: Bounds connecting, and reading the server's MCUmgr
                 parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from.
@@ -180,8 +176,10 @@ class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
                 match await self._read_buf_size():
                     case None:
                         self._sizing = Auto()
-                    case buf_size:
+                    case int() as buf_size:
                         self._sizing = BufferSize(buf_size)
+                    case _ as unreachable:
+                        assert_never(unreachable)
             case BufferSize():
                 pass
             case _ as unreachable:

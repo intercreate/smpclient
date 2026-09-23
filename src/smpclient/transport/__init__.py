@@ -166,14 +166,18 @@ class _GATTTransport(_ConnectableTransport[GATTFragmentationStrategy]):
                 match await self._read_buf_size():
                     case None:
                         self._sizing = Auto()
-                    case buf_size:
+                    case int() as buf_size:
                         self._sizing = BufferSize(buf_size)
+                    case _ as unreachable:
+                        assert_never(unreachable)
             case Unfragmented():
                 match await self._read_buf_size():
                     case None:
                         self._sizing = Unfragmented()
-                    case buf_size:
+                    case int() as buf_size:
                         self._sizing = BufferSize(min(self.mtu, buf_size))
+                    case _ as unreachable:
+                        assert_never(unreachable)
             case BufferSize():
                 pass
             case _ as unreachable:

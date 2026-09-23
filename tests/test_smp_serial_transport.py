@@ -41,7 +41,7 @@ def mock_serial() -> Generator[None, Any, None]:
 
 
 def test_constructor() -> None:
-    # Test with Auto() (default): conservative 7.1.0-equivalent 128 * 2 budget pre-init
+    # Test with Auto() (default): conservative 128 * 2 budget pre-init
     t = SMPSerialTransport()
     assert t.mtu == 256  # 128 * 2, the conservative default before server params are read
     assert t._line_length == 128
@@ -339,7 +339,7 @@ async def test_negotiate_with_auto() -> None:
     """Test that Auto mode updates parameters based on server's buffer size."""
     t = SMPSerialTransport()  # Uses Auto() by default
 
-    # Before negotiating, uses the conservative 7.1.0-equivalent 128 * 2 defaults
+    # Before negotiating, uses the conservative 128 * 2 defaults
     assert t._line_length == 128
     assert t._line_buffers == 2
     assert t._max_smp_encoded_frame_size == 256

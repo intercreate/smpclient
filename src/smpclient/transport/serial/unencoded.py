@@ -38,7 +38,7 @@ _DEFAULT_BUF_SIZE: Final = 384
 `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`."""
 
 RawSerialFragmentationStrategy: TypeAlias = Auto | BufferSize
-"""How `SMPSerialRawTransport` sizes SMP messages: `Auto` or `BufferSize`."""
+"""How `SMPSerialRawTransport` sizes SMP messages."""
 
 
 class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]):
@@ -54,9 +54,9 @@ class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]
         """Initialize the raw serial transport.
 
         Args:
-            fragmentation_strategy: How to size one SMP message (header + payload): `Auto`
-                or `BufferSize`.  A serial link has no MTU of its own, but the SMP server's
-                receive buffer (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`) does.
+            fragmentation_strategy: How to size one SMP message (header + payload).  A
+                serial link has no MTU of its own, but the SMP server's receive buffer
+                (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`) does.
             framing: optional wire framing for each SMP message (e.g. `Cobs()`);
                 `None` sends the bare `[header][payload]`.
             connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
@@ -164,8 +164,10 @@ class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]
                 match await self._read_buf_size():
                     case None:
                         self._sizing = Auto()
-                    case buf_size:
+                    case int() as buf_size:
                         self._sizing = BufferSize(buf_size)
+                    case _ as unreachable:
+                        assert_never(unreachable)
             case BufferSize():
                 pass
             case _ as unreachable:

@@ -127,12 +127,7 @@ class BufferParams(NamedTuple):
 
 
 SerialFragmentationStrategy: TypeAlias = Auto | BufferSize | BufferParams
-"""How `SMPSerialTransport` sizes SMP messages: `Auto`, `BufferSize`, or `BufferParams`.
-
-With `Auto`, connecting reads the server's `buf_size` (the decoded reassembly buffer) and
-the transport sends messages up to `buf_size - 4`, filling that buffer; until the parameters
-are read, or if the server doesn't provide them, it assumes a conservative line budget.
-"""
+"""How `SMPSerialTransport` sizes SMP messages."""
 
 
 class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
@@ -159,7 +154,7 @@ class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
         """Initialize the serial transport.
 
         Args:
-            fragmentation_strategy: how to size SMP messages.
+            fragmentation_strategy: How to size SMP messages.
             connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
                 parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from.
@@ -283,18 +278,20 @@ class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
                 match await self._read_buf_size():
                     case None:
                         self._sizing = Auto()
-                    case buf_size if buf_size <= _FRAME_OVERHEAD:
+                    case int() as buf_size if buf_size <= _FRAME_OVERHEAD:
                         raise ValueError(
                             f"server buffer size ({buf_size}) must exceed the "
                             f"{_FRAME_OVERHEAD}-byte frame overhead to carry a message"
                         )
-                    case buf_size:
+                    case int() as buf_size:
                         self._sizing = BufferSize(buf_size=buf_size)
                         logger.info(
                             f"Auto-configured from server buf_size={buf_size}: "
                             f"mtu={self.mtu}, max_unencoded_size={self.max_unencoded_size}, "
                             f"line_length={self._line_length}"
                         )
+                    case _ as unreachable:
+                        assert_never(unreachable)
             case BufferSize() | BufferParams():
                 pass
             case _ as unreachable:
