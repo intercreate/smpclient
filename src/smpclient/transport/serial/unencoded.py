@@ -23,7 +23,7 @@ from typing_extensions import assert_never, override
 
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import Auto, BufferSize
-from smpclient.transport.serial.common import _SerialTransportBase
+from smpclient.transport.serial.common import SerialOptions, _SerialTransportBase
 from smpclient.transport.serial.framing import SerialFraming
 
 if TYPE_CHECKING:
@@ -49,17 +49,7 @@ class SMPSerialRawTransport(_SerialTransportBase):
         framing: SerialFraming | None = None,
         connect_timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
-        baudrate: int = 115200,
-        bytesize: int = 8,
-        parity: str = "N",
-        stopbits: float = 1,
-        timeout: float | None = None,
-        xonxoff: bool = False,
-        rtscts: bool = False,
-        write_timeout: float | None = None,
-        dsrdtr: bool = False,
-        inter_byte_timeout: float | None = None,
-        exclusive: bool | None = None,
+        options: SerialOptions = SerialOptions(),
     ) -> None:
         """Initialize the raw serial transport.
 
@@ -74,36 +64,13 @@ class SMPSerialRawTransport(_SerialTransportBase):
                 parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from;
                 defaults to `wrapping_sequence()`.
-            baudrate: The baudrate of the serial connection.  OK to ignore for
-                USB CDC ACM.
-            bytesize: The number of data bits.
-            parity: The parity setting.
-            stopbits: The number of stop bits.
-            timeout: The read timeout.
-            xonxoff: Enable software flow control.
-            rtscts: Enable hardware (RTS/CTS) flow control.
-            write_timeout: The write timeout.
-            dsrdtr: Enable hardware (DSR/DTR) flow control.
-            inter_byte_timeout: The inter-byte timeout.
-            exclusive: Set exclusive access mode (POSIX only).  A port cannot be
-                opened in exclusive access mode if it is already open in
-                exclusive access mode.
+            options: The `pyserial` port settings.
         """
         super().__init__(
             port,
             connect_timeout_s,
             sequence,
-            baudrate=baudrate,
-            bytesize=bytesize,
-            parity=parity,
-            stopbits=stopbits,
-            timeout=timeout,
-            xonxoff=xonxoff,
-            rtscts=rtscts,
-            write_timeout=write_timeout,
-            dsrdtr=dsrdtr,
-            inter_byte_timeout=inter_byte_timeout,
-            exclusive=exclusive,
+            options,
         )
         self._fragmentation_strategy: Final = fragmentation_strategy
         self._framing: Final = framing

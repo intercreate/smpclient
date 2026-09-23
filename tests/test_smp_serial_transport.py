@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import warnings
 from collections.abc import Callable, Generator
-from typing import Any, get_args
+from typing import Any, Final, get_args
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
+import serial
 from serial import SerialException
 from smp import packet as smppacket
 from smp.os_management import EchoWriteRequest, EchoWriteResponse
@@ -19,6 +21,7 @@ from smpclient.transport.serial import (
     BufferParams,
     BufferSize,
     SerialFragmentationStrategy,
+    SerialOptions,
     SMPSerialTransport,
 )
 from tests.support import advertise, negotiated
@@ -62,6 +65,24 @@ def test_constructor() -> None:
     assert t._line_length == 128
     assert t._max_smp_encoded_frame_size == 1024
     assert t.max_unencoded_size == 1024 - FRAME_OVERHEAD
+
+
+def test_serial_options_lock_pyserial() -> None:
+    """`SerialOptions` is `serial.Serial`'s settings, in order, with its defaults but the baudrate."""
+    pyserial_defaults: Final = {
+        name: parameter.default
+        for name, parameter in inspect.signature(serial.Serial).parameters.items()
+        if name != "port" and parameter.kind is not inspect.Parameter.VAR_KEYWORD
+    }
+    assert tuple(pyserial_defaults) == SerialOptions._fields
+    assert {**pyserial_defaults, "baudrate": 115200} == SerialOptions()._asdict()
+
+
+def test_options_configure_the_port() -> None:
+    options: Final = SerialOptions(baudrate=9600, rtscts=True, exclusive=True)
+    with patch("smpclient.transport.serial.common.Serial") as serial_class:
+        SMPSerialTransport(PORT, options=options)
+    serial_class.assert_called_once_with(**options._asdict())
 
 
 @pytest.mark.asyncio
@@ -176,7 +197,7 @@ async def test_send_and_receive() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_timeout() -> None:
-    t = SMPSerialTransport(PORT, timeout=0.1)
+    t = SMPSerialTransport(PORT, options=SerialOptions(timeout=0.1))
     t._read_one_smp_packet = AsyncMock(side_effect=TimeoutError)  # type: ignore
 
     with pytest.raises(TimeoutError):

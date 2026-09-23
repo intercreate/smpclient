@@ -33,7 +33,7 @@ from smp import packet as smppacket
 from typing_extensions import assert_never, deprecated, overload, override
 
 from smpclient.transport import Auto
-from smpclient.transport.serial.common import _SerialTransportBase
+from smpclient.transport.serial.common import SerialOptions, _SerialTransportBase
 
 if TYPE_CHECKING:
     from types_bits import u8
@@ -195,17 +195,7 @@ class SMPSerialTransport(_SerialTransportBase):
         *,
         connect_timeout_s: float = ...,
         sequence: Iterator[u8] | None = ...,
-        baudrate: int = ...,
-        bytesize: int = ...,
-        parity: str = ...,
-        stopbits: float = ...,
-        timeout: float | None = ...,
-        xonxoff: bool = ...,
-        rtscts: bool = ...,
-        write_timeout: float | None = ...,
-        dsrdtr: bool = ...,
-        inter_byte_timeout: float | None = ...,
-        exclusive: bool | None = ...,
+        options: SerialOptions = ...,
     ) -> None: ...
 
     @overload
@@ -222,17 +212,7 @@ class SMPSerialTransport(_SerialTransportBase):
         line_buffers: int = ...,
         connect_timeout_s: float = ...,
         sequence: Iterator[u8] | None = ...,
-        baudrate: int = ...,
-        bytesize: int = ...,
-        parity: str = ...,
-        stopbits: float = ...,
-        timeout: float | None = ...,
-        xonxoff: bool = ...,
-        rtscts: bool = ...,
-        write_timeout: float | None = ...,
-        dsrdtr: bool = ...,
-        inter_byte_timeout: float | None = ...,
-        exclusive: bool | None = ...,
+        options: SerialOptions = ...,
     ) -> None: ...
 
     @overload
@@ -250,17 +230,7 @@ class SMPSerialTransport(_SerialTransportBase):
         *,
         connect_timeout_s: float = ...,
         sequence: Iterator[u8] | None = ...,
-        baudrate: int = ...,
-        bytesize: int = ...,
-        parity: str = ...,
-        stopbits: float = ...,
-        timeout: float | None = ...,
-        xonxoff: bool = ...,
-        rtscts: bool = ...,
-        write_timeout: float | None = ...,
-        dsrdtr: bool = ...,
-        inter_byte_timeout: float | None = ...,
-        exclusive: bool | None = ...,
+        options: SerialOptions = ...,
     ) -> None: ...
 
     def __init__(  # noqa: DOC301
@@ -273,17 +243,7 @@ class SMPSerialTransport(_SerialTransportBase):
         max_smp_encoded_frame_size: int | None = None,
         connect_timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
-        baudrate: int = 115200,
-        bytesize: int = 8,
-        parity: str = "N",
-        stopbits: float = 1,
-        timeout: float | None = None,
-        xonxoff: bool = False,
-        rtscts: bool = False,
-        write_timeout: float | None = None,
-        dsrdtr: bool = False,
-        inter_byte_timeout: float | None = None,
-        exclusive: bool | None = None,
+        options: SerialOptions = SerialOptions(),
     ) -> None:
         """Initialize the serial transport.
 
@@ -300,35 +260,14 @@ class SMPSerialTransport(_SerialTransportBase):
                 parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from;
                 defaults to `wrapping_sequence()`.
-            baudrate: The baudrate of the serial connection.  OK to ignore for
-                USB CDC ACM.
-            bytesize: The number of data bits.
-            parity: The parity setting.
-            stopbits: The number of stop bits.
-            timeout: The read timeout.
-            xonxoff: Enable software flow control.
-            rtscts: Enable hardware (RTS/CTS) flow control.
-            write_timeout: The write timeout.
-            dsrdtr: Enable hardware (DSR/DTR) flow control.
-            inter_byte_timeout: The inter-byte timeout.
-            exclusive: The exclusive access timeout.
+            options: The `pyserial` port settings.
 
         """
         super().__init__(
             port,
             connect_timeout_s,
             sequence,
-            baudrate=baudrate,
-            bytesize=bytesize,
-            parity=parity,
-            stopbits=stopbits,
-            timeout=timeout,
-            xonxoff=xonxoff,
-            rtscts=rtscts,
-            write_timeout=write_timeout,
-            dsrdtr=dsrdtr,
-            inter_byte_timeout=inter_byte_timeout,
-            exclusive=exclusive,
+            options,
         )
 
         self._fragmentation_strategy: Final = self._resolve_fragmentation_strategy(

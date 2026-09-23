@@ -7,7 +7,7 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from time import monotonic
-from typing import TYPE_CHECKING, Final, Generator, final
+from typing import TYPE_CHECKING, Final, Generator, NamedTuple, final
 
 try:
     from serial import Serial, SerialException
@@ -26,6 +26,44 @@ if TYPE_CHECKING:
     from types_bits import u8
 
 logger = logging.getLogger(__name__)
+
+
+class SerialOptions(NamedTuple):
+    """The `pyserial` port settings, named as `serial.Serial` names them."""
+
+    baudrate: int = 115200
+    """The baudrate of the serial connection.  OK to ignore for USB CDC ACM."""
+
+    bytesize: int = 8
+    """The number of data bits."""
+
+    parity: str = "N"
+    """The parity setting."""
+
+    stopbits: float = 1
+    """The number of stop bits."""
+
+    timeout: float | None = None
+    """The read timeout."""
+
+    xonxoff: bool = False
+    """Enable software flow control."""
+
+    rtscts: bool = False
+    """Enable hardware (RTS/CTS) flow control."""
+
+    write_timeout: float | None = None
+    """The write timeout."""
+
+    dsrdtr: bool = False
+    """Enable hardware (DSR/DTR) flow control."""
+
+    inter_byte_timeout: float | None = None
+    """The inter-byte timeout."""
+
+    exclusive: bool | None = None
+    """Set exclusive access mode (POSIX only).  A port cannot be opened in exclusive access
+    mode if it is already open in exclusive access mode."""
 
 
 class _SerialTransportBase(_ConnectableTransport):
@@ -49,17 +87,7 @@ class _SerialTransportBase(_ConnectableTransport):
         port: str,
         connect_timeout_s: float = 2.5,
         sequence: Iterator[u8] | None = None,
-        baudrate: int = 115200,
-        bytesize: int = 8,
-        parity: str = "N",
-        stopbits: float = 1,
-        timeout: float | None = None,
-        xonxoff: bool = False,
-        rtscts: bool = False,
-        write_timeout: float | None = None,
-        dsrdtr: bool = False,
-        inter_byte_timeout: float | None = None,
-        exclusive: bool | None = None,
+        options: SerialOptions = SerialOptions(),
     ) -> None:
         """Initialize the underlying `pyserial` `Serial` instance.
 
@@ -69,37 +97,12 @@ class _SerialTransportBase(_ConnectableTransport):
                 parameters.
             sequence: The SMP sequence space the MCUmgr parameters read draws from;
                 defaults to `wrapping_sequence()`.
-            baudrate: The baudrate of the serial connection.  OK to ignore for
-                USB CDC ACM.
-            bytesize: The number of data bits.
-            parity: The parity setting.
-            stopbits: The number of stop bits.
-            timeout: The read timeout.
-            xonxoff: Enable software flow control.
-            rtscts: Enable hardware (RTS/CTS) flow control.
-            write_timeout: The write timeout.
-            dsrdtr: Enable hardware (DSR/DTR) flow control.
-            inter_byte_timeout: The inter-byte timeout.
-            exclusive: Set exclusive access mode (POSIX only).  A port cannot be
-                opened in exclusive access mode if it is already open in
-                exclusive access mode.
+            options: The `pyserial` port settings.
         """
         self._port: Final = port
         self._connect_timeout_s = connect_timeout_s
         self._sequence = _request.wrapping_sequence() if sequence is None else sequence
-        self._conn: Final = Serial(
-            baudrate=baudrate,
-            bytesize=bytesize,
-            parity=parity,
-            stopbits=stopbits,
-            timeout=timeout,
-            xonxoff=xonxoff,
-            rtscts=rtscts,
-            write_timeout=write_timeout,
-            dsrdtr=dsrdtr,
-            inter_byte_timeout=inter_byte_timeout,
-            exclusive=exclusive,
-        )
+        self._conn: Final = Serial(**options._asdict())
 
     def _reset_state(self) -> None:
         """Reset any per-connection state. Subclasses override as needed."""
