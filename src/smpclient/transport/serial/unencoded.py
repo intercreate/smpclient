@@ -11,76 +11,60 @@ you need shell interleaving, use `SMPSerialTransport` from
 `smpclient.transport.serial.encoded`.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Final
+from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from smp import header as smphdr
-from typing_extensions import override
+from typing_extensions import assert_never, override
 
+from smpclient import _request
 from smpclient.exceptions import SMPClientException
-from smpclient.transport.serial.common import _SerialTransportBase
+from smpclient.transport import Auto, BufferSize
+from smpclient.transport.serial.common import SerialOptions, _SerialTransportBase
 from smpclient.transport.serial.framing import SerialFraming
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 logger = logging.getLogger(__name__)
 
 
-class SMPSerialRawTransport(_SerialTransportBase):
+_DEFAULT_BUF_SIZE: Final = 384
+"""The server buffer `Auto` assumes until it reads the MCUmgr parameters: Zephyr's default
+`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`."""
+
+RawSerialFragmentationStrategy: TypeAlias = Auto | BufferSize
+"""How `SMPSerialRawTransport` sizes SMP messages."""
+
+
+class SMPSerialRawTransport(_SerialTransportBase[RawSerialFragmentationStrategy]):
     def __init__(
         self,
-        mtu: int = 384,
+        fragmentation_strategy: RawSerialFragmentationStrategy = Auto(),
         *,
         framing: SerialFraming | None = None,
-        baudrate: int = 115200,
-        bytesize: int = 8,
-        parity: str = "N",
-        stopbits: float = 1,
-        timeout: float | None = None,
-        xonxoff: bool = False,
-        rtscts: bool = False,
-        write_timeout: float | None = None,
-        dsrdtr: bool = False,
-        inter_byte_timeout: float | None = None,
-        exclusive: bool | None = None,
+        connect_timeout_s: float = 2.5,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
+        options: SerialOptions = SerialOptions(),
     ) -> None:
         """Initialize the raw serial transport.
 
         Args:
-            mtu: The maximum size of one SMP message (header + payload), in
-                bytes.  A serial link has no MTU of its own, but the SMP
-                server's receive buffer does -- this should match the server's
-                `CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE` (Zephyr default 384).
+            fragmentation_strategy: How to size one SMP message (header + payload).  A
+                serial link has no MTU of its own, but the SMP server's receive buffer
+                (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`) does.
             framing: optional wire framing for each SMP message (e.g. `Cobs()`);
                 `None` sends the bare `[header][payload]`.
-            baudrate: The baudrate of the serial connection.  OK to ignore for
-                USB CDC ACM.
-            bytesize: The number of data bits.
-            parity: The parity setting.
-            stopbits: The number of stop bits.
-            timeout: The read timeout.
-            xonxoff: Enable software flow control.
-            rtscts: Enable hardware (RTS/CTS) flow control.
-            write_timeout: The write timeout.
-            dsrdtr: Enable hardware (DSR/DTR) flow control.
-            inter_byte_timeout: The inter-byte timeout.
-            exclusive: Set exclusive access mode (POSIX only).  A port cannot be
-                opened in exclusive access mode if it is already open in
-                exclusive access mode.
+            connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
+                parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
+            options: The `pyserial` port settings.
         """
-        super().__init__(
-            baudrate=baudrate,
-            bytesize=bytesize,
-            parity=parity,
-            stopbits=stopbits,
-            timeout=timeout,
-            xonxoff=xonxoff,
-            rtscts=rtscts,
-            write_timeout=write_timeout,
-            dsrdtr=dsrdtr,
-            inter_byte_timeout=inter_byte_timeout,
-            exclusive=exclusive,
-        )
-        self._mtu: Final = mtu
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence, options)
         self._framing: Final = framing
 
         logger.debug(f"Initialized {self.__class__.__name__}")
@@ -173,7 +157,34 @@ class SMPSerialRawTransport(_SerialTransportBase):
         else:
             await asyncio.sleep(self._POLLING_INTERVAL_S)
 
+    @override
+    async def negotiate(self) -> None:
+        match self._fragmentation_strategy:
+            case Auto():
+                match await self._read_buf_size():
+                    case None:
+                        self._sizing = Auto()
+                    case int() as buf_size:
+                        self._sizing = BufferSize(buf_size)
+                    case _ as unreachable:
+                        assert_never(unreachable)
+            case BufferSize():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+
     @property
     @override
     def mtu(self) -> int:
-        return self._mtu
+        return self.max_unencoded_size
+
+    @property
+    @override
+    def max_unencoded_size(self) -> int:
+        match self._sizing:
+            case Auto():
+                return _DEFAULT_BUF_SIZE
+            case BufferSize(buf_size=buf_size):
+                return buf_size
+            case _ as unreachable:
+                assert_never(unreachable)

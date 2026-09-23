@@ -105,15 +105,10 @@ async def main() -> None:
     await asyncio.sleep(1)
 
     print("Connecting to SMP DUT...", end="", flush=True)
-    async with SMPClient(
-        SMPSerialTransport(
-            fragmentation_strategy=BufferParams(
-                line_length=line_length,
-                line_buffers=line_buffers,
-            )
-        ),
-        port_a.device,
-    ) as client:
+    async with SMPSerialTransport(
+        BufferParams(line_length=line_length, line_buffers=line_buffers)
+    ).connected(port_a.device) as transport:
+        client = SMPClient(transport)
         print("OK")
 
         async def ensure_request(request: SMPRequest[TRep, TEr1, TEr2]) -> TRep:
@@ -185,15 +180,10 @@ async def main() -> None:
     print(f"OK - found DUT B at {port_b.device}")
 
     print("Connecting to B SMP DUT...", end="", flush=True)
-    async with SMPClient(
-        SMPSerialTransport(
-            fragmentation_strategy=BufferParams(
-                line_length=line_length,
-                line_buffers=line_buffers,
-            )
-        ),
-        port_b.device,
-    ) as client:
+    async with SMPSerialTransport(
+        BufferParams(line_length=line_length, line_buffers=line_buffers)
+    ).connected(port_b.device) as transport:
+        client = SMPClient(transport)
         print("OK")
 
         print()

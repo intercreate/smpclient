@@ -15,21 +15,28 @@ SMP-over-UART option that existed before Zephyr 4.4.  For
 `smpclient.transport.serial.unencoded`.
 
 The transport fills that decoded buffer for best throughput; how it learns the buffer
-size is the `fragmentation_strategy` (`FragmentationStrategy`) -- see `Auto` (the
+size is the `fragmentation_strategy` (`SerialFragmentationStrategy`) -- see `Auto` (the
 default), `BufferSize`, and `BufferParams`.
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import math
-import warnings
+from collections.abc import Callable, Iterator
 from enum import IntEnum, unique
-from typing import Final, NamedTuple, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from smp import packet as smppacket
-from typing_extensions import assert_never, deprecated, overload, override
+from typing_extensions import assert_never, override
 
-from smpclient.transport.serial.common import _SerialTransportBase
+from smpclient import _request
+from smpclient.transport import Auto
+from smpclient.transport.serial.common import SerialOptions, _SerialTransportBase
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +60,8 @@ def _base64_max(size: int) -> int:
 _DEFAULT_LINE_LENGTH: Final = 128
 """The SMP serial line length convention: base64 chars per line on the wire."""
 
-_LEGACY_LINE_BUFFERS: Final = 2
-"""The 7.1.0 default `line_buffers`, preserved for the deprecated constructor params."""
-
-_LEGACY_FRAME_SIZE: Final = 256
-"""The 7.1.0 default `max_smp_encoded_frame_size`, preserved for the deprecated params."""
+_AUTO_LINE_BUFFERS: Final = 2
+"""The line buffers `Auto` assumes until it reads the server's parameters."""
 
 _MIN_LINE_LENGTH: Final = 8
 """The smallest `line_length` that can carry a base64 payload.
@@ -82,29 +86,6 @@ def _encoded_budget(mtu: int, line_buffers: int) -> int:
         _base64_cost(_FRAME_OVERHEAD) + smppacket.DELIMITER_SIZE
     ) * line_buffers + len(smppacket.END_DELIMITER)
     return _base64_max(mtu) - packet_framing_size
-
-
-_LEGACY_PARAMS_DEPRECATION: Final = (
-    "max_smp_encoded_frame_size, line_length, and line_buffers are deprecated; pass a "
-    "fragmentation_strategy (Auto, BufferSize, or BufferParams) instead."
-)
-"""The runtime `DeprecationWarning` message.
-
-The `@deprecated` overload decorators must repeat this text as a string *literal* --
-PEP 702 type checkers ignore a name reference -- so keep the two in sync.
-"""
-
-
-class Auto(NamedTuple):
-    """Discover the server's reassembly buffer from its MCUmgr params.
-
-    On connect the client reads the server's `buf_size`
-    (`CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE`) -- the decoded SMP frame reassembly
-    buffer -- and sends messages up to `buf_size - 4` (the frame length and CRC16
-    share that buffer), filling it for best throughput.  Before the params are read,
-    or when the server does not support the params command, a single 128-byte line
-    buffer is assumed.
-    """
 
 
 class BufferSize(NamedTuple):
@@ -145,36 +126,11 @@ class BufferParams(NamedTuple):
     """The number of encoded line buffers the budget spans."""
 
 
-FragmentationStrategy: TypeAlias = Auto | BufferSize | BufferParams
-"""How `SMPSerialTransport` sizes SMP messages: `Auto`, `BufferSize`, or `BufferParams`."""
+SerialFragmentationStrategy: TypeAlias = Auto | BufferSize | BufferParams
+"""How `SMPSerialTransport` sizes SMP messages."""
 
 
-class _LegacyParams(NamedTuple):
-    """The deprecated 7.1.0 `(max_smp_encoded_frame_size, line_length, line_buffers)` sizing.
-
-    Constructed only by the deprecated constructor params; it reproduces 7.1.0
-    byte-for-byte.  Unlike `BufferParams`, `mtu` is the *explicit*
-    `max_smp_encoded_frame_size` (independent of `line_length * line_buffers`, exactly
-    as 7.1.0 stored it), while the per-line framing still spans `line_buffers`.  Not part
-    of the public `FragmentationStrategy` API -- prefer `Auto`, `BufferSize`, or
-    `BufferParams`.
-    """
-
-    max_smp_encoded_frame_size: int
-    """The encoded frame size that `mtu` reports verbatim (7.1.0 semantics)."""
-
-    line_length: int
-    """The maximum length of one fragment (line) on the wire."""
-
-    line_buffers: int
-    """The number of encoded line buffers the framing budget spans."""
-
-
-_ResolvedStrategy: TypeAlias = Auto | BufferSize | BufferParams | _LegacyParams
-"""The internal strategy a constructor call resolves to (adds the deprecated `_LegacyParams`)."""
-
-
-class SMPSerialTransport(_SerialTransportBase):
+class SMPSerialTransport(_SerialTransportBase[SerialFragmentationStrategy]):
     @unique
     class BufferState(IntEnum):
         SMP = 0
@@ -187,133 +143,26 @@ class SMPSerialTransport(_SerialTransportBase):
         `_buffer` is being parsed as serial data.
         """
 
-    @overload
     def __init__(
         self,
-        fragmentation_strategy: FragmentationStrategy = ...,
+        fragmentation_strategy: SerialFragmentationStrategy = Auto(),
         *,
-        baudrate: int = ...,
-        bytesize: int = ...,
-        parity: str = ...,
-        stopbits: float = ...,
-        timeout: float | None = ...,
-        xonxoff: bool = ...,
-        rtscts: bool = ...,
-        write_timeout: float | None = ...,
-        dsrdtr: bool = ...,
-        inter_byte_timeout: float | None = ...,
-        exclusive: bool | None = ...,
-    ) -> None: ...
-
-    @overload
-    @deprecated(
-        "max_smp_encoded_frame_size, line_length, and line_buffers are deprecated; pass a "
-        "fragmentation_strategy (Auto, BufferSize, or BufferParams) instead."
-    )
-    def __init__(
-        self,
-        *,
-        max_smp_encoded_frame_size: int = ...,
-        line_length: int = ...,
-        line_buffers: int = ...,
-        baudrate: int = ...,
-        bytesize: int = ...,
-        parity: str = ...,
-        stopbits: float = ...,
-        timeout: float | None = ...,
-        xonxoff: bool = ...,
-        rtscts: bool = ...,
-        write_timeout: float | None = ...,
-        dsrdtr: bool = ...,
-        inter_byte_timeout: float | None = ...,
-        exclusive: bool | None = ...,
-    ) -> None: ...
-
-    @overload
-    @deprecated(
-        "max_smp_encoded_frame_size, line_length, and line_buffers are deprecated; pass a "
-        "fragmentation_strategy (Auto, BufferSize, or BufferParams) instead."
-    )
-    def __init__(
-        self,
-        max_smp_encoded_frame_size: int,
-        line_length: int = ...,
-        line_buffers: int = ...,
-        /,
-        *,
-        baudrate: int = ...,
-        bytesize: int = ...,
-        parity: str = ...,
-        stopbits: float = ...,
-        timeout: float | None = ...,
-        xonxoff: bool = ...,
-        rtscts: bool = ...,
-        write_timeout: float | None = ...,
-        dsrdtr: bool = ...,
-        inter_byte_timeout: float | None = ...,
-        exclusive: bool | None = ...,
-    ) -> None: ...
-
-    def __init__(  # noqa: DOC301
-        self,
-        fragmentation_strategy: FragmentationStrategy | int | None = None,
-        line_length: int | None = None,
-        line_buffers: int | None = None,
-        *,
-        max_smp_encoded_frame_size: int | None = None,
-        baudrate: int = 115200,
-        bytesize: int = 8,
-        parity: str = "N",
-        stopbits: float = 1,
-        timeout: float | None = None,
-        xonxoff: bool = False,
-        rtscts: bool = False,
-        write_timeout: float | None = None,
-        dsrdtr: bool = False,
-        inter_byte_timeout: float | None = None,
-        exclusive: bool | None = None,
+        connect_timeout_s: float = 2.5,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
+        options: SerialOptions = SerialOptions(),
     ) -> None:
         """Initialize the serial transport.
 
         Args:
-            fragmentation_strategy: how to size SMP messages; one of `Auto`
-                (default), `BufferSize`, or `BufferParams`.
-            line_length: Deprecated; pass `BufferParams(line_length=...)` (or `BufferSize`).
-            line_buffers: Deprecated; pass `BufferParams(line_buffers=...)`.
-            max_smp_encoded_frame_size: Deprecated, but still honored for backward
-                compatibility -- it drives `mtu` exactly as in 7.1.0.  Prefer an explicit
-                `BufferSize(buf_size=...)` (decoded netbuf) for new code.
-            baudrate: The baudrate of the serial connection.  OK to ignore for
-                USB CDC ACM.
-            bytesize: The number of data bits.
-            parity: The parity setting.
-            stopbits: The number of stop bits.
-            timeout: The read timeout.
-            xonxoff: Enable software flow control.
-            rtscts: Enable hardware (RTS/CTS) flow control.
-            write_timeout: The write timeout.
-            dsrdtr: Enable hardware (DSR/DTR) flow control.
-            inter_byte_timeout: The inter-byte timeout.
-            exclusive: The exclusive access timeout.
+            fragmentation_strategy: How to size SMP messages.
+            connect_timeout_s: Bounds opening the port, and reading the server's MCUmgr
+                parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
+            options: The `pyserial` port settings.
 
         """
-        super().__init__(
-            baudrate=baudrate,
-            bytesize=bytesize,
-            parity=parity,
-            stopbits=stopbits,
-            timeout=timeout,
-            xonxoff=xonxoff,
-            rtscts=rtscts,
-            write_timeout=write_timeout,
-            dsrdtr=dsrdtr,
-            inter_byte_timeout=inter_byte_timeout,
-            exclusive=exclusive,
-        )
-
-        self._fragmentation_strategy: Final = self._resolve_fragmentation_strategy(
-            fragmentation_strategy, max_smp_encoded_frame_size, line_length, line_buffers
-        )
+        self._validate_strategy(fragmentation_strategy)
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence, options)
 
         self._smp_packet_queue: asyncio.Queue[bytes] = asyncio.Queue()
         """Contains full SMP packets."""
@@ -327,83 +176,14 @@ class SMPSerialTransport(_SerialTransportBase):
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     @staticmethod
-    def _resolve_fragmentation_strategy(
-        fragmentation_strategy: FragmentationStrategy | int | None,
-        max_smp_encoded_frame_size: int | None,
-        line_length: int | None,
-        line_buffers: int | None,
-    ) -> _ResolvedStrategy:
-        """Normalize the constructor inputs into a fragmentation strategy.
-
-        An explicit `fragmentation_strategy` always wins; it is validated, and any
-        stray deprecated args passed alongside it are logged and ignored.  Otherwise
-        the deprecated 7.1.0 params -- `max_smp_encoded_frame_size`, `line_length`,
-        `line_buffers`, or a legacy positional `int` frame size -- reproduce 7.1.0
-        exactly via `_LegacyParams` (`mtu == max_smp_encoded_frame_size`, defaulting to
-        the 7.1.0 256/128/2) and emit a `DeprecationWarning`.  A frame size that
-        disagrees with `line_length * line_buffers` is logged at the level 7.1.0 used,
-        but -- as in 7.1.0 -- the explicit frame size still drives `mtu`.
-        """
-        if not isinstance(fragmentation_strategy, int) and fragmentation_strategy is not None:
-            ignored: Final = {
-                name: value
-                for name, value in (
-                    ("max_smp_encoded_frame_size", max_smp_encoded_frame_size),
-                    ("line_length", line_length),
-                    ("line_buffers", line_buffers),
-                )
-                if value is not None
-            }
-            if ignored:
-                logger.warning(
-                    f"explicit fragmentation_strategy={fragmentation_strategy!r} takes "
-                    f"precedence; ignoring deprecated {ignored}"
-                )
-            SMPSerialTransport._validate_strategy(fragmentation_strategy)
-            return fragmentation_strategy
-
-        legacy_frame: Final = (
-            max_smp_encoded_frame_size
-            if max_smp_encoded_frame_size is not None
-            else (fragmentation_strategy if isinstance(fragmentation_strategy, int) else None)
-        )
-        if legacy_frame is None and line_length is None and line_buffers is None:
-            return Auto()
-
-        warnings.warn(_LEGACY_PARAMS_DEPRECATION, DeprecationWarning, stacklevel=3)
-        resolved_frame: Final = _LEGACY_FRAME_SIZE if legacy_frame is None else legacy_frame
-        resolved_line_length: Final = _DEFAULT_LINE_LENGTH if line_length is None else line_length
-        resolved_line_buffers: Final = (
-            _LEGACY_LINE_BUFFERS if line_buffers is None else line_buffers
-        )
-        budget: Final = resolved_line_length * resolved_line_buffers
-        if resolved_frame < budget:
-            logger.error(
-                f"max_smp_encoded_frame_size={resolved_frame} is less than "
-                f"line_length={resolved_line_length} * line_buffers={resolved_line_buffers}!"
-            )
-        elif resolved_frame != budget:
-            logger.warning(
-                f"max_smp_encoded_frame_size={resolved_frame} is not equal to "
-                f"line_length={resolved_line_length} * line_buffers={resolved_line_buffers}!"
-            )
-        return _LegacyParams(
-            max_smp_encoded_frame_size=resolved_frame,
-            line_length=resolved_line_length,
-            line_buffers=resolved_line_buffers,
-        )
-
-    @staticmethod
-    def _validate_strategy(strategy: FragmentationStrategy) -> None:
+    def _validate_strategy(strategy: SerialFragmentationStrategy) -> None:
         """Raise `ValueError` for a modern strategy that cannot carry a message.
 
         Guards `BufferSize`/`BufferParams` against configs that would otherwise fail far
         downstream: a `line_length` too small for `smppacket.encode` to make progress (it
         would emit empty packets forever), a `buf_size` at or below the frame overhead, or
-        an encoded budget too small for a single byte.  The deprecated 7.1.0 params are
-        intentionally *not* validated -- `_LegacyParams` reproduces 7.1.0 behavior, latent
-        edge cases and all.  `Auto` defers to `initialize`, where the server's advertised
-        buffer size is known.
+        an encoded budget too small for a single byte.  `Auto` defers to `negotiate`, where
+        the server's advertised buffer size is known.
         """
         match strategy:
             case Auto():
@@ -447,14 +227,12 @@ class SMPSerialTransport(_SerialTransportBase):
     @property
     def _line_length(self) -> int:
         """The base64 line length used to fragment outgoing frames."""
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
                 return _DEFAULT_LINE_LENGTH
             case BufferSize(line_length=line_length):
                 return line_length
             case BufferParams(line_length=line_length):
-                return line_length
-            case _LegacyParams(line_length=line_length):
                 return line_length
             case _ as unreachable:
                 assert_never(unreachable)
@@ -463,22 +241,18 @@ class SMPSerialTransport(_SerialTransportBase):
     def _line_buffers(self) -> int:
         """The number of encoded line buffers spanned by the configured budget.
 
-        Meaningful for `BufferParams`/legacy params, where it sets the encoded budget.
+        Meaningful for `BufferParams`, where it sets the encoded budget.
         For the decoded-netbuf strategies (`Auto`/`BufferSize`) it is a diagnostic line
         count, clamped to at least 1 (never the misleading `0` of a sub-`line_length`
-        buffer); `Auto` falls back to the conservative legacy default until the server's
+        buffer); `Auto` falls back to a conservative default until the server's
         params are read.
         """
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                if self._smp_server_transport_buffer_size is not None:
-                    return max(1, self._smp_server_transport_buffer_size // self._line_length)
-                return _LEGACY_LINE_BUFFERS
+                return _AUTO_LINE_BUFFERS
             case BufferSize(buf_size=buf_size):
                 return max(1, buf_size // self._line_length)
             case BufferParams(line_buffers=line_buffers):
-                return line_buffers
-            case _LegacyParams(line_buffers=line_buffers):
                 return line_buffers
             case _ as unreachable:
                 assert_never(unreachable)
@@ -486,65 +260,40 @@ class SMPSerialTransport(_SerialTransportBase):
     @property
     def _max_smp_encoded_frame_size(self) -> int:
         """The configured buffer size that the MTU reports."""
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                if self._smp_server_transport_buffer_size is not None:
-                    return self._smp_server_transport_buffer_size
                 return self._line_length * self._line_buffers
             case BufferSize(buf_size=buf_size):
                 return buf_size
             case BufferParams(line_length=line_length, line_buffers=line_buffers):
                 return line_length * line_buffers
-            case _LegacyParams(max_smp_encoded_frame_size=frame_size):
-                return frame_size
             case _ as unreachable:
                 assert_never(unreachable)
 
     @override
-    def initialize(self, smp_server_transport_buffer_size: int) -> None:
-        """Initialize with the server's buffer size from MCUMGR_PARAM.
-
-        Args:
-            smp_server_transport_buffer_size: The server's CONFIG_MCUMGR_TRANSPORT_NETBUF_SIZE
-
-        Raises:
-            ValueError: in `Auto` mode, if the server's advertised buffer is too small to
-                hold a framed message (`<= ` the frame overhead).
-        """
-        super().initialize(smp_server_transport_buffer_size)
-
+    async def negotiate(self) -> None:
+        """For `Auto`, adopt the server's `buf_size`; `ValueError` if it can't hold a frame."""
         match self._fragmentation_strategy:
             case Auto():
-                if smp_server_transport_buffer_size <= _FRAME_OVERHEAD:
-                    raise ValueError(
-                        f"server buffer size ({smp_server_transport_buffer_size}) must exceed "
-                        f"the {_FRAME_OVERHEAD}-byte frame overhead to carry a message"
-                    )
-                logger.info(
-                    f"Auto-configured from server buf_size={smp_server_transport_buffer_size}: "
-                    f"mtu={self.mtu}, max_unencoded_size={self.max_unencoded_size}, "
-                    f"line_length={self._line_length}"
-                )
-            case BufferSize(buf_size=buf_size):
-                if buf_size > smp_server_transport_buffer_size:
-                    logger.warning(
-                        f"BufferSize buf_size ({buf_size}) exceeds the server's advertised "
-                        f"buffer size ({smp_server_transport_buffer_size})"
-                    )
-            case BufferParams(line_length=line_length, line_buffers=line_buffers):
-                calculated_size = line_length * line_buffers
-                if calculated_size > smp_server_transport_buffer_size:
-                    logger.warning(
-                        f"BufferParams (line_length={line_length} * "
-                        f"line_buffers={line_buffers} = {calculated_size}) "
-                        f"exceeds server buffer size ({smp_server_transport_buffer_size})"
-                    )
-            case _LegacyParams(max_smp_encoded_frame_size=frame_size):
-                if frame_size > smp_server_transport_buffer_size:
-                    logger.warning(
-                        f"deprecated max_smp_encoded_frame_size ({frame_size}) exceeds the "
-                        f"server's advertised buffer size ({smp_server_transport_buffer_size})"
-                    )
+                match await self._read_buf_size():
+                    case None:
+                        self._sizing = Auto()
+                    case int() as buf_size if buf_size <= _FRAME_OVERHEAD:
+                        raise ValueError(
+                            f"server buffer size ({buf_size}) must exceed the "
+                            f"{_FRAME_OVERHEAD}-byte frame overhead to carry a message"
+                        )
+                    case int() as buf_size:
+                        self._sizing = BufferSize(buf_size=buf_size)
+                        logger.info(
+                            f"Auto-configured from server buf_size={buf_size}: "
+                            f"mtu={self.mtu}, max_unencoded_size={self.max_unencoded_size}, "
+                            f"line_length={self._line_length}"
+                        )
+                    case _ as unreachable:
+                        assert_never(unreachable)
+            case BufferSize() | BufferParams():
+                pass
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -726,23 +475,18 @@ class SMPSerialTransport(_SerialTransportBase):
         (Verified against native_sim/QEMU/mps2: a `buf_size - 4` message
         round-trips; `buf_size - 3` is dropped.)
 
-        `BufferParams`, the deprecated 7.1.0 params, and `Auto` before initialization
-        instead bound the message by an *encoded* line-buffer budget: how many
+        `BufferParams`, and `Auto` before initialization, instead bound the message by an *encoded* line-buffer budget: how many
         unencoded bytes survive base64 expansion and per-line framing within `mtu`.
 
         SMP serial framing (the 2-byte length + 2-byte CRC16):
         https://docs.zephyrproject.org/latest/services/device_mgmt/smp_transport.html
         """
-        match self._fragmentation_strategy:
+        match self._sizing:
             case Auto():
-                if self._smp_server_transport_buffer_size is not None:
-                    return self._smp_server_transport_buffer_size - _FRAME_OVERHEAD
                 return self._encoded_budget_max_unencoded_size()
             case BufferSize(buf_size=buf_size):
                 return buf_size - _FRAME_OVERHEAD
             case BufferParams():
-                return self._encoded_budget_max_unencoded_size()
-            case _LegacyParams():
                 return self._encoded_budget_max_unencoded_size()
             case _ as unreachable:
                 assert_never(unreachable)

@@ -1,10 +1,13 @@
 """A bumble-backed `SMPTransport` driving an external HCI controller over GATT."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
+from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
+from typing import TYPE_CHECKING, AsyncIterator, Final, NamedTuple, Protocol, TypeAlias
 from uuid import UUID
 
 try:
@@ -12,7 +15,6 @@ try:
     from bumble.device import Connection, Device, Peer
     from bumble.gatt_client import CharacteristicProxy
     from bumble.hci import Address, HCI_ErrorCode
-    from bumble.keys import KeyStore
     from bumble.pairing import PairingConfig, PairingDelegate
     from bumble.smp import AuthReq
     from bumble.transport import open_transport
@@ -25,15 +27,21 @@ except ModuleNotFoundError as e:
     raise
 
 from smp import header as smphdr
-from typing_extensions import assert_never, override
+from typing_extensions import Self, assert_never, override
 
+from smpclient import _request
 from smpclient.exceptions import SMPClientException
 from smpclient.transport import (
     SMP_CHARACTERISTIC_UUID,
     SMP_SERVICE_UUID,
-    SMPTransport,
+    Auto,
+    GATTFragmentationStrategy,
     SMPTransportDisconnected,
+    _GATTTransport,
 )
+
+if TYPE_CHECKING:
+    from types_bits import u8
 from smpclient.transport.bumble.device import (
     DEFAULT_HCI_TRANSPORT,
     DEFAULT_HOST_ADDRESS,
@@ -122,7 +130,7 @@ class ConnectedBorrowed(NamedTuple):
 _State: TypeAlias = Disconnected | Connecting | Connected | ConnectedBorrowed
 
 
-class SMPBumbleTransport(SMPTransport):
+class SMPBumbleTransport(_GATTTransport):
     """An `SMPTransport` backed by Google's bumble Bluetooth stack."""
 
     def __init__(
@@ -136,6 +144,9 @@ class SMPBumbleTransport(SMPTransport):
         pair_on_connect: PairingDelegate | None = None,
         pair_timeout_s: float = DEFAULT_PAIR_TIMEOUT_S,
         settle_s: float = DEFAULT_POST_PAIR_SETTLE_S,
+        fragmentation_strategy: GATTFragmentationStrategy = Auto(),
+        connect_timeout_s: float = 2.5,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
     ) -> None:
         """Initialize the bumble transport.
 
@@ -160,7 +171,12 @@ class SMPBumbleTransport(SMPTransport):
                 `pair_on_connect` and `pair()`.
             settle_s: Wait between successful pair and proceeding (or
                 disconnecting) so the peer can finalize bonding.
+            fragmentation_strategy: How to size SMP messages.
+            connect_timeout_s: Bounds scanning for a name, and reading the server's
+                MCUmgr parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
         self._hci: Final = hci
         self._host_address: Final = host_address
         self._host_name: Final = host_name
@@ -185,8 +201,15 @@ class SMPBumbleTransport(SMPTransport):
 
         logger.debug(f"Initialized {self.__class__.__name__}(hci={hci!r})")
 
-    @override
-    async def connect(self, address: str, timeout_s: float) -> None:
+    async def connect(self, address: str) -> None:
+        """Connect to `address`, then `negotiate()`; prefer `connected()`.
+
+        Args:
+            address: The peer's BD_ADDR, or an advertised name to scan for.
+
+        Raises:
+            SMPBumbleTransportException: if the transport already has a link.
+        """  # noqa: DOC503
         if not isinstance(self._state, Disconnected):
             raise SMPBumbleTransportException(
                 f"connect() called while in state {type(self._state).__name__}"
@@ -221,7 +244,7 @@ class SMPBumbleTransport(SMPTransport):
                 )
             await self._state.device.power_on()
 
-            target = await _resolve_target(self._state.device, address, timeout_s)
+            target = await _resolve_target(self._state.device, address, self._connect_timeout_s)
             logger.info(f"Connecting to {target}")
             self._state.connection = await self._state.device.connect(Address(target))
             self._state.connection.on(Connection.EVENT_DISCONNECTION, self._on_disconnection)
@@ -263,6 +286,11 @@ class SMPBumbleTransport(SMPTransport):
                 max_write=max_write,
             )
             logger.info(f"Connected to {target}, max_write={max_write}")
+            await self.negotiate()
+        except asyncio.CancelledError:
+            logger.debug("connect() cancelled; tearing down partial state")
+            await self.disconnect()
+            raise
         except Exception:
             logger.exception("connect() failed; tearing down partial state")
             await self.disconnect()
@@ -331,16 +359,16 @@ class SMPBumbleTransport(SMPTransport):
         async with bumble_device(hci=hci) as device:
             return await scan_for_devices(device, timeout_s, mode, service_uuid=service_uuid)
 
-    async def use_connection(
+    async def borrow(
         self,
         connection: Connection,
         *,
         peer: Peer | None = None,
     ) -> None:
-        """Adopt a caller-owned `Connection`; `disconnect()` only unsubscribes."""
+        """Adopt a caller-owned `Connection`, then `negotiate()`; prefer `borrowed()`."""
         if not isinstance(self._state, Disconnected):
             raise SMPBumbleTransportException(
-                f"use_connection() called while in state {type(self._state).__name__}"
+                f"borrow() called while in state {type(self._state).__name__}"
             )
 
         while not self._notifications.empty():
@@ -362,23 +390,30 @@ class SMPBumbleTransport(SMPTransport):
             max_write=max_write,
         )
         logger.info(f"Borrowing connection to {connection.peer_address}, max_write={max_write}")
+        try:
+            await self.negotiate()
+        except (Exception, asyncio.CancelledError):
+            await self.disconnect()
+            raise
 
-    async def bonded_devices(self) -> tuple[str, ...]:
-        """Return the BD_ADDRs of peers currently in the keystore."""
-        return tuple(addr for addr, _keys in await self._standalone_keystore().get_all())
+    @asynccontextmanager
+    async def borrowed(
+        self,
+        connection: Connection,
+        *,
+        peer: Peer | None = None,
+    ) -> AsyncIterator[Self]:
+        """Borrow the caller's `connection` for the duration of the `async with`."""
+        await self.borrow(connection, peer=peer)
+        async with self._released_on_exit():
+            yield self
 
-    async def clear_bond(self, address: str) -> None:
-        """Delete the bond for `address` from the keystore."""
-        await self._standalone_keystore().delete(address)
-        logger.info(f"Cleared bond for {address}")
-
-    async def clear_bonds(self) -> None:
-        """Delete every bond from the keystore."""
-        await self._standalone_keystore().delete_all()
-        logger.info("Cleared all bonds")
-
-    def _standalone_keystore(self) -> KeyStore:
-        return resolve_keystore(self._keystore, namespace=str(self._host_address))
+    @asynccontextmanager
+    async def connected(self, address: str) -> AsyncIterator[Self]:
+        """Connect to `address` for the duration of the `async with`, then disconnect."""
+        await self.connect(address)
+        async with self._released_on_exit():
+            yield self
 
     async def pair(
         self,
@@ -544,7 +579,7 @@ class SMPBumbleTransport(SMPTransport):
     async def _teardown_borrowed(self) -> None:
         assert isinstance(self._state, ConnectedBorrowed)
         try:
-            await self._state.smp_characteristic.unsubscribe()
+            await self._state.smp_characteristic.unsubscribe(self._on_notification)
         except Exception as e:
             logger.warning(f"smp_characteristic.unsubscribe failed: {e}")
         try:
@@ -553,6 +588,34 @@ class SMPBumbleTransport(SMPTransport):
             )
         except Exception as e:
             logger.warning(f"remove_listener(EVENT_DISCONNECTION) failed: {e}")
+
+
+async def bonded_devices(
+    keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
+) -> tuple[str, ...]:
+    """Return the BD_ADDRs of peers in the keystore that `host_address` bonds with."""
+    return tuple(
+        addr
+        for addr, _keys in await resolve_keystore(keystore, namespace=str(host_address)).get_all()
+    )
+
+
+async def clear_bond(
+    address: str,
+    keystore: KeystoreStrategy = Tempfile(),
+    host_address: Address = DEFAULT_HOST_ADDRESS,
+) -> None:
+    """Delete the bond for `address` from the keystore that `host_address` bonds with."""
+    await resolve_keystore(keystore, namespace=str(host_address)).delete(address)
+    logger.info(f"Cleared bond for {address}")
+
+
+async def clear_bonds(
+    keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
+) -> None:
+    """Delete every bond from the keystore that `host_address` bonds with."""
+    await resolve_keystore(keystore, namespace=str(host_address)).delete_all()
+    logger.info("Cleared all bonds")
 
 
 async def _resolve_target(device: Device, address: str, timeout_s: float) -> str:
@@ -625,18 +688,3 @@ def _find_smp_characteristic(peer: Peer) -> CharacteristicProxy[bytes]:
             f"SMP characteristic {SMP_CHARACTERISTIC_UUID} not found on peer"
         )
     return characteristics[0]
-
-
-@asynccontextmanager
-async def borrowed_connection(
-    transport: SMPBumbleTransport,
-    connection: Connection,
-    *,
-    peer: Peer | None = None,
-) -> AsyncIterator[SMPBumbleTransport]:
-    """`async with`-friendly wrapper around `use_connection()` + `disconnect()`."""
-    await transport.use_connection(connection, peer=peer)
-    try:
-        yield transport
-    finally:
-        await transport.disconnect()

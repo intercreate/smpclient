@@ -1,16 +1,24 @@
 """A UDP SMPTransport for Network connections like Wi-Fi or Ethernet."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager
 from socket import AF_INET6
-from typing import Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from smp import header as smphdr
-from typing_extensions import override
+from typing_extensions import Self, assert_never, override
 
+from smpclient import _request
 from smpclient.exceptions import SMPClientException
-from smpclient.transport import SMPTransport
+from smpclient.transport import Auto, BufferSize, _ConnectableTransport
 from smpclient.transport._udp_client import Addr, UDPClient
+
+if TYPE_CHECKING:
+    from types_bits import u8
 
 logger = logging.getLogger(__name__)
 
@@ -36,30 +44,60 @@ Per RFC 8085 section 3.2, applications must subtract IP and UDP header sizes fro
 PMTU to avoid fragmentation."""
 
 
-class SMPUDPTransport(SMPTransport):
-    def __init__(self, mtu: int = 1500) -> None:
+UDPFragmentationStrategy: TypeAlias = Auto | BufferSize
+"""How `SMPUDPTransport` sizes SMP messages."""
+
+
+class SMPUDPTransport(_ConnectableTransport[UDPFragmentationStrategy]):
+    def __init__(
+        self,
+        mtu: int = 1500,
+        *,
+        fragmentation_strategy: UDPFragmentationStrategy = Auto(),
+        connect_timeout_s: float = 2.5,
+        sequence: Callable[[], Iterator[u8]] = _request.wrapping_sequence,
+    ) -> None:
         """Initialize the SMP UDP transport.
 
         Args:
             mtu: The Maximum Transmission Unit (MTU) of the link layer in bytes.
                 IP and UDP header overhead will be subtracted to calculate the maximum
                 UDP payload size (MSS) to avoid fragmentation per RFC 8085 section 3.2.
+            fragmentation_strategy: How to size SMP messages.
+            connect_timeout_s: Bounds connecting, and reading the server's MCUmgr
+                parameters.
+            sequence: The SMP sequence space the MCUmgr parameters read draws from.
         """
-        self._mtu = mtu
+        super().__init__(fragmentation_strategy, connect_timeout_s, sequence)
+        self._mtu: Final = mtu
         self._is_ipv6 = False
 
         self._client: Final = UDPClient()
 
-    @override
-    async def connect(self, address: str, timeout_s: float, port: int = 1337) -> None:
+    async def connect(self, address: str, port: int = 1337) -> None:
+        """Connect to `address`:`port`, then `negotiate()`; prefer `connected()`."""
         logger.debug(f"Connecting to {address=} {port=}")
-        await asyncio.wait_for(self._client.connect(Addr(host=address, port=port)), timeout_s)
+        await asyncio.wait_for(
+            self._client.connect(Addr(host=address, port=port)), self._connect_timeout_s
+        )
 
         if sock := self._client._transport.get_extra_info('socket'):
             self._is_ipv6 = sock.family == AF_INET6
             logger.debug(f"Detected {'IPv6' if self._is_ipv6 else 'IPv4'} connection")
 
         logger.info(f"Connected to {address=} {port=}")
+        try:
+            await self.negotiate()
+        except (Exception, asyncio.CancelledError):
+            await self.disconnect()
+            raise
+
+    @asynccontextmanager
+    async def connected(self, address: str, port: int = 1337) -> AsyncIterator[Self]:
+        """Connect to `address`:`port` for the duration of the `async with`, then disconnect."""
+        await self.connect(address, port)
+        async with self._released_on_exit():
+            yield self
 
     @override
     async def disconnect(self) -> None:
@@ -131,13 +169,35 @@ class SMPUDPTransport(SMPTransport):
     def mtu(self) -> int:
         return self._mtu
 
+    @override
+    async def negotiate(self) -> None:
+        match self._fragmentation_strategy:
+            case Auto():
+                match await self._read_buf_size():
+                    case None:
+                        self._sizing = Auto()
+                    case int() as buf_size:
+                        self._sizing = BufferSize(buf_size)
+                    case _ as unreachable:
+                        assert_never(unreachable)
+            case BufferSize():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+
     @property
     @override
     def max_unencoded_size(self) -> int:
-        """Maximum UDP payload size (MSS) to avoid fragmentation.
+        """Maximum UDP payload size (MSS) to avoid fragmentation, capped at the server's buffer.
 
         Subtracts IPv4/IPv6 and UDP header overhead from MTU per RFC 8085 section 3.2.
         The IP version is auto-detected after connection.
         """
-        overhead = IPV6_UDP_OVERHEAD if self._is_ipv6 else IPV4_UDP_OVERHEAD
-        return self._mtu - overhead
+        mss: Final = self._mtu - (IPV6_UDP_OVERHEAD if self._is_ipv6 else IPV4_UDP_OVERHEAD)
+        match self._sizing:
+            case Auto():
+                return mss
+            case BufferSize(buf_size=buf_size):
+                return min(mss, buf_size)
+            case _ as unreachable:
+                assert_never(unreachable)

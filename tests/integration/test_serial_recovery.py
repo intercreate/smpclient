@@ -33,7 +33,8 @@ from smp.os_management import MCUMgrParametersReadRequest
 from typing_extensions import assert_never
 
 from smpclient import success
-from smpclient.transport.serial import Auto, BufferSize, Cobs, SMPSerialTransport
+from smpclient.transport import Auto
+from smpclient.transport.serial import BufferSize, Cobs, SMPSerialRawTransport, SMPSerialTransport
 from smpclient.transport.serial.encoded import _FRAME_OVERHEAD
 from tests.integration.conftest import (
     RECOVERY_UPLOAD_TIMEOUT_S,
@@ -45,15 +46,14 @@ from tests.integration.conftest import (
 )
 from tests.integration.servers import (
     FIXTURES,
-    QemuSocketSerialRawTransport,
-    QemuSocketSerialTransport,
     ServerFixture,
     SocketSerialEndpoint,
+    socket_link,
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
-_SocketTransport = QemuSocketSerialTransport | QemuSocketSerialRawTransport
+_SocketTransport = SMPSerialTransport | SMPSerialRawTransport
 
 
 class Console(NamedTuple):
@@ -99,14 +99,14 @@ def _fixture(variant: _Recovery) -> tuple[str, str]:
             assert_never(unreachable)
 
 
-def _build_transport(variant: _Recovery, url: str) -> _SocketTransport:
+def _build_transport(variant: _Recovery) -> _SocketTransport:
     match variant:
         case Console(strategy=strategy):
-            return QemuSocketSerialTransport(url, fragmentation_strategy=strategy)
+            return SMPSerialTransport(strategy)
         case Raw():
-            return QemuSocketSerialRawTransport(url)
+            return SMPSerialRawTransport()
         case RawCobs():
-            return QemuSocketSerialRawTransport(url, framing=Cobs())
+            return SMPSerialRawTransport(framing=Cobs())
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -168,10 +168,11 @@ async def test_upload_to_mcuboot_recovery(variant: _Recovery, fixture: ServerFix
 
     async with connected(fixture) as cs:
         assert isinstance(cs.endpoint, SocketSerialEndpoint)
-        transport = _build_transport(variant, cs.endpoint.url)
+        transport = _build_transport(variant)
 
-        async with reboot_into_recovery(cs.client, transport, cs.endpoint.url) as bootloader:
-            await bootloader._initialize()  # negotiate buf_size (a no-op for explicit BufferSize)
+        async with reboot_into_recovery(cs, socket_link(transport, cs.endpoint.url)) as bootloader:
+            # Re-negotiate in case the first read raced the bootloader coming up.
+            await transport.negotiate()
 
             params = await bootloader.request(MCUMgrParametersReadRequest(), timeout_s=2.0)
             assert success(params)

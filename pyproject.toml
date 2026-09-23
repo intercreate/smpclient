@@ -25,7 +25,7 @@ dependencies = [
 "smp @ git+https://github.com/JPHutchins/smp@screaming-goblin",
 "msgspec>=0.21.1",
 "intelhex>=2.3.0",
-# `TypeIs` landed in 4.10; `override`/`assert_never`/`deprecated` are older
+# `TypeIs` landed in 4.10; `override`/`assert_never` are older
 "typing-extensions>=4.10",
 "async-timeout>=5.0.1; python_version < '3.11'",
 ]

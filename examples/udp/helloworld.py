@@ -18,7 +18,8 @@ async def main() -> None:
     parser.add_argument("address", help="The IP address to connect to")
     address = parser.parse_args().address
 
-    async with SMPClient(SMPUDPTransport(), address) as client:
+    async with SMPUDPTransport().connected(address) as transport:
+        client = SMPClient(transport)
         print("OK")
 
         print("Sending request...", end="", flush=True)

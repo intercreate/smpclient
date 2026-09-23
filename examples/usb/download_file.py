@@ -16,7 +16,8 @@ async def main() -> None:
     port = args.port
     file_location = args.file_location
 
-    async with SMPClient(SMPSerialTransport(), port) as client:
+    async with SMPSerialTransport().connected(port) as transport:
+        client = SMPClient(transport)
         start_s = time.time()
         file_data = await client.download_file(file_location)
         end_s = time.time()
