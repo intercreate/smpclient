@@ -6,10 +6,12 @@ import os
 import tempfile
 from contextlib import nullcontext
 from pathlib import Path
-from typing import cast
+from typing import Final, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from bumble.hci import Address
+from bumble.keys import PairingKeys
 
 from smpclient.transport import (
     Auto,
@@ -31,8 +33,15 @@ from smpclient.transport.bumble import (
     SMPBumbleTransportNotSMPServer,
     _DisconnectSentinel,
     _find_smp_characteristic,
+    bonded_devices,
+    clear_bond,
+    clear_bonds,
 )
-from smpclient.transport.bumble.device import DEFAULT_HCI_TRANSPORT, DEFAULT_HOST_NAME
+from smpclient.transport.bumble.device import (
+    DEFAULT_HCI_TRANSPORT,
+    DEFAULT_HOST_ADDRESS,
+    DEFAULT_HOST_NAME,
+)
 from smpclient.transport.bumble.keystore import (
     Custom,
     ExistingCustom,
@@ -412,6 +421,23 @@ def test_keystore_tempfile_rejects_path_separators(bad_name: str) -> None:
 def test_keystore_local_rejects_path_separators() -> None:
     with pytest.raises(InvalidKeystoreFilename):
         resolve(Local("nested/bonds.json"), namespace="aa:bb:cc:dd:ee:ff")
+
+
+@pytest.mark.asyncio
+async def test_bond_functions_manage_the_hosts_bonds(tmp_path: Path) -> None:
+    keystore: Final = Custom(tmp_path / "bonds.json")
+    peers: Final = ("11:11:11:11:11:11", "22:22:22:22:22:22", "33:33:33:33:33:33")
+    for peer in peers:
+        await resolve(keystore, namespace=str(DEFAULT_HOST_ADDRESS)).update(peer, PairingKeys())
+
+    assert await bonded_devices(keystore=keystore) == peers
+    assert await bonded_devices(keystore=keystore, host_address=Address("F0:F1:F2:F3:F4:F5")) == ()
+
+    await clear_bond(peers[1], keystore=keystore)
+    assert await bonded_devices(keystore=keystore) == (peers[0], peers[2])
+
+    await clear_bonds(keystore=keystore)
+    assert await bonded_devices(keystore=keystore) == ()
 
 
 def test_find_smp_characteristic_raises_when_service_missing() -> None:

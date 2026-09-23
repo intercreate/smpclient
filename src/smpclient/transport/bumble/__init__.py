@@ -15,7 +15,6 @@ try:
     from bumble.device import Connection, Device, Peer
     from bumble.gatt_client import CharacteristicProxy
     from bumble.hci import Address, HCI_ErrorCode
-    from bumble.keys import KeyStore
     from bumble.pairing import PairingConfig, PairingDelegate
     from bumble.smp import AuthReq
     from bumble.transport import open_transport
@@ -405,23 +404,6 @@ class SMPBumbleTransport(_GATTTransport):
         finally:
             await self.disconnect()
 
-    async def bonded_devices(self) -> tuple[str, ...]:
-        """Return the BD_ADDRs of peers currently in the keystore."""
-        return tuple(addr for addr, _keys in await self._standalone_keystore().get_all())
-
-    async def clear_bond(self, address: str) -> None:
-        """Delete the bond for `address` from the keystore."""
-        await self._standalone_keystore().delete(address)
-        logger.info(f"Cleared bond for {address}")
-
-    async def clear_bonds(self) -> None:
-        """Delete every bond from the keystore."""
-        await self._standalone_keystore().delete_all()
-        logger.info("Cleared all bonds")
-
-    def _standalone_keystore(self) -> KeyStore:
-        return resolve_keystore(self._keystore, namespace=str(self._host_address))
-
     async def pair(
         self,
         delegate: PairingDelegate,
@@ -595,6 +577,35 @@ class SMPBumbleTransport(_GATTTransport):
             )
         except Exception as e:
             logger.warning(f"remove_listener(EVENT_DISCONNECTION) failed: {e}")
+
+
+async def bonded_devices(
+    *, keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
+) -> tuple[str, ...]:
+    """Return the BD_ADDRs of peers in the keystore that `host_address` bonds with."""
+    return tuple(
+        addr
+        for addr, _keys in await resolve_keystore(keystore, namespace=str(host_address)).get_all()
+    )
+
+
+async def clear_bond(
+    address: str,
+    *,
+    keystore: KeystoreStrategy = Tempfile(),
+    host_address: Address = DEFAULT_HOST_ADDRESS,
+) -> None:
+    """Delete the bond for `address` from the keystore that `host_address` bonds with."""
+    await resolve_keystore(keystore, namespace=str(host_address)).delete(address)
+    logger.info(f"Cleared bond for {address}")
+
+
+async def clear_bonds(
+    *, keystore: KeystoreStrategy = Tempfile(), host_address: Address = DEFAULT_HOST_ADDRESS
+) -> None:
+    """Delete every bond from the keystore that `host_address` bonds with."""
+    await resolve_keystore(keystore, namespace=str(host_address)).delete_all()
+    logger.info("Cleared all bonds")
 
 
 async def _resolve_target(device: Device, address: str, timeout_s: float) -> str:
