@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.10, <4"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -3266,12 +3266,16 @@ wheels = [
 
 [[package]]
 name = "smp"
-version = "4.2.1.dev1+g3cf33bed8"
-source = { git = "https://github.com/JPHutchins/smp?rev=3cf33bed8111f5041c66394fae8df7cf8839bdaf#3cf33bed8111f5041c66394fae8df7cf8839bdaf" }
+version = "4.3.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cbor2" },
     { name = "crcmod" },
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/73/e9/4a8baf1582b5407ba13dab14d5f28718ca4a79fbddea4a54c5da2303743d/smp-4.3.0.tar.gz", hash = "sha256:73ada231a27dd3060a7e5b528a8942ee5b749426e2849c56f9b65e36d79e07e2", size = 427211, upload-time = "2026-11-10T22:04:41.896Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/53/7b118ad8c6fc45cb668dfffb4e0707cf0c25b532e70a1e8f26820f4e9993/smp-4.3.0-py3-none-any.whl", hash = "sha256:3aefc59225999e6267579f9052154e3e9ce401c39567eb6ed50ad62d0a91d51f", size = 36295, upload-time = "2026-11-10T22:04:40.452Z" },
 ]
 
 [[package]]
@@ -3345,7 +3349,7 @@ requires-dist = [
     { name = "platformdirs", marker = "extra == 'bumble'", specifier = ">=4,<5" },
     { name = "pyserial", marker = "extra == 'all'", specifier = ">=3.5" },
     { name = "pyserial", marker = "extra == 'serial'", specifier = ">=3.5" },
-    { name = "smp", git = "https://github.com/JPHutchins/smp?rev=3cf33bed8111f5041c66394fae8df7cf8839bdaf" },
+    { name = "smp", specifier = ">=4.3.0" },
     { name = "zephyr-4-4-0-hci", marker = "extra == 'all'", specifier = ">=0.1.3,<1" },
     { name = "zephyr-4-4-0-hci", marker = "extra == 'hci-firmware'", specifier = ">=0.1.3,<1" },
 ]
@@ -3372,7 +3376,7 @@ doc = [
     { name = "mike", specifier = ">=2.1.3" },
     { name = "mkdocs-material", specifier = ">=9.5.38" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26.1" },
-    { name = "smp", git = "https://github.com/JPHutchins/smp?rev=3cf33bed8111f5041c66394fae8df7cf8839bdaf" },
+    { name = "smp", specifier = ">=4.3.0" },
 ]
 
 [[package]]

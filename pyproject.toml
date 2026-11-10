@@ -21,7 +21,7 @@ classifiers = [
 "Operating System :: MacOS :: MacOS X",
 ]
 dependencies = [
-"smp>=4.1.0",
+"smp>=4.3.0",
 "intelhex>=2.3.0",
 "async-timeout>=5.0.1; python_version < '3.11'",
 ]
@@ -72,11 +72,8 @@ doc = [
 "mkdocs-material>=9.5.38",
 "griffe-inherited-docstrings>=1.0.1",
 "griffe>=1.3.1",
-"smp>=4.1.0",
+"smp>=4.3.0",
 ]
-
-[tool.uv.sources]
-smp = { git = "https://github.com/JPHutchins/smp", rev = "3cf33bed8111f5041c66394fae8df7cf8839bdaf" }
 
 [tool.ruff]
 line-length = 100
