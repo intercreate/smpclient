@@ -20,3 +20,7 @@ class ImageUploadWrite(smpimg.ImageUploadWriteRequest, _ImageGroupBase):
 
 class ImageErase(smpimg.ImageEraseRequest, _ImageGroupBase):
     _Response = smpimg.ImageEraseResponse
+
+
+class ImageSlotInfoRead(smpimg.ImageSlotInfoReadRequest, _ImageGroupBase):
+    _Response = smpimg.ImageSlotInfoReadResponse

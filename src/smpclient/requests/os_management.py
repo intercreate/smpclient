@@ -40,3 +40,7 @@ class OSApplicationInfoRead(smpos.OSApplicationInfoReadRequest, _OSGroupBase):
 
 class BootloaderInformationRead(smpos.BootloaderInformationReadRequest, _OSGroupBase):
     _Response = smpos.BootloaderInformationReadResponse
+
+
+class MCUbootModeRead(smpos.MCUbootModeReadRequest, _OSGroupBase):
+    _Response = smpos.MCUbootModeReadResponse
