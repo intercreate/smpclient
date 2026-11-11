@@ -4,12 +4,14 @@ from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
 import pytest
+from smp import header as smphdr
 from smp import packet as smppacket
 from smp.user import intercreate as smpic
 
 from smpclient.extensions.intercreate import ICUploadClient
 from smpclient.requests.user import intercreate as ic
 from smpclient.transport.serial import SMPSerialTransport
+from tests.test_smp_client import SMPMockTransport
 
 
 @patch('tests.test_smp_client.SMPSerialTransport.mtu', new_callable=PropertyMock)
@@ -70,3 +72,34 @@ async def test_upload_hello_world_bin_encoded(mock_mtu: PropertyMock) -> None:
             next(decoder)
 
     assert reconstructed_image == image
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [smphdr.Version.V1, smphdr.Version.V2])
+async def test_ic_upload_uses_the_requested_smp_version(version: smphdr.Version) -> None:
+    """Every chunk that `ic_upload()` sends carries the requested SMP version."""
+    m = SMPMockTransport()
+    m._mtu = 498
+    m._max_unencoded_size = 498
+    s = ICUploadClient(m, "address", 2.5)
+
+    data = bytes([i % 255 for i in range(4097)])
+    sent: list[bytes] = []
+
+    async def send(frame: bytes) -> None:
+        sent.append(frame)
+
+    async def receive() -> bytes:
+        request = ic.ImageUploadWrite.loads(sent[-1])
+        return smpic.ImageUploadWriteResponse(
+            sequence=request.header.sequence, off=request.off + len(request.data)
+        ).BYTES
+
+    m.send = send  # type: ignore[assignment]
+    m.receive = receive  # type: ignore[assignment]
+
+    async for _ in s.ic_upload(data, version=version):
+        pass
+
+    assert len(sent) > 1, "the data should not fit in a single chunk"
+    assert {smphdr.Header.loads(frame[: smphdr.Header.SIZE]).version for frame in sent} == {version}

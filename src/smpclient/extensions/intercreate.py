@@ -14,10 +14,30 @@ from smpclient.requests.user import intercreate as ic
 class ICUploadClient(SMPClient):
     """Support for Intercreate Group Upload."""
 
-    async def ic_upload(self, data: bytes, image: int = 0) -> AsyncIterator[int]:
-        """Iteratively upload `data` to the SMP server, yielding the offset."""
+    async def ic_upload(
+        self,
+        data: bytes,
+        image: int = 0,
+        version: smpheader.Version = smpheader.Version.V2,
+    ) -> AsyncIterator[int]:
+        """Iteratively upload `data` to the SMP server, yielding the offset.
+
+        Args:
+            data: the `bytes` to upload
+            image: the image to upload to
+            version: the SMP version of the requests sent by this routine.  The
+                default, `Version.V2`, is what current SMP servers expect; pass
+                `Version.V1` for servers that predate SMP version 2.
+
+        Yields:
+            the offset of the upload
+
+        Raises:
+            SMPUploadError: if the upload routine fails
+            Exception: if the response is neither a success nor an error
+        """
         response = await self.request(
-            ic.ImageUploadWrite(off=0, data=b'', image=image, len=len(data))
+            ic.ImageUploadWrite(off=0, data=b'', image=image, len=len(data), version=version)
         )
 
         if error(response):
@@ -30,7 +50,9 @@ class ICUploadClient(SMPClient):
         # send chunks until the SMP server reports that the offset is at the end of the image
         while response.off != len(data):
             response = await self.request(
-                self._ic_maximize_packet(ic.ImageUploadWrite(off=response.off, data=b''), data)
+                self._ic_maximize_packet(
+                    ic.ImageUploadWrite(off=response.off, data=b'', version=version), data
+                )
             )
             if error(response):
                 raise SMPUploadError(response)
@@ -58,6 +80,7 @@ class ICUploadClient(SMPClient):
                 sequence=h.sequence,
                 command_id=h.command_id,
             ),
+            version=h.version,
             off=request.off,
             data=data[request.off : request.off + data_size],
             image=request.image,
