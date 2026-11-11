@@ -55,7 +55,7 @@ source = "vcs"
 dev = [
 "smpclient[all]",
 "hatch>=1.14.1",
-"mypy>=1.7.0",
+"mypy>=2.4,<3",
 "mypy-extensions>=1.0.0",
 "types-pyserial>=3.5.0.11",
 "pydoclint>=0.5.8",
@@ -74,9 +74,6 @@ doc = [
 "griffe>=1.3.1",
 "smp>=4.3.0",
 ]
-
-[tool.uv]
-constraint-dependencies = ["winrt-runtime<4; python_full_version < '3.12'"]
 
 [tool.ruff]
 line-length = 100
