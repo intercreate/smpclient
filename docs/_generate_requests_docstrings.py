@@ -14,7 +14,6 @@ import ast
 import importlib.util
 import inspect
 import os
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -67,7 +66,7 @@ def get_field_docstring(cls: type[BaseModel], field_name: str) -> str:
     return "No docstring found."
 
 
-def format_type(annotation: type[Any] | None) -> str:
+def format_type(annotation: object) -> str:
     """Format the type to show module and class name."""
     if annotation is None:
         raise ValueError("Annotation cannot be None")

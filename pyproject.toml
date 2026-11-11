@@ -75,6 +75,9 @@ doc = [
 "smp>=4.3.0",
 ]
 
+[tool.uv]
+constraint-dependencies = ["winrt-runtime<4; python_full_version < '3.12'"]
+
 [tool.ruff]
 line-length = 100
 extend-exclude = ["dutfirmware", ".claude"]
