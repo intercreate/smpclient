@@ -6,7 +6,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -15,6 +16,9 @@ resolution-markers = [
     "python_full_version < '3.11' and sys_platform == 'android'",
     "python_full_version < '3.11' and sys_platform == 'emscripten'",
 ]
+
+[manifest]
+constraints = [{ name = "winrt-runtime", marker = "python_full_version < '3.12'", specifier = "<4" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -423,24 +427,24 @@ dependencies = [
     { name = "pyobjc-framework-libdispatch", version = "13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'darwin'" },
     { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "typing-extensions", version = "4.16.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "winrt-runtime", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-bluetooth", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-bluetooth", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-bluetooth-advertisement", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-bluetooth-advertisement", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-bluetooth-genericattributeprofile", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-bluetooth-genericattributeprofile", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-enumeration", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-enumeration", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-radios", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-devices-radios", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-foundation", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-foundation", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-foundation-collections", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-foundation-collections", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-storage-streams", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'win32'" },
-    { name = "winrt-windows-storage-streams", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform == 'win32'" },
+    { name = "winrt-runtime", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-bluetooth", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-bluetooth", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-bluetooth-advertisement", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-bluetooth-advertisement", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-bluetooth-genericattributeprofile", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-bluetooth-genericattributeprofile", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-enumeration", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-enumeration", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-radios", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-devices-radios", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-foundation", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-foundation", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-foundation-collections", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-foundation-collections", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-storage-streams", version = "3.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform == 'win32'" },
+    { name = "winrt-windows-storage-streams", version = "4!10.0.28000.2957", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/16/df/05a3f80ca8e3f7f5b0dba68a9e618147c909ccdba1468f07487dc8d72a9d/bleak-3.0.2.tar.gz", hash = "sha256:c2229cb8238d5876b4bd05c74bf7a1aea1f88da39d2e51ac9dfd5cc319d5265f", size = 125293, upload-time = "2026-05-02T23:01:04.066Z" }
 wheels = [
@@ -2674,7 +2678,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -2821,7 +2826,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -3681,7 +3687,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -4034,7 +4041,7 @@ name = "tomli"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
@@ -4174,7 +4181,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -4211,7 +4219,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -4356,7 +4365,8 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'android'",
     "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -4490,10 +4500,12 @@ name = "winrt-runtime"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.11.*'" },
+    { name = "typing-extensions", version = "4.16.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/16/dd/acdd527c1d890c8f852cc2af644aa6c160974e66631289420aa871b05e65/winrt_runtime-3.2.1.tar.gz", hash = "sha256:c8dca19e12b234ae6c3dadf1a4d0761b51e708457492c13beb666556958801ea", size = 21721, upload-time = "2025-06-06T14:40:27.593Z" }
 wheels = [
@@ -4520,7 +4532,7 @@ version = "4.1.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "typing-extensions", version = "4.16.0", source = { registry = "https://pypi.org/simple" } },
@@ -4555,6 +4567,7 @@ name = "winrt-windows-devices-bluetooth"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4585,7 +4598,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -4603,6 +4616,7 @@ name = "winrt-windows-devices-bluetooth-advertisement"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4633,7 +4647,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -4651,6 +4665,7 @@ name = "winrt-windows-devices-bluetooth-genericattributeprofile"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4681,7 +4696,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -4699,6 +4714,7 @@ name = "winrt-windows-devices-enumeration"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4729,7 +4745,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -4747,6 +4763,7 @@ name = "winrt-windows-devices-radios"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4777,7 +4794,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -4794,6 +4811,7 @@ name = "winrt-windows-foundation"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4824,7 +4842,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -4840,6 +4858,7 @@ name = "winrt-windows-foundation-collections"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4870,7 +4889,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
@@ -4886,6 +4905,7 @@ name = "winrt-windows-storage-streams"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -4916,7 +4936,7 @@ version = "4!10.0.28000.2957"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
 ]
 dependencies = [
     { name = "winrt-runtime", version = "4.1.0", source = { registry = "https://pypi.org/simple" } },
